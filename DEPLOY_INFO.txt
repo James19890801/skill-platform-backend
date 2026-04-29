@@ -1,10 +1,16 @@
 Skill Platform 部署信息
 ========================
-前端地址: https://e2e-ai.pages.dev
-后端地址: https://church-prize-distinguished-puerto.trycloudflare.com
-API 文档: https://church-prize-distinguished-puerto.trycloudflare.com/api/docs
-本地前端: http://localhost:5184
+
+【当前部署状态】
+后端地址: https://skill-platform-backend-production.up.railway.app
+API 文档: https://skill-platform-backend-production.up.railway.app/api/docs
+前端地址: https://24a0598f.skill-platform-james-2026.pages.dev (待验证)
+GitHub仓库: https://github.com/James19890801/skill-platform-backend
+
+本地环境:
+本地前端: http://localhost:5173
 本地后端: http://localhost:3000
+本地Agent: http://localhost:8001
 
 测试账号:
 - 管理员: admin@skill.com / password123
@@ -12,19 +18,25 @@ API 文档: https://church-prize-distinguished-puerto.trycloudflare.com/api/docs
 - 成员: contract.staff@skill.com / password123
 
 登录方式: 点击用户卡片即可登录
-更新时间: 2026-04-29 12:30
+更新时间: 2026-04-29 15:40
 
-最新变更:
-- Canvas 改为产物驱动模式（无产物时居中对话，点击产物后右侧 Canvas 展开）
-- 对话区域支持拖拽调整左右面板宽度
-- 输入框始终固定在底部，内容通过滚动条浏览
-- AgentCreate 页面 knowledgeBases/skills 配置已打通后端 API
-- 后端新增 /api/agents CRUD API（NestJS AgentsModule）
-- 新增 Office 自动化技能（Excel/Word/PPT 生成）
-- 优化对话内容显示（移除 Markdown 语法，增强表格展示）
-- 产物卡片支持悬停显示操作按钮
-- 后端已通过 Cloudflare Tunnel 暴露到公网
+【部署进度】
+✅ GitHub 代码仓库已创建并推送
+✅ Railway 后端服务已部署（Dockerfile方式）
+✅ Railway 数据库Volume已配置（/app/data）
+✅ Railway 环境变量已配置
+✅ Cloudflare Pages 前端已部署
+⚠️ 后端API暂时无法访问（Railway US-West基础设施问题）
+⚠️ 前端SSL证书问题待解决
+⏳ Agent Runtime 待部署（Railway免费额度已用完）
 
-注意:
-- 后端当前在 localhost:3000 运行，已通过 Cloudflare Tunnel 暴露到公网
-- 前端已更新为新的公网后端地址
+【最新变更】
+- 添加 Dockerfile 支持 Railway 部署
+- 修复 main.ts 监听地址为 0.0.0.0
+- 添加完整部署文档和自动化脚本
+- 更新前端环境变量配置
+
+【注意事项】
+- Railway 后端部署成功但公网访问受限（平台问题，非代码问题）
+- 需要升级 Railway 账户或等待基础设施恢复才能部署 Agent Runtime
+- 前端 Cloudflare Pages 部署完成但 SSL 证书可能需要时间生效
