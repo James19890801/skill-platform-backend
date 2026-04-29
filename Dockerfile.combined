@@ -1,0 +1,78 @@
+# 组合部署：后端 + Agent Runtime
+FROM node:20-alpine AS backend-builder
+
+# 安装编译依赖
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app/backend
+
+# 复制后端 package.json
+COPY backend/package*.json ./
+
+# 安装后端依赖
+RUN npm ci
+
+# 复制后端源代码
+COPY backend/ .
+
+# 构建后端
+RUN npm run build
+
+# Python Agent Runtime 阶段
+FROM python:3.11-slim AS agent-runtime
+
+WORKDIR /app/agent-runtime
+
+# 复制 Agent Runtime 依赖
+COPY agent-runtime/requirements.txt ./
+
+# 安装 Python 依赖
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 复制 Agent Runtime 源代码
+COPY agent-runtime/ .
+
+# 最终阶段
+FROM node:20-slim
+
+# 安装 Python 和 supervisor
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 复制后端构建产物
+COPY --from=backend-builder /app/backend/dist ./backend/dist
+COPY --from=backend-builder /app/backend/package*.json ./backend/
+
+# 安装后端生产依赖
+RUN cd backend && npm ci --only=production
+
+# 复制 Agent Runtime
+COPY --from=agent-runtime /app/agent-runtime ./agent-runtime
+
+# 复制 Python 依赖（从 agent-runtime 阶段）
+COPY --from=agent-runtime /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=agent-runtime /usr/local/bin /usr/local/bin
+
+# 创建数据目录
+RUN mkdir -p /app/data
+
+# 配置 supervisor
+RUN echo '[supervisord]\nnodaemon=true\n\n[program:backend]\ncommand=node /app/backend/dist/main.js\ndirectory=/app/backend\nautostart=true\nautorestart=true\nstdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\nstderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0\n\n[program:agent-runtime]\ncommand=python3 -m uvicorn main:app --host 0.0.0.0 --port 8001 --app-dir /app/agent-runtime/src\ndirectory=/app/agent-runtime\nautostart=true\nautorestart=true\nstdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\nstderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0' > /etc/supervisor/conf.d/supervisord.conf
+
+# 暴露端口
+EXPOSE 3000 8001
+
+# 设置环境变量
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV DATABASE_PATH=/app/data/database.sqlite
+ENV AGENT_RUNTIME_PORT=8001
+ENV AGENT_RUNTIME_HOST=0.0.0.0
+
+# 启动 supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
