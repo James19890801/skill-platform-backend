@@ -17,7 +17,7 @@ import type {
 
 // Axios 实例
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api',
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
