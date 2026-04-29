@@ -1,0 +1,26 @@
+# Office 文档自动化 Skill
+# 用于生成 Excel、Word、PowerPoint 等 Office 文档
+
+name: office-automation
+version: 1.0.0
+author: Flow Agent Platform
+description: 生成 Excel 报表、Word 文档、PowerPoint 演示文稿等 Office 文档的自动化工具
+
+tags:
+  - office
+  - excel
+  - word
+  - powerpoint
+  - 文档生成
+  - 自动化
+
+dependencies:
+  - python: >=3.10
+
+config:
+  default_language: zh-CN
+  supported_formats:
+    - xlsx
+    - docx
+    - pptx
+    - csv

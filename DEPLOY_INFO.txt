@@ -1,0 +1,30 @@
+Skill Platform 部署信息
+========================
+前端地址: https://e2e-ai.pages.dev
+后端地址: https://church-prize-distinguished-puerto.trycloudflare.com
+API 文档: https://church-prize-distinguished-puerto.trycloudflare.com/api/docs
+本地前端: http://localhost:5184
+本地后端: http://localhost:3000
+
+测试账号:
+- 管理员: admin@skill.com / password123
+- 经理: legal.manager@skill.com / password123
+- 成员: contract.staff@skill.com / password123
+
+登录方式: 点击用户卡片即可登录
+更新时间: 2026-04-29 12:30
+
+最新变更:
+- Canvas 改为产物驱动模式（无产物时居中对话，点击产物后右侧 Canvas 展开）
+- 对话区域支持拖拽调整左右面板宽度
+- 输入框始终固定在底部，内容通过滚动条浏览
+- AgentCreate 页面 knowledgeBases/skills 配置已打通后端 API
+- 后端新增 /api/agents CRUD API（NestJS AgentsModule）
+- 新增 Office 自动化技能（Excel/Word/PPT 生成）
+- 优化对话内容显示（移除 Markdown 语法，增强表格展示）
+- 产物卡片支持悬停显示操作按钮
+- 后端已通过 Cloudflare Tunnel 暴露到公网
+
+注意:
+- 后端当前在 localhost:3000 运行，已通过 Cloudflare Tunnel 暴露到公网
+- 前端已更新为新的公网后端地址

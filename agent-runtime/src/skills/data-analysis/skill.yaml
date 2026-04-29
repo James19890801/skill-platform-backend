@@ -1,0 +1,23 @@
+# 数据分析 Skill
+# 用于对业务数据进行深度分析和可视化
+
+name: data-analysis
+version: 1.0.0
+author: Flow Agent Platform
+description: 对业务数据进行深度分析，支持 Pareto 分析、趋势分析、对比分析等
+
+tags:
+  - 数据分析
+  - 可视化
+  - 业务洞察
+
+dependencies:
+  - python: >=3.10
+
+config:
+  default_language: zh-CN
+  chart_types:
+    - bar
+    - line
+    - pie
+    - scatter

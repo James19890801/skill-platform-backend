@@ -1,0 +1,22 @@
+# 文档生成 Skill
+# 用于根据模板和输入数据生成各类业务文档
+
+name: document-generation
+version: 1.0.0
+author: Flow Agent Platform
+description: 根据模板和输入数据自动生成各类业务文档，支持流程文档、报告、方案等
+
+tags:
+  - 文档处理
+  - 模板生成
+  - 自动化
+
+dependencies:
+  - python: >=3.10
+
+config:
+  default_language: zh-CN
+  supported_formats:
+    - docx
+    - pdf
+    - md

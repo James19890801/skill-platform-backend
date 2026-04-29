@@ -1,0 +1,19 @@
+# 流程分析 Skill
+# 用于分析业务流程并提取关键节点
+
+name: process-analysis
+version: 1.0.0
+author: Flow Agent Platform
+description: 业务流程分析技能，能够解析流程文件、识别关键节点、分析风险点
+
+tags:
+  - 流程管理
+  - 业务分析
+  - SOP
+
+dependencies:
+  - python: >=3.10
+
+config:
+  default_language: zh-CN
+  output_format: json

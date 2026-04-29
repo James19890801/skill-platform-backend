@@ -1,0 +1,59 @@
+services:
+  # NestJS 后端 - 业务逻辑层
+  backend:
+    build:
+      context: ./backend
+    container_name: skill-platform-backend
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_PATH: /app/data/database.sqlite
+      JWT_SECRET: ${JWT_SECRET:-skill-platform-demo-secret}
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+      AGENT_RUNTIME_URL: ${AGENT_RUNTIME_URL:-http://agent-runtime:8001}
+    volumes:
+      - skill_platform_data:/app/data
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    depends_on:
+      - agent-runtime
+
+  # Python Agent Runtime - Deep Agent 运行时内核
+  agent-runtime:
+    build:
+      context: ./agent-runtime
+    container_name: skill-platform-agent-runtime
+    environment:
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-qwen-plus}
+      AGENT_RUNTIME_PORT: 8001
+      AGENT_RUNTIME_HOST: 0.0.0.0
+      DATABASE_URL: sqlite+aiosqlite:///./agent_runtime.db
+    volumes:
+      - agent_skills:/app/src/skills
+      - agent_data:/app/data
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+  # React 前端
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
+        VITE_AGENT_RUNTIME_URL: ${VITE_AGENT_RUNTIME_URL:-http://localhost:8001}
+    container_name: skill-platform-frontend
+    depends_on:
+      - backend
+      - agent-runtime
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  skill_platform_data:
+  agent_skills:
+  agent_data:

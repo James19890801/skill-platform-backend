@@ -1,0 +1,33 @@
+{
+  "name": "skill-platform-frontend",
+  "version": "1.0.0",
+  "description": "Skill Platform Frontend with React + Vite + Ant Design",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+  },
+  "dependencies": {
+    "@ant-design/charts": "^2.0.3",
+    "@ant-design/icons": "^5.2.6",
+    "@rollup/rollup-darwin-arm64": "^4.60.1",
+    "@tanstack/react-query": "^5.17.9",
+    "antd": "^5.13.2",
+    "axios": "^1.6.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.21.2",
+    "rollup": "^4.60.1",
+    "zustand": "^4.4.7"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "@vitejs/plugin-react": "^4.2.1",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.11"
+  }
+}
