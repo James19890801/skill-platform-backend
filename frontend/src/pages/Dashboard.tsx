@@ -90,8 +90,6 @@ const Dashboard: React.FC = () => {
     totalSkills: number;
     publishedSkills: number;
     pendingReviews: number;
-    totalOrgs: number;
-    totalModels: number;
     skillsByDomain: Record<string, number>;
   } | null>(null);
 
@@ -110,8 +108,6 @@ const Dashboard: React.FC = () => {
           totalSkills: 0,
           publishedSkills: 0,
           pendingReviews: 0,
-          totalOrgs: 0,
-          totalModels: 0,
           skillsByDomain: {},
         });
       } finally {
@@ -123,10 +119,10 @@ const Dashboard: React.FC = () => {
 
   // 顶部指标数据（使用真实数据）
   const statsData = dashboardData ? [
-    { title: '业务流程数', value: dashboardData.totalOrgs, icon: <ApartmentOutlined />, color: '#2563eb', trend: '+3', trendText: '本月' },
     { title: 'Skill 总量', value: dashboardData.totalSkills, icon: <FileTextOutlined />, color: '#10b981', trend: '+8', trendText: '本月' },
-    { title: 'Skill 覆盖率', value: dashboardData.publishedSkills > 0 ? Math.round((dashboardData.publishedSkills / dashboardData.totalSkills) * 100) || 0 : 0, suffix: '%', icon: <PieChartOutlined />, color: '#f59e0b', trend: '↑5%', trendText: '' },
+    { title: '已发布', value: dashboardData.publishedSkills, icon: <PieChartOutlined />, color: '#f59e0b', trend: '↑5%', trendText: '' },
     { title: '待审核', value: dashboardData.pendingReviews, icon: <WarningOutlined />, color: '#ef4444', trend: '-4', trendText: '本月', trendDown: true },
+    { title: '领域数', value: Object.keys(dashboardData.skillsByDomain).length, icon: <ApartmentOutlined />, color: '#2563eb', trend: '+3', trendText: '本月' },
   ] : [];
 
   // 流程覆盖数据
@@ -304,7 +300,7 @@ const Dashboard: React.FC = () => {
               <Statistic
                 title={<span style={{ color: '#64748b', fontSize: 14 }}>{stat.title}</span>}
                 value={stat.value}
-                suffix={stat.suffix}
+                suffix={(stat as any).suffix}
                 prefix={React.cloneElement(stat.icon, { style: { color: stat.color, marginRight: 8 } })}
                 valueStyle={{ color: '#1e293b', fontWeight: 'bold' }}
               />

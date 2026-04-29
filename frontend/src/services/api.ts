@@ -2,14 +2,9 @@ import axios from 'axios';
 import { useAuthStore } from '../stores/useAuthStore';
 import type {
   ISkill,
-  IOrganization,
-  IJobModel,
-  ISkillReview,
   IUser,
-  ITenant,
   PaginatedResponse,
   SkillListParams,
-  ReviewListParams,
   SearchParams,
   LoginRequest,
   LoginResponse,
@@ -108,87 +103,6 @@ export const skillsApi = {
 };
 
 // ============================================
-// Organizations API
-// ============================================
-export const orgsApi = {
-  getTree: (): Promise<IOrganization[]> =>
-    apiClient.get('/orgs/tree'),
-  
-  list: (): Promise<IOrganization[]> =>
-    apiClient.get('/orgs'),
-  
-  getById: (id: number): Promise<IOrganization> =>
-    apiClient.get(`/orgs/${id}`),
-  
-  create: (data: Partial<IOrganization>): Promise<IOrganization> =>
-    apiClient.post('/orgs', data),
-  
-  update: (id: number, data: Partial<IOrganization>): Promise<IOrganization> =>
-    apiClient.put(`/orgs/${id}`, data),
-  
-  delete: (id: number): Promise<void> =>
-    apiClient.delete(`/orgs/${id}`),
-  
-  getMembers: (id: number): Promise<IUser[]> =>
-    apiClient.get(`/orgs/${id}/members`),
-  
-  getSkills: (id: number): Promise<ISkill[]> =>
-    apiClient.get(`/orgs/${id}/skills`),
-};
-
-// ============================================
-// Job Models API
-// ============================================
-export const modelsApi = {
-  list: (orgId?: number): Promise<IJobModel[]> =>
-    apiClient.get('/models', { params: { orgId } }),
-  
-  getById: (id: number): Promise<IJobModel> =>
-    apiClient.get(`/models/${id}`),
-  
-  create: (data: Partial<IJobModel>): Promise<IJobModel> =>
-    apiClient.post('/models', data),
-  
-  update: (id: number, data: Partial<IJobModel>): Promise<IJobModel> =>
-    apiClient.put(`/models/${id}`, data),
-  
-  delete: (id: number): Promise<void> =>
-    apiClient.delete(`/models/${id}`),
-  
-  bindSkill: (modelId: number, skillId: number, data: unknown): Promise<unknown> =>
-    apiClient.post(`/models/${modelId}/skills/${skillId}`, data),
-  
-  unbindSkill: (modelId: number, skillId: number): Promise<void> =>
-    apiClient.delete(`/models/${modelId}/skills/${skillId}`),
-  
-  getSkills: (id: number): Promise<unknown[]> =>
-    apiClient.get(`/models/${id}/skills`),
-};
-
-// ============================================
-// Reviews API
-// ============================================
-export const reviewsApi = {
-  list: (params?: ReviewListParams): Promise<PaginatedResponse<ISkillReview>> =>
-    apiClient.get('/reviews', { params }),
-  
-  getById: (id: number): Promise<ISkillReview> =>
-    apiClient.get(`/reviews/${id}`),
-  
-  approve: (id: number, comment?: string): Promise<ISkillReview> =>
-    apiClient.post(`/reviews/${id}/approve`, { comment }),
-  
-  reject: (id: number, comment: string): Promise<ISkillReview> =>
-    apiClient.post(`/reviews/${id}/reject`, { comment }),
-  
-  getPending: (): Promise<ISkillReview[]> =>
-    apiClient.get('/reviews/pending'),
-  
-  getMyReviews: (): Promise<ISkillReview[]> =>
-    apiClient.get('/reviews/my'),
-};
-
-// ============================================
 // Search API
 // ============================================
 export const searchApi = {
@@ -233,124 +147,6 @@ export const dashboardApi = {
     skillsByDomain: Record<string, number>;
     skillsByScope: Record<string, number>;
   }> => apiClient.get('/dashboard/stats'),
-};
-
-// ============================================
-// Tenants API (租户管理)
-// ============================================
-export const tenantsApi = {
-  list: (): Promise<ITenant[]> =>
-    apiClient.get('/tenants'),
-  
-  getById: (id: number): Promise<ITenant> =>
-    apiClient.get(`/tenants/${id}`),
-  
-  create: (data: Partial<ITenant>): Promise<ITenant> =>
-    apiClient.post('/tenants', data),
-  
-  update: (id: number, data: Partial<ITenant>): Promise<ITenant> =>
-    apiClient.put(`/tenants/${id}`, data),
-  
-  delete: (id: number): Promise<void> =>
-    apiClient.delete(`/tenants/${id}`),
-  
-  // 钉钉集成
-  updateDingtalkConfig: (id: number, config: { appKey: string; appSecret: string; corpId: string }): Promise<ITenant> =>
-    apiClient.put(`/tenants/${id}`, { 
-      dingtalkAppKey: config.appKey, 
-      dingtalkAppSecret: config.appSecret, 
-      dingtalkCorpId: config.corpId 
-    }),
-  
-  // 同步组织架构
-  syncOrgFromDingtalk: (id: number): Promise<void> =>
-    apiClient.post(`/tenants/${id}/sync-dingtalk`),
-};
-
-// ============================================
-// Architecture API (架构树)
-// ============================================
-export interface IArchTreeResponse {
-  id: number;
-  name: string;
-  currentVersion: string;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface IArchNodeResponse {
-  id: number;
-  treeId: number;
-  name: string;
-  level: number;
-  parentId: number | null;
-  sortOrder: number;
-  description?: string;
-  skillCoverage: number;
-  totalSkills: number;
-  coveredSkills: number;
-  createdAt: string;
-  updatedAt: string;
-  children?: IArchNodeResponse[];
-  files?: IArchFileResponse[];
-}
-
-export interface IArchFileResponse {
-  id: number;
-  nodeId: number;
-  name: string;
-  type: string;
-  content?: string;
-  size?: number;
-  uploadedAt: string;
-}
-
-export const archApi = {
-  // 树管理
-  getTrees: (): Promise<IArchTreeResponse[]> =>
-    apiClient.get('/architecture/trees'),
-  
-  getActiveTree: (): Promise<IArchTreeResponse | null> =>
-    apiClient.get('/architecture/trees/active'),
-  
-  createTree: (data: { name: string; currentVersion?: string }): Promise<IArchTreeResponse> =>
-    apiClient.post('/architecture/trees', data),
-  
-  updateTree: (id: number, data: Partial<{ name: string; currentVersion: string; isActive: boolean }>): Promise<IArchTreeResponse> =>
-    apiClient.put(`/architecture/trees/${id}`, data),
-  
-  deleteTree: (id: number): Promise<void> =>
-    apiClient.delete(`/architecture/trees/${id}`),
-  
-  activateTree: (id: number): Promise<IArchTreeResponse> =>
-    apiClient.put(`/architecture/trees/${id}/activate`),
-  
-  saveVersion: (id: number, data: { version: string; label?: string }): Promise<IArchTreeResponse> =>
-    apiClient.post(`/architecture/trees/${id}/version`, data),
-  
-  // 节点管理
-  getNodeTree: (treeId: number): Promise<IArchNodeResponse[]> =>
-    apiClient.get('/architecture/nodes/tree', { params: { treeId } }),
-  
-  getLeafNodes: (treeId: number): Promise<IArchNodeResponse[]> =>
-    apiClient.get('/architecture/nodes/leaves', { params: { treeId } }),
-  
-  createNode: (data: { treeId: number; name: string; level: number; parentId?: number | null; description?: string; sortOrder?: number }): Promise<IArchNodeResponse> =>
-    apiClient.post('/architecture/nodes', data),
-  
-  updateNode: (id: number, data: Partial<{ name: string; description: string; sortOrder: number; skillCoverage: number; totalSkills: number; coveredSkills: number }>): Promise<IArchNodeResponse> =>
-    apiClient.put(`/architecture/nodes/${id}`, data),
-  
-  deleteNode: (id: number): Promise<void> =>
-    apiClient.delete(`/architecture/nodes/${id}`),
-  
-  // 文件管理
-  createFile: (data: { nodeId: number; name: string; type: string; content?: string; size?: number }): Promise<IArchFileResponse> =>
-    apiClient.post('/architecture/files', data),
-  
-  deleteFile: (id: number): Promise<void> =>
-    apiClient.delete(`/architecture/files/${id}`),
 };
 
 // ============================================
@@ -451,6 +247,31 @@ export const aiApi = {
 // ============================================
 // Knowledge Bases API
 // ============================================
+export interface KnowledgeBase {
+  id: number;
+  name: string;
+  description?: string;
+  source: 'bailian' | 'local' | 'web' | 'file';
+  status: 'connected' | 'syncing' | 'error';
+  documentCount: number;
+  user?: IUser;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateKnowledgeBaseRequest {
+  name: string;
+  description?: string;
+  source?: string;
+}
+
+export interface UpdateKnowledgeBaseRequest {
+  name?: string;
+  description?: string;
+  source?: string;
+  status?: string;
+}
+
 export const knowledgeApi = {
   list: (): Promise<KnowledgeBase[]> =>
     apiClient.get('/knowledge-bases'),
