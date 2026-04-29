@@ -1,0 +1,42 @@
+{
+  "name": "skill-platform-backend",
+  "version": "1.0.0",
+  "description": "Skill Platform Backend API with NestJS",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "start:dev": "ts-node -r tsconfig-paths/register src/main.ts",
+    "start:watch": "nodemon --exec ts-node -r tsconfig-paths/register src/main.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.3.0",
+    "@nestjs/config": "^4.0.3",
+    "@nestjs/core": "^10.3.0",
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/passport": "^10.0.3",
+    "@nestjs/platform-express": "^10.3.0",
+    "@nestjs/swagger": "^7.2.0",
+    "@nestjs/typeorm": "^10.0.1",
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.8.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "openai": "^4.24.0",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "reflect-metadata": "^0.2.1",
+    "rxjs": "^7.8.1",
+    "typeorm": "^0.3.20"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.11.0",
+    "@types/passport-jwt": "^4.0.1",
+    "nodemon": "^3.0.3",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.3.3"
+  }
+}
