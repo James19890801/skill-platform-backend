@@ -279,4 +279,59 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
 
     return normalized;
   }
+
+  /**
+   * AI 对话流式输出
+   * 支持传递 agent 系统提示词和 skills 上下文
+   */
+  async chatStream(
+    message: string,
+    onChunk: ((chunk: string) => void) | null,
+    model?: string,
+    agentId?: number,
+    skills?: string[],
+  ): Promise<string> {
+    const systemPrompt = agentId
+      ? `你是一个智能助手，根据用户的 Agent 配置回答用户的问题。`
+      : `你是一个智能流程自动化助手，具备规划、分析和执行能力。`;
+
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: message },
+    ];
+
+    const modelName = model || this.model;
+    let fullContent = '';
+
+    if (onChunk) {
+      // 流式输出
+      const stream = await this.client.chat.completions.create({
+        model: modelName,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096,
+        stream: true,
+      } as any);
+
+      for await (const chunk of stream as any) {
+        const delta = chunk?.choices?.[0]?.delta?.content;
+        if (delta) {
+          fullContent += delta;
+          onChunk(delta);
+        }
+      }
+    } else {
+      // 非流式输出
+      const completion = await this.client.chat.completions.create({
+        model: modelName,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096,
+      });
+
+      fullContent = completion.choices[0]?.message?.content || '';
+    }
+
+    return fullContent;
+  }
 }

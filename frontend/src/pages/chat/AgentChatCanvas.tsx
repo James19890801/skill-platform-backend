@@ -341,7 +341,8 @@ const AgentChatCanvas: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8001/v2/chat', {
+      const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
+      const response = await fetch(`${API_BASE}/ai/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
