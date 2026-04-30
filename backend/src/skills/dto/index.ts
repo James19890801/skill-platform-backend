@@ -59,6 +59,26 @@ export class UpdateSkillDto {
   @IsOptional()
   description?: string;
 
+  @ApiPropertyOptional({ description: '领域' })
+  @IsString()
+  @IsOptional()
+  domain?: string;
+
+  @ApiPropertyOptional({ description: '子领域' })
+  @IsString()
+  @IsOptional()
+  subDomain?: string;
+
+  @ApiPropertyOptional({ description: '能力名称' })
+  @IsString()
+  @IsOptional()
+  abilityName?: string;
+
+  @ApiPropertyOptional({ description: '命名空间' })
+  @IsString()
+  @IsOptional()
+  namespace?: string;
+
   @ApiPropertyOptional({ description: '范围' })
   @IsString()
   @IsOptional()
@@ -73,6 +93,56 @@ export class UpdateSkillDto {
   @IsString()
   @IsOptional()
   sopSource?: string;
+
+  @ApiPropertyOptional({ description: '执行类型' })
+  @IsString()
+  @IsOptional()
+  executionType?: string;
+
+  @ApiPropertyOptional({ description: 'API端点' })
+  @IsString()
+  @IsOptional()
+  endpoint?: string;
+
+  @ApiPropertyOptional({ description: 'HTTP方法' })
+  @IsString()
+  @IsOptional()
+  httpMethod?: string;
+
+  @ApiPropertyOptional({ description: 'Agent Prompt' })
+  @IsString()
+  @IsOptional()
+  agentPrompt?: string;
+
+  @ApiPropertyOptional({ description: '工具定义（JSON）' })
+  @IsString()
+  @IsOptional()
+  toolDefinition?: string;
+
+  @ApiPropertyOptional({ description: '认证配置（JSON）' })
+  @IsString()
+  @IsOptional()
+  authConfig?: string;
+
+  @ApiPropertyOptional({ description: '请求模板（JSON）' })
+  @IsString()
+  @IsOptional()
+  requestTemplate?: string;
+
+  @ApiPropertyOptional({ description: '响应映射（JSON）' })
+  @IsString()
+  @IsOptional()
+  responseMapping?: string;
+
+  @ApiPropertyOptional({ description: '自定义请求头（JSON）' })
+  @IsString()
+  @IsOptional()
+  headers?: string;
+
+  @ApiPropertyOptional({ description: '错误处理策略（JSON）' })
+  @IsString()
+  @IsOptional()
+  errorHandling?: string;
 }
 
 export class CreateSkillVersionDto {
