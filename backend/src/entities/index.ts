@@ -19,3 +19,5 @@ export { ProcessDocument } from './process-document.entity';
 export { Agent } from './agent.entity';
 // Knowledge entities
 export { KnowledgeBase } from './knowledge-base.entity';
+// Memory entities
+export { Memory } from './memory.entity';

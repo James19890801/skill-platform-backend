@@ -263,4 +263,31 @@ export const agentsApi = {
     apiClient.delete(`/agents/${id}`),
 };
 
+// ============================================
+// Memory API
+// ============================================
+export interface MemoryDTO {
+  id: number;
+  agentId: number;
+  key: string;
+  value: string;
+  category: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const memoriesApi = {
+  list: (agentId?: number): Promise<MemoryDTO[]> =>
+    apiClient.get('/memories', { params: agentId ? { agentId } : {} }),
+
+  create: (data: { agentId: number; key: string; value: string; category?: string }): Promise<MemoryDTO> =>
+    apiClient.post('/memories', data),
+
+  update: (id: number, data: { key?: string; value?: string; category?: string }): Promise<MemoryDTO> =>
+    apiClient.put(`/memories/${id}`, data),
+
+  delete: (id: number): Promise<void> =>
+    apiClient.delete(`/memories/${id}`),
+};
+
 export default apiClient;

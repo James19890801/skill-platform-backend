@@ -19,6 +19,7 @@ import { AiModule } from './ai/ai.module';
 import { TenantModule } from './tenant/tenant.module';
 import { AgentsModule } from './agents/agents.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
+import { MemoryModule } from './memory/memory.module';
 import {
   Tenant,
   Organization,
@@ -37,6 +38,7 @@ import {
   ProcessDocument,
   Agent,
   KnowledgeBase,
+  Memory,
 } from './entities';
 
 const configuredDatabasePath = process.env.DATABASE_PATH?.trim() || 'database.sqlite';
@@ -78,6 +80,8 @@ if (!existsSync(databaseDir)) {
         BusinessProcess,
         ProcessDocument,
         Agent,
+        KnowledgeBase,
+        Memory,
       ],
     }),
     AuthModule,
@@ -95,6 +99,7 @@ if (!existsSync(databaseDir)) {
     TenantModule,
     AgentsModule,
     KnowledgeModule,
+    MemoryModule,
   ],
   controllers: [AppController],
   providers: [],
