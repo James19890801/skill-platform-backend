@@ -463,11 +463,10 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
    * 支持表格、标题、段落等基本格式
    */
   async generateDocx(content: string, format: 'docx' | 'xlsx' = 'docx'): Promise<Buffer> {
-    // 清洗内容：去除 HTML 标签、清理 markdown 乱码
+    // 清洗内容：去除 HTML 标签、清理 markdown 乱码（保留 | 管道符，表格需要它们）
     const cleaned = content
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/?[a-zA-Z][^>]*>/g, '')
-      .replace(/\|+/g, '')
       .replace(/\*\*(.*?)\*\*/g, '$1')
       .replace(/\*(.*?)\*/g, '$1')
       .replace(/`([^`]+)`/g, '$1')
@@ -605,21 +604,23 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
 
       // 普通段落（支持加粗 **text**）
       const parts: any[] = [];
+      // 非表格行：清除残留管道符
+      const textLine = line.replace(/\|/g, '');
       const boldPattern = /\*\*(.+?)\*\*/g;
       let lastIdx = 0;
       let boldMatch: RegExpExecArray | null;
-      while ((boldMatch = boldPattern.exec(line)) !== null) {
+      while ((boldMatch = boldPattern.exec(textLine)) !== null) {
         if (boldMatch.index > lastIdx) {
-          parts.push(new TextRun({ text: line.slice(lastIdx, boldMatch.index), size: 20 }));
+          parts.push(new TextRun({ text: textLine.slice(lastIdx, boldMatch.index), size: 20 }));
         }
         parts.push(new TextRun({ text: boldMatch[1], bold: true, size: 20 }));
         lastIdx = boldMatch.index + boldMatch[0].length;
       }
-      if (lastIdx < line.length) {
-        parts.push(new TextRun({ text: line.slice(lastIdx), size: 20 }));
+      if (lastIdx < textLine.length) {
+        parts.push(new TextRun({ text: textLine.slice(lastIdx), size: 20 }));
       }
-      if (parts.length === 0 && line.trim()) {
-        parts.push(new TextRun({ text: line.trim(), size: 20 }));
+      if (parts.length === 0 && textLine.trim()) {
+        parts.push(new TextRun({ text: textLine.trim(), size: 20 }));
       }
       if (parts.length > 0) {
         children.push(
