@@ -150,69 +150,11 @@ export const dashboardApi = {
 };
 
 // ============================================
-// Process API (流程)
-// ============================================
-export interface IProcessResponse {
-  id: number;
-  name: string;
-  description?: string;
-  domain: string;
-  status: string;
-  archNodeId?: number;
-  nodesJson?: string;
-  coverage: number;
-  sopCount: number;
-  skillCount: number;
-  createdAt: string;
-  updatedAt: string;
-  documents?: IProcessDocumentResponse[];
-}
-
-export interface IProcessDocumentResponse {
-  id: number;
-  processId: number;
-  name: string;
-  type: string;
-  content?: string;
-  uploadedAt: string;
-}
-
-export const processApi = {
-  list: (): Promise<IProcessResponse[]> =>
-    apiClient.get('/processes'),
-  
-  getById: (id: number): Promise<IProcessResponse> =>
-    apiClient.get(`/processes/${id}`),
-  
-  create: (data: { name: string; description?: string; domain?: string; status?: string; archNodeId?: number; nodesJson?: string }): Promise<IProcessResponse> =>
-    apiClient.post('/processes', data),
-  
-  update: (id: number, data: Partial<{ name: string; description: string; domain: string; status: string; archNodeId: number; nodesJson: string; coverage: number; sopCount: number; skillCount: number }>): Promise<IProcessResponse> =>
-    apiClient.put(`/processes/${id}`, data),
-  
-  delete: (id: number): Promise<void> =>
-    apiClient.delete(`/processes/${id}`),
-  
-  getDocuments: (processId: number): Promise<IProcessDocumentResponse[]> =>
-    apiClient.get(`/processes/${processId}/documents`),
-  
-  createDocument: (processId: number, data: { name: string; type: string; content?: string }): Promise<IProcessDocumentResponse> =>
-    apiClient.post(`/processes/${processId}/documents`, data),
-};
-
-// ============================================
 // AI API (通义千问)
 // ============================================
-export interface IProcessFileInfo {
-  name: string;
-  type?: string;
-  content?: string;
-}
-
 export interface IAiPlanSkillRequest {
   nodeName: string;
   nodeDescription?: string;
-  processFiles?: (string | IProcessFileInfo)[];  // 支持字符串或对象
   customPrompt?: string;
 }
 
