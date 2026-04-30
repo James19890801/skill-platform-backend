@@ -61,14 +61,11 @@ const AgentCreate: React.FC = () => {
   const handleFinish = async (values: any) => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token') || '';
-      // 使用环境变量中的 API 地址
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'https://fruity-knives-fetch.loca.lt';
-      const res = await fetch(`${apiBaseUrl}/api/agents`, {
+      const apiBaseUrl = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
+      const res = await fetch(`${apiBaseUrl}/agents`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: values.name,
