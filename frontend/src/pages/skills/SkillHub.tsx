@@ -16,194 +16,108 @@ import {
   Empty,
   Spin,
   Avatar,
-  Rate,
   Tooltip,
   message,
   Modal,
   Descriptions,
+  Statistic,
 } from 'antd';
 import {
   SearchOutlined,
   DownloadOutlined,
   EyeOutlined,
-  StarOutlined,
   FilterOutlined,
   RocketOutlined,
-  CodeOutlined,
 } from '@ant-design/icons';
+import apiClient from '../../services/api';
 
 const { Title, Text, Paragraph } = Typography;
 
+// 后端 Skill 数据的字段映射
 interface SkillItem {
-  id: string;
+  id: number;
   name: string;
   description: string;
   version: string;
-  author: string;
-  category: string;
-  tags: string[];
-  rating: number;
-  installs: number;
-  status: 'installed' | 'available' | 'updating';
-  instructionsPreview: string;
+  domain: string;
+  subDomain: string;
+  status: string;
+  ownerName: string;
+  orgName: string;
 }
 
-const categories = [
-  { value: 'all', label: '全部' },
-  { value: '流程管理', label: '流程管理' },
-  { value: '文档处理', label: '文档处理' },
-  { value: '数据分析', label: '数据分析' },
-  { value: '代码开发', label: '代码开发' },
-  { value: '自动化', label: '自动化' },
-];
+const domainLabelMap: Record<string, string> = {
+  legal: '法务',
+  finance: '财务',
+  procurement: '采购',
+  hr: '人力资源',
+  tech: '技术',
+  platform: '平台',
+};
+
+const statusLabelMap: Record<string, { label: string; color: string }> = {
+  draft: { label: '草稿', color: 'blue' },
+  reviewing: { label: '审核中', color: 'orange' },
+  published: { label: '已发布', color: 'green' },
+  archived: { label: '已归档', color: 'default' },
+  deprecated: { label: '已弃用', color: 'red' },
+};
 
 const SkillHub: React.FC = () => {
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedDomain, setSelectedDomain] = useState('all');
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<SkillItem | null>(null);
-  
-  // Mock 数据
-  const mockSkills: SkillItem[] = [
-    {
-      id: 'process-analysis',
-      name: '流程分析',
-      description: '业务流程分析技能，能够解析流程文件、识别关键节点、分析风险点',
-      version: '1.0.0',
-      author: 'E2E AI',
-      category: '流程管理',
-      tags: ['流程管理', '业务分析', 'SOP'],
-      rating: 4.5,
-      installs: 128,
-      status: 'installed',
-      instructionsPreview: '你是专业的流程分析专家，具备以下能力...',
-    },
-    {
-      id: 'document-generation',
-      name: '文档生成',
-      description: '根据模板和输入数据自动生成各类业务文档',
-      version: '1.2.0',
-      author: 'E2E AI',
-      category: '文档处理',
-      tags: ['文档', '模板', '自动化'],
-      rating: 4.2,
-      installs: 89,
-      status: 'available',
-      instructionsPreview: '你是专业的文档生成助手...',
-    },
-    {
-      id: 'risk-assessment',
-      name: '风险评估',
-      description: '识别业务流程中的风险点并提供评估建议',
-      version: '0.9.0',
-      author: 'Risk Team',
-      category: '数据分析',
-      tags: ['风险', '评估', '合规'],
-      rating: 3.8,
-      installs: 45,
-      status: 'available',
-      instructionsPreview: '你是风险评估专家...',
-    },
-    {
-      id: 'code-review',
-      name: '代码审查',
-      description: '自动审查代码质量、发现潜在问题',
-      version: '2.0.0',
-      author: 'DevTools',
-      category: '代码开发',
-      tags: ['代码', '审查', '质量'],
-      rating: 4.8,
-      installs: 256,
-      status: 'available',
-      instructionsPreview: '你是资深代码审查专家...',
-    },
-    {
-      id: 'workflow-automation',
-      name: '工作流自动化',
-      description: '将手动流程转换为自动化执行脚本',
-      version: '1.5.0',
-      author: 'Automation Team',
-      category: '自动化',
-      tags: ['自动化', '脚本', 'RPA'],
-      rating: 4.0,
-      installs: 78,
-      status: 'updating',
-      instructionsPreview: '你是自动化流程设计专家...',
-    },
-  ];
-  
-  useEffect(() => {
-    loadSkills();
-  }, []);
-  
+
+  // 从后端获取 Skills
   const loadSkills = async () => {
     setLoading(true);
     try {
-      // 实际应从 API 加载
-      // const response = await fetch('http://localhost:8001/skills');
-      // const data = await response.json();
-      
-      // 使用 mock 数据
-      setSkills(mockSkills);
+      const res: any = await apiClient.get('/skills', { params: { page: 1, limit: 100 } });
+      const data = res?.data?.items || [];
+      setSkills(data.map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description || '',
+        version: s.currentVersion || '1.0.0',
+        domain: s.domain || 'platform',
+        subDomain: s.subDomain || '',
+        status: s.status || 'published',
+        ownerName: s.owner?.name || '系统',
+        orgName: s.organization?.name || '平台',
+      })));
     } catch (error) {
+      console.error('加载 Skills 失败:', error);
       message.error('加载 Skills 失败');
     } finally {
       setLoading(false);
     }
   };
-  
+
+  useEffect(() => {
+    loadSkills();
+  }, []);
+
   // 筛选 Skills
   const filteredSkills = skills.filter(skill => {
     const matchSearch = skill.name.toLowerCase().includes(searchText.toLowerCase()) ||
       skill.description.toLowerCase().includes(searchText.toLowerCase());
-    const matchCategory = selectedCategory === 'all' || skill.category === selectedCategory;
-    return matchSearch && matchCategory;
+    const matchDomain = selectedDomain === 'all' || skill.domain === selectedDomain;
+    return matchSearch && matchDomain;
   });
-  
-  // 安装 Skill
-  const installSkill = async (skillId: string) => {
-    message.loading('正在安装...');
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setSkills(prev => prev.map(s => 
-        s.id === skillId ? { ...s, status: 'installed' } : s
-      ));
-      message.success('安装成功');
-    } catch (error) {
-      message.error('安装失败');
-    }
-  };
-  
-  // 卸载 Skill
-  const uninstallSkill = async (skillId: string) => {
-    message.loading('正在卸载...');
-    try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setSkills(prev => prev.map(s => 
-        s.id === skillId ? { ...s, status: 'available' } : s
-      ));
-      message.success('卸载成功');
-    } catch (error) {
-      message.error('卸载失败');
-    }
-  };
-  
-  // 查看 Skill 详情
+
+  // 查看详情
   const viewDetail = (skill: SkillItem) => {
     setSelectedSkill(skill);
     setDetailModalVisible(true);
   };
-  
+
   // 渲染 Skill 卡片
   const renderSkillCard = (skill: SkillItem) => {
-    const statusColor = {
-      installed: 'green',
-      available: 'blue',
-      updating: 'orange',
-    };
-    
+    const statusConfig = statusLabelMap[skill.status] || { label: skill.status, color: 'default' };
+
     return (
       <Col xs={24} sm={12} md={8} lg={6} key={skill.id}>
         <Card
@@ -213,15 +127,7 @@ const SkillHub: React.FC = () => {
             <Tooltip title="查看详情">
               <EyeOutlined onClick={() => viewDetail(skill)} />
             </Tooltip>,
-            skill.status === 'installed' ? (
-              <Tooltip title="已安装">
-                <Tag color="green">已安装</Tag>
-              </Tooltip>
-            ) : (
-              <Tooltip title="安装">
-                <DownloadOutlined onClick={() => installSkill(skill.id)} />
-              </Tooltip>
-            ),
+            <Tag color={statusConfig.color}>{statusConfig.label}</Tag>,
           ]}
         >
           <Card.Meta
@@ -235,7 +141,7 @@ const SkillHub: React.FC = () => {
             description={
               <div>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  v{skill.version} · {skill.author}
+                  v{skill.version} · {skill.ownerName}
                 </Text>
                 <Paragraph
                   ellipsis={{ rows: 2 }}
@@ -248,22 +154,15 @@ const SkillHub: React.FC = () => {
           />
           <div style={{ marginTop: 12 }}>
             <Space>
-              <Rate disabled defaultValue={skill.rating} style={{ fontSize: 12 }} />
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                ({skill.installs} 次安装)
-              </Text>
+              <Tag>{domainLabelMap[skill.domain] || skill.domain}</Tag>
+              {skill.subDomain && <Tag>{skill.subDomain}</Tag>}
             </Space>
-            <div style={{ marginTop: 8 }}>
-              {skill.tags.map(tag => (
-                <Tag key={tag} style={{ marginBottom: 4 }}>{tag}</Tag>
-              ))}
-            </div>
           </div>
         </Card>
       </Col>
     );
   };
-  
+
   return (
     <div>
       {/* 搜索与筛选 */}
@@ -278,18 +177,23 @@ const SkillHub: React.FC = () => {
             allowClear
           />
           <Select
-            value={selectedCategory}
-            onChange={setSelectedCategory}
-            options={categories}
+            value={selectedDomain}
+            onChange={setSelectedDomain}
+            options={[
+              { value: 'all', label: '全部领域' },
+              { value: 'legal', label: '法务' },
+              { value: 'finance', label: '财务' },
+              { value: 'procurement', label: '采购' },
+              { value: 'hr', label: '人力资源' },
+              { value: 'tech', label: '技术' },
+              { value: 'platform', label: '平台' },
+            ]}
             style={{ width: 150 }}
           />
           <Button icon={<FilterOutlined />}>高级筛选</Button>
-          <Button type="primary" icon={<CodeOutlined />}>
-            提交 Skill
-          </Button>
         </Space>
       </Card>
-      
+
       {/* 统计 */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
@@ -299,24 +203,26 @@ const SkillHub: React.FC = () => {
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="已安装" value={skills.filter(s => s.status === 'installed').length} />
+            <Statistic title="已发布" value={skills.filter(s => s.status === 'published').length} />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="可更新" value={skills.filter(s => s.status === 'updating').length} />
+            <Statistic title="草稿" value={skills.filter(s => s.status === 'draft').length} />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="总安装次数" value={skills.reduce((sum, s) => sum + s.installs, 0)} />
+            <Statistic title="领域数" value={new Set(skills.map(s => s.domain)).size} />
           </Card>
         </Col>
       </Row>
-      
+
       {/* Skill 列表 */}
       {loading ? (
-        <Spin tip="加载 Skills..." />
+        <div style={{ textAlign: 'center', padding: 40 }}>
+          <Spin size="large" />
+        </div>
       ) : filteredSkills.length === 0 ? (
         <Empty description="没有找到匹配的 Skill" />
       ) : (
@@ -324,51 +230,31 @@ const SkillHub: React.FC = () => {
           {filteredSkills.map(renderSkillCard)}
         </Row>
       )}
-      
+
       {/* 详情 Modal */}
       <Modal
         title={selectedSkill?.name}
         open={detailModalVisible}
         onCancel={() => setDetailModalVisible(false)}
-        footer={[
-          selectedSkill?.status === 'installed' ? (
-            <Button danger onClick={() => {
-              uninstallSkill(selectedSkill!.id);
-              setDetailModalVisible(false);
-            }}>
-              卸载
-            </Button>
-          ) : (
-            <Button type="primary" onClick={() => {
-              installSkill(selectedSkill!.id);
-              setDetailModalVisible(false);
-            }}>
-              安装
-            </Button>
-          ),
-          <Button onClick={() => setDetailModalVisible(false)}>关闭</Button>,
-        ]}
+        footer={<Button onClick={() => setDetailModalVisible(false)}>关闭</Button>}
         width={600}
       >
         {selectedSkill && (
           <Descriptions column={2}>
             <Descriptions.Item label="版本">{selectedSkill.version}</Descriptions.Item>
-            <Descriptions.Item label="作者">{selectedSkill.author}</Descriptions.Item>
-            <Descriptions.Item label="分类">{selectedSkill.category}</Descriptions.Item>
-            <Descriptions.Item label="评分">
-              <Rate disabled defaultValue={selectedSkill.rating} />
+            <Descriptions.Item label="所属组织">{selectedSkill.orgName}</Descriptions.Item>
+            <Descriptions.Item label="领域">
+              {domainLabelMap[selectedSkill.domain] || selectedSkill.domain}
             </Descriptions.Item>
-            <Descriptions.Item label="安装次数">{selectedSkill.installs}</Descriptions.Item>
-            <Descriptions.Item label="标签">
-              {selectedSkill.tags.map(tag => <Tag key={tag}>{tag}</Tag>)}
+            <Descriptions.Item label="子领域">{selectedSkill.subDomain || '-'}</Descriptions.Item>
+            <Descriptions.Item label="状态">
+              <Tag color={(statusLabelMap[selectedSkill.status] || { color: 'default' }).color}>
+                {(statusLabelMap[selectedSkill.status] || { label: selectedSkill.status }).label}
+              </Tag>
             </Descriptions.Item>
+            <Descriptions.Item label="负责人">{selectedSkill.ownerName}</Descriptions.Item>
             <Descriptions.Item label="描述" span={2}>
               {selectedSkill.description}
-            </Descriptions.Item>
-            <Descriptions.Item label="指令预览" span={2}>
-              <Paragraph ellipsis={{ rows: 4, expandable: true }}>
-                {selectedSkill.instructionsPreview}
-              </Paragraph>
             </Descriptions.Item>
           </Descriptions>
         )}
@@ -376,13 +262,5 @@ const SkillHub: React.FC = () => {
     </div>
   );
 };
-
-// 统计组件
-const Statistic: React.FC<{ title: string; value: number }> = ({ title, value }) => (
-  <div>
-    <Text type="secondary">{title}</Text>
-    <Title level={4} style={{ margin: 0 }}>{value}</Title>
-  </div>
-);
 
 export default SkillHub;

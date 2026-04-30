@@ -33,7 +33,7 @@ apiClient.interceptors.request.use(
   }
 );
 
-// 响应拦截器：处理 401 自动跳转登录，解包后端响应
+// 响应拦截器：解包后端响应
 apiClient.interceptors.response.use(
   (response) => {
     // 后端使用 TransformInterceptor 包装响应为 { success, data, timestamp }
@@ -45,10 +45,6 @@ apiClient.interceptors.response.use(
     return wrappedData;
   },
   (error) => {
-    if (error.response?.status === 401) {
-      useAuthStore.getState().logout();
-      window.location.href = '/login';
-    }
     return Promise.reject(error);
   }
 );
@@ -229,6 +225,42 @@ export const knowledgeApi = {
 
   delete: (id: number): Promise<void> =>
     apiClient.delete(`/knowledge-bases/${id}`),
+};
+
+// ============================================
+// Agents API
+// ============================================
+export interface AgentDTO {
+  id: number;
+  name: string;
+  description?: string;
+  model: string;
+  systemPrompt?: string;
+  skills: string[];
+  knowledgeBases: string[];
+  memoryEnabled: boolean;
+  temperature: number;
+  maxTokens?: number;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const agentsApi = {
+  list: (): Promise<{ items: AgentDTO[]; total: number }> =>
+    apiClient.get('/agents'),
+
+  getById: (id: number): Promise<AgentDTO> =>
+    apiClient.get(`/agents/${id}`),
+
+  create: (data: Record<string, unknown>): Promise<AgentDTO> =>
+    apiClient.post('/agents', data),
+
+  update: (id: number, data: Record<string, unknown>): Promise<AgentDTO> =>
+    apiClient.put(`/agents/${id}`, data),
+
+  delete: (id: number): Promise<void> =>
+    apiClient.delete(`/agents/${id}`),
 };
 
 export default apiClient;

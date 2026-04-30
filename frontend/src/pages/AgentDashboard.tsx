@@ -2,7 +2,7 @@
  * AgentDashboard - Agent 工作台
  * 展示用户创建的所有 Agent，支持创建、编辑、删除、对话
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Card,
   Row,
@@ -16,6 +16,7 @@ import {
   Modal,
   Dropdown,
   message,
+  Spin,
 } from 'antd';
 import {
   PlusOutlined,
@@ -27,74 +28,59 @@ import {
   PlayCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { agentsApi, AgentDTO } from '../services/api';
 
 const { Title, Text, Paragraph } = Typography;
 
-interface Agent {
-  id: string;
-  name: string;
-  description: string;
-  model: string;
-  skills: string[];
-  knowledgeBase: string[];
-  memoryEnabled: boolean;
-  status: 'active' | 'inactive' | 'draft';
-  createdAt: string;
-  lastUsed?: string;
-}
-
-// Mock Agents 数据
-const mockAgents: Agent[] = [
-  {
-    id: 'agent-1',
-    name: '流程分析助手',
-    description: '帮助企业分析业务流程，识别瓶颈和优化机会',
-    model: 'qwen-plus',
-    skills: ['process-analysis', 'risk-identification'],
-    knowledgeBase: ['流程知识库'],
-    memoryEnabled: true,
-    status: 'active',
-    createdAt: '2024-03-01',
-    lastUsed: '2024-03-28',
-  },
-  {
-    id: 'agent-2',
-    name: '数据分析专家',
-    description: '执行数据分析和可视化报告生成',
-    model: 'qwen-max',
-    skills: ['data-analysis', 'chart-generation'],
-    knowledgeBase: [],
-    memoryEnabled: false,
-    status: 'draft',
-    createdAt: '2024-03-15',
-  },
-];
-
 const AgentDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [agents, setAgents] = useState<Agent[]>(mockAgents);
+  const [agents, setAgents] = useState<AgentDTO[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleDeleteAgent = (agentId: string) => {
+  // 从后端获取 Agent 列表
+  const fetchAgents = async () => {
+    setLoading(true);
+    try {
+      const data = await agentsApi.list();
+      setAgents(data?.items || []);
+    } catch (error) {
+      console.error('获取 Agent 列表失败:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAgents();
+  }, []);
+
+  const handleDeleteAgent = async (agentId: number) => {
     Modal.confirm({
       title: '确认删除 Agent',
       content: '删除后无法恢复，确定要删除此 Agent 吗？',
       okText: '删除',
       cancelText: '取消',
       okButtonProps: { danger: true },
-      onOk: () => {
-        setAgents(agents.filter(a => a.id !== agentId));
-        message.success('Agent 已删除');
+      onOk: async () => {
+        try {
+          await agentsApi.delete(agentId);
+          message.success('Agent 已删除');
+          fetchAgents();
+        } catch {
+          message.error('删除失败');
+        }
       },
     });
   };
 
-  const getStatusTag = (status: Agent['status']) => {
-    const config = {
+  const getStatusTag = (status: string) => {
+    const config: Record<string, { color: string; text: string }> = {
       active: { color: 'green', text: '运行中' },
       inactive: { color: 'orange', text: '已停用' },
       draft: { color: 'blue', text: '草稿' },
     };
-    return <Tag color={config[status].color}>{config[status].text}</Tag>;
+    const s = config[status] || { color: 'default', text: status };
+    return <Tag color={s.color}>{s.text}</Tag>;
   };
 
   return (
@@ -120,7 +106,11 @@ const AgentDashboard: React.FC = () => {
       </div>
 
       {/* Agent 列表 */}
-      {agents.length === 0 ? (
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 80 }}>
+          <Spin size="large" />
+        </div>
+      ) : agents.length === 0 ? (
         <Empty
           description="暂无 Agent，点击上方按钮创建"
           style={{ padding: 80 }}
@@ -132,7 +122,7 @@ const AgentDashboard: React.FC = () => {
               <Card
                 hoverable
                 style={{ borderRadius: 12, overflow: 'hidden' }}
-                bodyStyle={{ padding: 16 }}
+                styles={{ body: { padding: 16 } }}
               >
                 {/* Agent 头部 */}
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
@@ -155,15 +145,15 @@ const AgentDashboard: React.FC = () => {
                   ellipsis={{ rows: 2 }}
                   style={{ marginBottom: 12, color: '#666' }}
                 >
-                  {agent.description}
+                  {agent.description || '暂无描述'}
                 </Paragraph>
 
                 {/* 配置信息 */}
                 <div style={{ marginBottom: 12 }}>
                   <Space size={4}>
-                    <Tag icon={<MessageOutlined />}>{agent.skills.length} Skills</Tag>
+                    <Tag icon={<MessageOutlined />}>{agent.skills?.length || 0} Skills</Tag>
                     <Tag icon={<RobotOutlined />}>
-                      {agent.knowledgeBase.length > 0 ? `${agent.knowledgeBase.length} KB` : '无 KB'}
+                      {(agent.knowledgeBases?.length || 0) > 0 ? `${agent.knowledgeBases.length} KB` : '无 KB'}
                     </Tag>
                     {agent.memoryEnabled && <Tag color="cyan">记忆</Tag>}
                   </Space>

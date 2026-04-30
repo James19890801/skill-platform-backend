@@ -123,7 +123,7 @@ const AgentCreate: React.FC = () => {
           }}
         >
           {/* Step 1: 基础配置 */}
-          {currentStep === 0 && (
+          <div style={{ display: currentStep === 0 ? 'block' : 'none' }}>
             <>
               <Form.Item
                 name="name"
@@ -162,10 +162,10 @@ const AgentCreate: React.FC = () => {
                 />
               </Form.Item>
             </>
-          )}
+          </div>
 
           {/* Step 2: 能力配置 */}
-          {currentStep === 1 && (
+          <div style={{ display: currentStep === 1 ? 'block' : 'none' }}>
             <>
               <Form.Item
                 name="skills"
@@ -213,10 +213,10 @@ const AgentCreate: React.FC = () => {
                 />
               </Form.Item>
             </>
-          )}
+          </div>
 
           {/* Step 3: 高级设置 */}
-          {currentStep === 2 && (
+          <div style={{ display: currentStep === 2 ? 'block' : 'none' }}>
             <>
               <Form.Item
                 name="memoryEnabled"
@@ -257,7 +257,7 @@ const AgentCreate: React.FC = () => {
                 />
               </Form.Item>
             </>
-          )}
+          </div>
 
           {/* 操作按钮 */}
           <Divider />

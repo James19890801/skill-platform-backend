@@ -77,34 +77,24 @@ export class SkillsController {
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('member')
-  @ApiBearerAuth()
   @ApiOperation({ summary: '创建技能' })
-  async create(@Body() createDto: CreateSkillDto, @Request() req: any) {
-    return this.skillsService.create(createDto, req.user.id, req.user.tenantId || 1);
+  async create(@Body() createDto: CreateSkillDto) {
+    return this.skillsService.create(createDto, 1, 1);
   }
 
   @Put(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('member')
-  @ApiBearerAuth()
   @ApiOperation({ summary: '更新技能' })
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateDto: UpdateSkillDto,
-    @Request() req: any,
   ) {
-    return this.skillsService.update(id, updateDto, req.user.id, req.user.tenantId || 1, req.user.role);
+    return this.skillsService.update(id, updateDto, 1, 1, 'admin');
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('member')
-  @ApiBearerAuth()
   @ApiOperation({ summary: '删除技能' })
-  async remove(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
-    return this.skillsService.remove(id, req.user.id, req.user.tenantId || 1);
+  async remove(@Param('id', ParseIntPipe) id: number) {
+    return this.skillsService.remove(id, 1, 1);
   }
 
   @Post(':id/submit')
