@@ -1,8 +1,8 @@
 /**
  * AgentDashboard - Agent 工作台
- * 展示用户创建的所有 Agent，支持创建、编辑、删除、对话
+ * 展示用户创建的所有 Agent，支持搜索、排序、点赞、对话
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Card,
   Row,
@@ -17,6 +17,8 @@ import {
   Dropdown,
   message,
   Spin,
+  Input,
+  Select,
 } from 'antd';
 import {
   PlusOutlined,
@@ -26,16 +28,38 @@ import {
   DeleteOutlined,
   MoreOutlined,
   PlayCircleOutlined,
+  SearchOutlined,
+  FireOutlined,
+  HeartOutlined,
+  HeartFilled,
+  ArrowLeftOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { agentsApi, AgentDTO } from '../services/api';
+import { Grid } from 'antd';
+
+const { useBreakpoint } = Grid;
 
 const { Title, Text, Paragraph } = Typography;
 
+// 生成随机热度数据
+function mockHotData(id: number): { visits: number; likes: number } {
+  let hash = id * 9973 + 131;
+  const visits = 100 + (hash % 9900);
+  hash = Math.floor(hash / 7);
+  const likes = 10 + (hash % 500);
+  return { visits, likes };
+}
+
 const AgentDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [agents, setAgents] = useState<AgentDTO[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchText, setSearchText] = useState('');
+  const [sortBy, setSortBy] = useState<'hot' | 'default'>('hot');
+  const [likedAgents, setLikedAgents] = useState<Set<number>>(new Set());
 
   // 从后端获取 Agent 列表
   const fetchAgents = async () => {
@@ -53,6 +77,49 @@ const AgentDashboard: React.FC = () => {
   useEffect(() => {
     fetchAgents();
   }, []);
+
+  // 组合热度数据
+  const agentsWithHot = useMemo(() =>
+    agents.map(a => {
+      const hot = mockHotData(a.id);
+      return {
+        ...a,
+        _visits: hot.visits,
+        _likes: likedAgents.has(a.id) ? hot.likes + 1 : hot.likes,
+        _liked: likedAgents.has(a.id),
+      };
+    }),
+    [agents, likedAgents]
+  );
+
+  // 搜索 + 排序
+  const filteredAndSorted = useMemo(() => {
+    let list = [...agentsWithHot];
+    // 搜索
+    if (searchText.trim()) {
+      const q = searchText.toLowerCase();
+      list = list.filter(a =>
+        a.name.toLowerCase().includes(q) ||
+        (a.description || '').toLowerCase().includes(q) ||
+        (a.model || '').toLowerCase().includes(q)
+      );
+    }
+    // 排序
+    if (sortBy === 'hot') {
+      list.sort((a, b) => b._visits - a._visits || b._likes - a._likes);
+    }
+    return list;
+  }, [agentsWithHot, searchText, sortBy]);
+
+  const handleLike = (agentId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLikedAgents(prev => {
+      const next = new Set(prev);
+      if (next.has(agentId)) next.delete(agentId);
+      else next.add(agentId);
+      return next;
+    });
+  };
 
   const handleDeleteAgent = async (agentId: number) => {
     Modal.confirm({
@@ -84,25 +151,60 @@ const AgentDashboard: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: isMobile ? 0 : 24 }}>
       {/* 头部 */}
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{
+        marginBottom: 16,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: isMobile ? 'flex-start' : 'center',
+        flexDirection: isMobile ? 'column' : 'row',
+        gap: isMobile ? 8 : 0,
+      }}>
         <div>
-          <Title level={3} style={{ marginBottom: 8 }}>
+          <Title level={isMobile ? 4 : 3} style={{ marginBottom: 4 }}>
             <RobotOutlined style={{ marginRight: 8, color: '#6366f1' }} />
-            Agent 工作台
+            AI 广场
           </Title>
-          <Text type="secondary">管理您的智能助手，配置知识库、记忆和技能</Text>
+          <Text type="secondary" style={{ fontSize: isMobile ? 12 : 14 }}>共 {filteredAndSorted.length} 个智能助手</Text>
         </div>
         <Button
           type="primary"
           icon={<PlusOutlined />}
-          size="large"
+          size={isMobile ? 'small' : 'large'}
           onClick={() => navigate('/agents/create')}
-          style={{ background: '#6366f1' }}
+          style={{ background: '#6366f1', alignSelf: isMobile ? 'stretch' : 'auto' }}
         >
-          创建 Agent
+          {isMobile ? '新建' : '创建 Agent'}
         </Button>
+      </div>
+
+      {/* 搜索 + 排序 */}
+      <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Input
+          placeholder="搜索 Agent 名称或描述..."
+          prefix={<SearchOutlined style={{ color: '#999' }} />}
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          allowClear
+          style={{ width: isMobile ? '100%' : 360, borderRadius: 8 }}
+          size={isMobile ? 'middle' : 'large'}
+        />
+        <Select
+          value={sortBy}
+          onChange={setSortBy}
+          size={isMobile ? 'small' : 'large'}
+          style={{ width: isMobile ? '100%' : 140 }}
+          options={[
+            { value: 'hot', label: '🔥 最热' },
+            { value: 'default', label: '📋 默认' },
+          ]}
+        />
+        {searchText && (
+          <Text type="secondary">
+            找到 {filteredAndSorted.length} 个结果
+          </Text>
+        )}
       </div>
 
       {/* Agent 列表 */}
@@ -110,62 +212,76 @@ const AgentDashboard: React.FC = () => {
         <div style={{ textAlign: 'center', padding: 80 }}>
           <Spin size="large" />
         </div>
-      ) : agents.length === 0 ? (
+      ) : filteredAndSorted.length === 0 ? (
         <Empty
-          description="暂无 Agent，点击上方按钮创建"
+          description={searchText ? '没有找到匹配的 Agent，试试其他关键词' : '暂无 Agent，点击上方按钮创建'}
           style={{ padding: 80 }}
         />
       ) : (
-        <Row gutter={[16, 16]}>
-          {agents.map((agent) => (
-            <Col xs={24} sm={12} lg={8} xl={6} key={agent.id}>
-              <Card
-                hoverable
-                style={{ borderRadius: 12, overflow: 'hidden' }}
-                styles={{ body: { padding: 16 } }}
-              >
+        <div className="agent-grid">
+          <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 16]}>
+            {filteredAndSorted.map((agent) => (
+              <Col xs={24} sm={12} lg={8} xl={6} key={agent.id}>
+                <Card
+                  hoverable
+                  style={{ borderRadius: 12, height: isMobile ? 'auto' : 310 }}
+                  styles={{ body: { padding: isMobile ? 12 : 16, display: 'flex', flexDirection: 'column', height: '100%' } }}
+                >
                 {/* Agent 头部 */}
-                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
                   <Avatar
-                    size={48}
+                    size={44}
                     icon={<RobotOutlined />}
-                    style={{ backgroundColor: '#6366f1' }}
+                    style={{ backgroundColor: agent._liked ? '#ff4d4f' : '#6366f1' }}
                   />
-                  <div style={{ marginLeft: 12, flex: 1 }}>
-                    <Text strong style={{ fontSize: 16 }}>{agent.name}</Text>
-                    <div style={{ marginTop: 4 }}>
+                  <div style={{ marginLeft: 10, flex: 1, minWidth: 0 }}>
+                    <Text strong style={{ fontSize: 15 }} ellipsis>{agent.name}</Text>
+                    <div style={{ marginTop: 2 }}>
                       {getStatusTag(agent.status)}
-                      <Tag color="purple" style={{ marginLeft: 4 }}>{agent.model}</Tag>
+                      <Tag color="purple" style={{ marginLeft: 4, fontSize: 11 }}>{agent.model}</Tag>
                     </div>
                   </div>
                 </div>
 
                 {/* 描述 */}
-                <Paragraph
-                  ellipsis={{ rows: 2 }}
-                  style={{ marginBottom: 12, color: '#666' }}
-                >
-                  {agent.description || '暂无描述'}
-                </Paragraph>
+                <div style={{ flex: 1 }}>
+                  <Paragraph
+                    ellipsis={{ rows: 2 }}
+                    style={{ marginBottom: 8, color: '#666', fontSize: 13 }}
+                  >
+                    {agent.description || '暂无描述'}
+                  </Paragraph>
+                </div>
 
-                {/* 配置信息 */}
-                <div style={{ marginBottom: 12 }}>
-                  <Space size={4}>
+                {/* 配置 + 热度 */}
+                <div style={{ marginBottom: 8 }}>
+                  <Space size={4} style={{ marginBottom: 6 }}>
                     <Tag icon={<MessageOutlined />}>{agent.skills?.length || 0} Skills</Tag>
                     <Tag icon={<RobotOutlined />}>
                       {(agent.knowledgeBases?.length || 0) > 0 ? `${agent.knowledgeBases.length} KB` : '无 KB'}
                     </Tag>
                     {agent.memoryEnabled && <Tag color="cyan">记忆</Tag>}
                   </Space>
+                  <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#999' }}>
+                    <span><FireOutlined style={{ color: '#ff6b35', marginRight: 4 }} />{agent._visits}</span>
+                    <span
+                      onClick={e => handleLike(agent.id, e)}
+                      style={{ cursor: 'pointer', color: agent._liked ? '#ff4d4f' : '#999' }}
+                    >
+                      {agent._liked ? <HeartFilled style={{ marginRight: 4 }} /> : <HeartOutlined style={{ marginRight: 4 }} />}
+                      {agent._likes}
+                    </span>
+                  </div>
                 </div>
 
                 {/* 操作按钮 */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <Button
                     type="primary"
                     icon={<PlayCircleOutlined />}
                     onClick={() => navigate(`/chat/${agent.id}`)}
-                    style={{ background: '#6366f1', flex: 1, marginRight: 8 }}
+                    style={{ background: '#6366f1', flex: 1, marginRight: 8, fontSize: 13 }}
+                    size="small"
                   >
                     对话
                   </Button>
@@ -177,13 +293,14 @@ const AgentDashboard: React.FC = () => {
                       ],
                     }}
                   >
-                    <Button icon={<MoreOutlined />} />
+                    <Button icon={<MoreOutlined />} size="small" />
                   </Dropdown>
                 </div>
               </Card>
             </Col>
           ))}
-        </Row>
+          </Row>
+        </div>
       )}
     </div>
   );

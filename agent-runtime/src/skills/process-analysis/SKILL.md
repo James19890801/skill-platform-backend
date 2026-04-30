@@ -27,31 +27,55 @@
 
 ## 输出格式
 
-返回 JSON 结构化分析结果：
+### 重要：必须生成真实 Word 文档
 
-```json
+你的分析结果**必须**以 Word 文档形式输出，包含以下内容结构：
+
+### 文档结构
+
+1. **流程概述**：流程名称、目标、范围等基本信息（正文段落）
+2. **流程节点明细**：**必须使用表格**展示所有节点
+3. **风险分析**：表格列出各节点风险
+4. **优化建议**：表格列出各优化项
+
+### 生成 Word 文档 API
+
+```python
+POST /tools/generate-docx
+Content-Type: application/json
+
 {
+  "title": "流程名称 - 分析报告",
+  "doc_type": "process",
   "process_name": "流程名称",
-  "nodes": [
-    {
-      "id": "节点ID",
-      "name": "节点名称",
-      "type": "审批/执行/决策",
-      "responsible_role": "负责角色",
-      "inputs": ["输入物列表"],
-      "outputs": ["输出物列表"],
-      "risks": ["风险点"]
-    }
-  ],
-  "optimization_suggestions": [
-    {
-      "target_node": "目标节点",
-      "suggestion": "优化建议",
-      "priority": "high/medium/low"
-    }
-  ]
+  "process_data": {
+    "description": "流程概述文本",
+    "nodes": [
+      {
+        "name": "节点名称",
+        "type": "审批/执行/决策",
+        "responsible_role": "负责角色",
+        "inputs": ["输入物"],
+        "outputs": ["输出物"],
+        "risks": ["风险点"]
+      }
+    ],
+    "optimization_suggestions": [
+      {
+        "target_node": "目标节点",
+        "suggestion": "优化建议",
+        "priority": "high/medium/low"
+      }
+    ]
+  }
 }
 ```
+
+### 表格规范
+
+- 流程节点表：节点名称、类型、负责角色、输入、输出、风险点
+- 表头加粗、蓝色背景白色文字
+- 数据行交替背景色
 
 ## 执行原则
 
@@ -59,3 +83,5 @@
 - 关注异常处理路径
 - 标注每个节点的 SLA 要求
 - 区分核心流程和辅助流程
+- **最终产物必须是可下载的 Word 文档**
+- **结构化数据必须用表格展示**

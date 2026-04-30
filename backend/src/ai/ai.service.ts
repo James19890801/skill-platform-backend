@@ -463,6 +463,23 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
    * 支持表格、标题、段落等基本格式
    */
   async generateDocx(content: string, format: 'docx' | 'xlsx' = 'docx'): Promise<Buffer> {
+    // 清洗内容：去除 HTML 标签、清理 markdown 乱码
+    const cleaned = content
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/?[a-zA-Z][^>]*>/g, '')
+      .replace(/\|+/g, '')
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/^#+\s+/gm, '')
+      .replace(/^\s*[-*+]\s+/gm, '')
+      .replace(/[○●◆◇→⇒]/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .trim();
+
     const {
       Document,
       Packer,
@@ -477,7 +494,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     } = require('docx');
 
     const children: any[] = [];
-    const lines = content.split('\n');
+    const lines = cleaned.split('\n');
     let i = 0;
 
     const parseTable = (startIdx: number): { table: any; nextIdx: number } | null => {

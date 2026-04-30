@@ -2,7 +2,7 @@
  * AgentCreate - 创建 Agent 页面
  * 配置 Agent 的模型、Skills、知识库、记忆等
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Card,
   Form,
@@ -20,6 +20,7 @@ import {
   Tag,
   Checkbox,
 } from 'antd';
+import { useAuthStore } from '../../stores/useAuthStore';
 import {
   RobotOutlined,
   SaveOutlined,
@@ -28,6 +29,23 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 const { Title, Text } = Typography;
+
+interface AgentCreateProps {
+  editId?: number;
+  initialData?: {
+    id: number;
+    name: string;
+    description?: string;
+    model: string;
+    systemPrompt?: string;
+    skills: string[];
+    knowledgeBases: string[];
+    memoryEnabled: boolean;
+    temperature: number;
+    maxTokens?: number;
+    status: string;
+  };
+}
 
 // 可用模型列表
 const availableModels = [
@@ -52,41 +70,69 @@ const availableKnowledgeBases = [
   { id: 'kb-3', name: '规章制度库', documents: 45 },
 ];
 
-const AgentCreate: React.FC = () => {
+const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
 
+  // 编辑模式：回填已有数据
+  useEffect(() => {
+    if (editId && initialData) {
+      form.setFieldsValue({
+        name: initialData.name,
+        description: initialData.description || '',
+        model: initialData.model,
+        systemPrompt: initialData.systemPrompt || '',
+        skills: initialData.skills || [],
+        knowledgeBases: initialData.knowledgeBases || [],
+        memoryEnabled: initialData.memoryEnabled,
+        temperature: initialData.temperature,
+        maxTokens: initialData.maxTokens || 2048,
+      });
+    }
+  }, [editId, initialData, form]);
+
   const handleFinish = async (values: any) => {
     setLoading(true);
     try {
       const apiBaseUrl = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
-      const res = await fetch(`${apiBaseUrl}/agents`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: values.name,
-          description: values.description,
-          model: values.model,
-          systemPrompt: values.systemPrompt,
-          skills: values.skills || [],
-          knowledgeBases: values.knowledgeBases || [],
-          memoryEnabled: values.memoryEnabled,
-          temperature: values.temperature,
-          maxTokens: values.maxTokens,
-        }),
+      const token = useAuthStore.getState().token;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const body = JSON.stringify({
+        name: values.name,
+        description: values.description,
+        model: values.model,
+        systemPrompt: values.systemPrompt,
+        skills: values.skills || [],
+        knowledgeBases: values.knowledgeBases || [],
+        memoryEnabled: values.memoryEnabled,
+        temperature: values.temperature,
+        maxTokens: values.maxTokens,
+      });
+
+      const url = editId ? `${apiBaseUrl}/agents/${editId}` : `${apiBaseUrl}/agents`;
+      const method = editId ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers,
+        body,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || `创建失败: ${res.status}`);
+        throw new Error(err.message || `${editId ? '保存' : '创建'}失败: ${res.status}`);
       }
-      message.success('Agent 创建成功！');
+      message.success(editId ? 'Agent 保存成功！' : 'Agent 创建成功！');
       navigate('/dashboard');
     } catch (error: any) {
-      message.error(error.message || 'Agent 创建失败');
+      message.error(error.message || 'Agent 操作失败');
     } finally {
       setLoading(false);
     }
@@ -96,7 +142,7 @@ const AgentCreate: React.FC = () => {
     <div style={{ maxWidth: 800, margin: '0 auto', padding: 24 }}>
       <Title level={3} style={{ textAlign: 'center', marginBottom: 24 }}>
         <RobotOutlined style={{ marginRight: 8, color: '#6366f1' }} />
-        创建新 Agent
+        {editId ? '编辑 Agent' : '创建新 Agent'}
       </Title>
 
       {/* 步骤条 */}
@@ -284,10 +330,9 @@ const AgentCreate: React.FC = () => {
                   loading={loading}
                   style={{ background: '#6366f1' }}
                 >
-                  创建 Agent
+                  {editId ? '保存 Agent' : '创建 Agent'}
                 </Button>
                 <Button
-                  icon={<PlayCircleOutlined />}
                   onClick={() => navigate('/dashboard')}
                 >
                   取消

@@ -9,7 +9,7 @@
  * - 输入框始终固定在底部
  * - 支持多会话管理：历史会话列表、新建会话
  */
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   Card,
   Input,
@@ -25,6 +25,7 @@ import {
   Drawer,
   List,
   message,
+  Grid,
 } from 'antd';
 import {
   SendOutlined,
@@ -40,11 +41,15 @@ import {
   HistoryOutlined,
   PlusOutlined,
   DeleteOutlined,
+  ArrowLeftOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../../stores/useAuthStore';
+import MermaidRenderer from '../../components/MermaidRenderer';
 
 const { TextArea } = Input;
 const { Text, Title } = Typography;
+const { useBreakpoint } = Grid;
 
 interface Message {
   id: string;
@@ -73,6 +78,8 @@ const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend
 const AgentChatCanvas: React.FC = () => {
   const { agentId } = useParams();
   const navigate = useNavigate();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -179,15 +186,49 @@ const AgentChatCanvas: React.FC = () => {
     return artifacts;
   }, []);
 
-  // ★ 渲染消息内容（将产物替换为可点击卡片，表格直接渲染）
+  // ★ 检测 Mermaid 代码块
+  const isMermaidCode = (code: string): boolean => {
+    const firstLine = code.trim().split('\n')[0].trim();
+    return /^(graph\s+(TD|LR|BT|RL)|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|flowchart\s+(TD|LR|BT|RL))/.test(firstLine);
+  };
+
+  // ★ 清理 HTML 标签和 markdown 乱码
+  const cleanText = (text: string): string => {
+    return text
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/?[a-zA-Z][^>]*>/g, '')
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/^#+\s+/gm, '')
+      .replace(/^\s*[-*+]\s+/gm, '')
+      .replace(/^\s*\d+\.\s+/gm, (m) => m.replace(/^\s*\d+\.\s+/, ''))
+      .replace(/[○●◆◇]/g, '')
+      .trim();
+  };
+
+  // ★ 判断是否是标准 markdown 表格（有分隔行）
+  const isMarkdownTable = (block: string): boolean => {
+    const lines = block.trim().split('\n').filter(l => l.trim().length > 0);
+    if (lines.length < 2) return false;
+    // 第一行必须是 | 开头 | 结尾
+    if (!/^\|.*\|$/.test(lines[0].trim())) return false;
+    // 第二行必须是分隔线（包含 ---）
+    if (!/^\|[-:\s|]+\|$/.test(lines[1].trim())) return false;
+    return true;
+  };
+
+  // ★ 渲染消息内容
   const renderMessageContent = (msg: Message) => {
     const artifacts: JSX.Element[] = [];
   
     if (msg.artifacts && msg.artifacts.length > 0) {
       msg.artifacts.forEach((artifact) => {
-        // 表格直接在内容中渲染，不作为可点击卡片
         if (artifact.type === 'table') return;
           
+        // Mermaid 代码块产物：标记为 mermaid 类型以便 inline 渲染
+        const isMermaid = artifact.type === 'code' && isMermaidCode(artifact.content);
+
         artifacts.push(
           <div
             key={artifact.id}
@@ -202,17 +243,21 @@ const AgentChatCanvas: React.FC = () => {
               transition: 'all 0.15s',
               position: 'relative',
             }}
-            onClick={() => openCanvas(artifact)}
+            onClick={() => !isMermaid && openCanvas(artifact)}
           >
             <Space>
-              <Tag color="blue" style={{ margin: 0 }}>
-                📄 {artifact.title}
+              <Tag color={isMermaid ? 'green' : 'blue'} style={{ margin: 0 }}>
+                {isMermaid ? '📊 流程图' : `📄 ${artifact.title}`}
               </Tag>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                点击在 Canvas 中查看
-              </Text>
+              {!isMermaid && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  点击在 Canvas 中查看
+                </Text>
+              )}
             </Space>
-            {artifact.type === 'code' && (
+            {isMermaid ? (
+              <MermaidRenderer chart={artifact.content} id={`inline-mermaid-${artifact.id}`} />
+            ) : artifact.type === 'code' && (
               <pre
                 style={{
                   margin: '8px 0 0',
@@ -260,61 +305,45 @@ const AgentChatCanvas: React.FC = () => {
       });
     }
   
-    // ★ 渲染内容：表格转 HTML table，其余保持干净文本
-    const renderContentWithTables = (content: string) => {
-      const tablePattern = /\|(.+)\|(?:\n\|[-:\s|]+\|(?:\n\|.+?\|)*)/g;
+    // ★ 渲染内容：先预处理内容，再分段处理表格/代码/文本
+    const renderContentWithTables = (rawContent: string) => {
+      // 1. 预处理：统一换行 + 清理 HTML
+      let content = rawContent
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/?(p|div|span|section|pre|code|em|strong|b|i|u|s|ul|ol|li|h[1-6])\b[^>]*>/gi, '');
+
       const parts: (string | JSX.Element)[] = [];
-      let lastIdx = 0;
-      let match: RegExpExecArray | null;
-  
-      while ((match = tablePattern.exec(content)) !== null) {
-        // 表格之前的文本
-        if (match.index > lastIdx) {
-          const textBefore = content.slice(lastIdx, match.index).trim();
-          if (textBefore) {
-            parts.push(
-              <Text key={`text-${lastIdx}`} style={{ whiteSpace: 'pre-wrap', display: 'block', marginBottom: 8 }}>
-                {textBefore
-                  .replace(/\*\*(.*?)\*\*/g, '$1')
-                  .replace(/\*(.*?)\*/g, '$1')
-                  .replace(/`([^`]+)`/g, '$1')
-                  .replace(/^#+\s+/gm, '')
-                  .replace(/^\s*[-*+]\s+/gm, '• ')}
-              </Text>
-            );
-          }
-        }
-  
-        // 解析表格
-        const tableLines = match[0].trim().split('\n').filter(l => l.trim());
-        if (tableLines.length >= 2) {
-          // 找分隔线
-          let sepIdx = -1;
-          for (let i = 0; i < tableLines.length; i++) {
-            if (tableLines[i].includes('---') || tableLines[i].includes(':-')) {
-              sepIdx = i;
-              break;
-            }
-          }
-          if (sepIdx === -1) sepIdx = 0;
-  
+
+      // 2. 按段落分割
+      const paragraphs = content.split(/\n{2,}/);
+
+      for (let pi = 0; pi < paragraphs.length; pi++) {
+        const para = paragraphs[pi].trim();
+        if (!para) continue;
+
+        // 2a. 检测标准 markdown 表格（必须含 |---| 分隔行）
+        if (isMarkdownTable(para)) {
+          const tableLines = para.split('\n').filter(l => l.trim().length > 0);
+          const sepIdx = tableLines.findIndex(l => /^\|[-:\s|]+\|$/.test(l.trim()));
+          if (sepIdx === -1) continue;
+
           const parseRow = (line: string) =>
-            line.split('|').filter((_, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim()).filter(Boolean);
-  
+            line.split('|').filter((_, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim());
+
           const headers = sepIdx > 0 ? parseRow(tableLines[sepIdx - 1]) : [];
           const dataRows = tableLines.slice(sepIdx + 1).map(parseRow);
-  
+
           if (headers.length > 0 && dataRows.length > 0) {
             parts.push(
-              <div key={`table-${match.index}`} style={{ overflow: 'auto', marginBottom: 8 }}>
+              <div key={`table-${pi}`} style={{ overflow: 'auto', marginBottom: 12 }}>
                 <table style={{
                   width: '100%', borderCollapse: 'collapse', fontSize: 13,
-                  border: '1px solid #e2e8f0', borderRadius: 6, overflow: 'hidden',
+                  border: '1px solid #e2e8f0', borderRadius: 6,
                 }}>
                   <thead>
                     <tr style={{ background: '#f1f5f9' }}>
                       {headers.map((h, i) => (
-                        <th key={i} style={{ padding: '8px 12px', borderBottom: '2px solid #e2e8f0', textAlign: 'left', fontWeight: 600 }}>{h}</th>
+                        <th key={i} style={{ padding: '8px 12px', borderBottom: '2px solid #e2e8f0', textAlign: 'left', fontWeight: 600 }}>{cleanText(h)}</th>
                       ))}
                     </tr>
                   </thead>
@@ -322,7 +351,7 @@ const AgentChatCanvas: React.FC = () => {
                     {dataRows.map((row, ri) => (
                       <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#fafafa' }}>
                         {row.map((cell, ci) => (
-                          <td key={ci} style={{ padding: '6px 12px', borderBottom: '1px solid #e2e8f0' }}>{cell}</td>
+                          <td key={ci} style={{ padding: '6px 12px', borderBottom: '1px solid #e2e8f0' }}>{cleanText(cell)}</td>
                         ))}
                       </tr>
                     ))}
@@ -330,42 +359,71 @@ const AgentChatCanvas: React.FC = () => {
                 </table>
               </div>
             );
+            continue;
           }
         }
-  
-        lastIdx = match.index + match[0].length;
-      }
-  
-      // 剩余文本
-      if (lastIdx < content.length) {
-        const remaining = content.slice(lastIdx).trim();
-        if (remaining) {
+
+        // 2b. 检测代码块（``` 包裹）→ 判断是否为 Mermaid
+        if (/^```/.test(para)) {
+          const codeText = para.replace(/^```\w*\n?/, '').replace(/```$/, '').trim();
+          
+          if (isMermaidCode(codeText)) {
+            // 渲染为 Mermaid 图
+            parts.push(
+              <div key={`mermaid-${pi}`}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#6366f1', marginBottom: 8 }}>
+                  📊 流程图
+                </div>
+                <MermaidRenderer chart={codeText} id={`mermaid-inline-${pi}`} />
+              </div>
+            );
+          } else {
+            // 普通代码块
+            parts.push(
+              <pre key={`code-${pi}`} style={{
+                background: '#1e1e1e', color: '#d4d4d4', borderRadius: 8,
+                padding: 12, fontSize: 12, overflow: 'auto', lineHeight: 1.5, marginBottom: 12,
+              }}>
+                <code>{codeText}</code>
+              </pre>
+            );
+          }
+          continue;
+        }
+
+        // 2c. 普通文本：清理后渲染
+        const cleanPara = para
+          .replace(/\|/g, '')
+          .replace(/\*\*(.*?)\*\*/g, '$1')
+          .replace(/\*(.*?)\*/g, '$1')
+          .replace(/`([^`]+)`/g, '$1')
+          .replace(/^#+\s+/gm, '')
+          .replace(/^\s*[-*+]\s+/gm, '• ')
+          .replace(/^\s*\d+\.\s+/gm, '')
+          .replace(/[○●◆◇]/g, '')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .trim();
+
+        if (cleanPara) {
           parts.push(
-            <Text key={`text-end`} style={{ whiteSpace: 'pre-wrap', display: 'block' }}>
-              {remaining
-                .replace(/\*\*(.*?)\*\*/g, '$1')
-                .replace(/\*(.*?)\*/g, '$1')
-                .replace(/`([^`]+)`/g, '$1')
-                .replace(/^#+\s+/gm, '')
-                .replace(/^\s*[-*+]\s+/gm, '• ')}
+            <Text key={`text-${pi}`} style={{ whiteSpace: 'pre-wrap', display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
+              {cleanPara}
             </Text>
           );
         }
       }
-  
+
       if (parts.length === 0 && content.trim()) {
         parts.push(
-          <Text key="fallback" style={{ whiteSpace: 'pre-wrap' }}>
-            {content
-              .replace(/\*\*(.*?)\*\*/g, '$1')
-              .replace(/\*(.*?)\*/g, '$1')
-              .replace(/`([^`]+)`/g, '$1')
-              .replace(/^#+\s+/gm, '')
-              .replace(/^\s*[-*+]\s+/gm, '• ')}
+          <Text key="fallback" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+            {cleanText(content)}
           </Text>
         );
       }
-  
+
       return parts;
     };
   
@@ -373,7 +431,7 @@ const AgentChatCanvas: React.FC = () => {
       <div>
         {renderContentWithTables(msg.content)}
         {artifacts}
-        {/* 下载 Word 按钮 - 仅在 AI 回复时显示 */}
+        {/* 下载 Word 按钮 */}
         {msg.role === 'assistant' && msg.content.trim() && (
           <div style={{ marginTop: 12, display: 'flex', gap: 6 }}>
             <Button
@@ -382,12 +440,18 @@ const AgentChatCanvas: React.FC = () => {
               onClick={async () => {
                 try {
                   const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
+                  const token = useAuthStore.getState().token;
+                  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                  if (token) headers['Authorization'] = `Bearer ${token}`;
                   const resp = await fetch(`${API_BASE}/ai/export-docx`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers,
                     body: JSON.stringify({ content: msg.content, format: 'docx', filename: `对话回复_${Date.now()}.docx` }),
                   });
-                  if (!resp.ok) throw new Error('导出失败');
+                  if (!resp.ok) {
+                    const errText = await resp.text().catch(() => '');
+                    throw new Error(errText ? `导出失败: ${errText}` : '导出失败');
+                  }
                   const blob = await resp.blob();
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
@@ -396,7 +460,7 @@ const AgentChatCanvas: React.FC = () => {
                   a.click();
                   URL.revokeObjectURL(url);
                 } catch (e: any) {
-                  message.error('导出 Word 失败: ' + e.message);
+                  message.error('导出 Word 失败: ' + (e.message || '未知错误'));
                 }
               }}
             >
@@ -724,39 +788,82 @@ const AgentChatCanvas: React.FC = () => {
   };
 
   return (
-    <div ref={containerRef} style={{ height: 'calc(100vh - 56px - 32px)', display: 'flex', flexDirection: 'column' }}>
+    <div ref={containerRef} style={{ height: isMobile ? 'calc(100vh - 56px)' : 'calc(100vh - 56px - 32px)', display: 'flex', flexDirection: 'column' }}>
       {/* 顶部工具栏 */}
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-        <Space>
-          <RobotOutlined style={{ color: '#6366f1', fontSize: 18 }} />
-          <Text strong style={{ fontSize: 15 }}>Agent 对话</Text>
-          {agentId && <Tag>{agentId}</Tag>}
-          <Tag color="default" style={{ fontSize: 11 }}>
-            {currentThreadId.slice(0, 16)}...
-          </Tag>
-        </Space>
-        <Space>
-          <Tooltip title="历史会话">
+      <div style={{
+        padding: isMobile ? '8px 12px' : '12px 16px',
+        borderBottom: '1px solid #f0f0f0',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexShrink: 0,
+      }}>
+        {isMobile ? (
+          <Space>
             <Button
-              icon={<HistoryOutlined />}
-              size="small"
-              onClick={() => { loadConversations(); setHistoryVisible(true); }}
+              type="text"
+              icon={<ArrowLeftOutlined />}
+              onClick={() => navigate('/dashboard')}
+              style={{ fontSize: 16, color: '#333' }}
             />
-          </Tooltip>
-          <Select
-            value={selectedModel}
-            onChange={setSelectedModel}
-            size="small"
-            style={{ width: 130 }}
-            options={[
-              { value: 'qwen-turbo', label: 'Turbo' },
-              { value: 'qwen-plus', label: 'Plus' },
-              { value: 'qwen-max', label: 'Max' },
-            ]}
-          />
-          <Button icon={<ClearOutlined />} size="small" onClick={clearChat}>
-            清空
-          </Button>
+            <RobotOutlined style={{ color: '#6366f1', fontSize: 16 }} />
+            <Text strong style={{ fontSize: 15 }}>{agentId ? `Agent #${agentId}` : 'AI 对话'}</Text>
+          </Space>
+        ) : (
+          <Space>
+            <RobotOutlined style={{ color: '#6366f1', fontSize: 18 }} />
+            <Text strong style={{ fontSize: 15 }}>Agent 对话</Text>
+            {agentId && <Tag>{agentId}</Tag>}
+            <Tag color="default" style={{ fontSize: 11 }}>
+              {currentThreadId.slice(0, 16)}...
+            </Tag>
+          </Space>
+        )}
+        <Space>
+          {isMobile ? (
+            <>
+              <Tooltip title="历史会话">
+                <Button
+                  icon={<HistoryOutlined />}
+                  size="small"
+                  type="text"
+                  onClick={() => { loadConversations(); setHistoryVisible(true); }}
+                />
+              </Tooltip>
+              <Tooltip title="新建对话">
+                <Button
+                  type="text"
+                  icon={<PlusOutlined />}
+                  size="small"
+                  onClick={newConversation}
+                />
+              </Tooltip>
+            </>
+          ) : (
+            <>
+              <Tooltip title="历史会话">
+                <Button
+                  icon={<HistoryOutlined />}
+                  size="small"
+                  onClick={() => { loadConversations(); setHistoryVisible(true); }}
+                />
+              </Tooltip>
+              <Select
+                value={selectedModel}
+                onChange={setSelectedModel}
+                size="small"
+                style={{ width: 130 }}
+                options={[
+                  { value: 'qwen-turbo', label: 'Turbo' },
+                  { value: 'qwen-plus', label: 'Plus' },
+                  { value: 'qwen-max', label: 'Max' },
+                ]}
+              />
+              <Button icon={<ClearOutlined />} size="small" onClick={clearChat}>
+                清空
+              </Button>
+            </>
+          )}
         </Space>
       </div>
 
@@ -778,7 +885,7 @@ const AgentChatCanvas: React.FC = () => {
             style={{
               flex: 1,
               overflow: 'auto',
-              padding: '16px 20px',
+              padding: isMobile ? '8px 12px' : '16px 20px',
               background: '#fafafa',
             }}
           >
@@ -834,7 +941,7 @@ const AgentChatCanvas: React.FC = () => {
           </div>
 
           {/* 输入区 — 始终固定在底部 */}
-          <div style={{ padding: '12px 20px', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
+          <div style={{ padding: isMobile ? '8px 12px' : '12px 20px', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
             <Space.Compact style={{ width: '100%' }}>
               <TextArea
                 value={inputValue}
@@ -860,19 +967,21 @@ const AgentChatCanvas: React.FC = () => {
                 发送
               </Button>
             </Space.Compact>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                按 Enter 发送，Shift + Enter 换行
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: isMobile ? 4 : 6 }}>
+              <Text type="secondary" style={{ fontSize: isMobile ? 11 : 12 }}>
+                按 Enter 发送
               </Text>
-              <Tooltip title="新建对话">
-                <Button
-                  type="text"
-                  icon={<PlusOutlined />}
-                  size="small"
-                  onClick={newConversation}
-                  style={{ color: '#bbb' }}
-                />
-              </Tooltip>
+              {!isMobile && (
+                <Tooltip title="新建对话">
+                  <Button
+                    type="text"
+                    icon={<PlusOutlined />}
+                    size="small"
+                    onClick={newConversation}
+                    style={{ color: '#bbb' }}
+                  />
+                </Tooltip>
+              )}
             </div>
           </div>
         </div>

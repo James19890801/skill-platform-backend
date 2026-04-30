@@ -667,6 +667,35 @@ code {
   .page-header-title {
     font-size: 22px;
   }
+
+  /* ---- 移动端全局补丁 ---- */
+  .ant-drawer-body {
+    padding: 0 !important;
+  }
+
+  /* 统一切换内容区边距 */
+  .ant-layout-content {
+    margin: 0 !important;
+    padding: 12px !important;
+  }
+
+  /* Agent 卡片列表竖排 */
+  .agent-grid .ant-col {
+    width: 100% !important;
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* 对话框全屏沉浸 */
+  .chat-wrapper {
+    height: calc(100vh - 56px) !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .ant-layout-content {
+    padding: 8px !important;
+  }
 }
 
 /* ============================================

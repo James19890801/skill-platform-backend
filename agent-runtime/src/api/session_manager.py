@@ -7,6 +7,14 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 import json
 import uuid
+import os
+
+
+# 会话持久化文件路径
+SESSION_STORAGE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data", "sessions"
+)
 
 
 @dataclass
@@ -31,10 +39,77 @@ class SessionManager:
     1. 创建/获取/删除会话
     2. 保存对话历史
     3. 会话状态追踪
+    4. 会话持久化（自动保存到文件）
     """
     
-    def __init__(self):
+    def __init__(self, persist_dir: str = None):
         self.sessions: Dict[str, Session] = {}
+        self.persist_dir = persist_dir or SESSION_STORAGE_DIR
+        # 启动时自动加载已持久化的会话
+        self._load_all()
+    
+    # ----- 持久化 -----
+    
+    def _session_file_path(self, session_id: str) -> str:
+        """获取会话持久化文件路径"""
+        os.makedirs(self.persist_dir, exist_ok=True)
+        return os.path.join(self.persist_dir, f"{session_id}.json")
+    
+    def _save_session(self, session: Session):
+        """保存单个会话到文件"""
+        try:
+            file_path = self._session_file_path(session.session_id)
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "session_id": session.session_id,
+                    "thread_id": session.thread_id,
+                    "user_id": session.user_id,
+                    "model": session.model,
+                    "skills": session.skills,
+                    "messages": session.messages,
+                    "created_at": session.created_at,
+                    "updated_at": session.updated_at,
+                    "metadata": session.metadata,
+                }, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[SessionManager] 保存会话失败 {session.session_id}: {e}")
+    
+    def _load_all(self):
+        """从文件加载所有已持久化的会话"""
+        if not os.path.isdir(self.persist_dir):
+            return
+        for filename in os.listdir(self.persist_dir):
+            if not filename.endswith(".json"):
+                continue
+            file_path = os.path.join(self.persist_dir, filename)
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                session = Session(
+                    session_id=data["session_id"],
+                    thread_id=data["thread_id"],
+                    user_id=data.get("user_id"),
+                    model=data.get("model", "qwen-plus"),
+                    skills=data.get("skills", []),
+                    messages=data.get("messages", []),
+                    created_at=data.get("created_at", ""),
+                    updated_at=data.get("updated_at", ""),
+                    metadata=data.get("metadata", {}),
+                )
+                self.sessions[session.session_id] = session
+            except Exception as e:
+                print(f"[SessionManager] 加载会话失败 {filename}: {e}")
+    
+    def _delete_session_file(self, session_id: str):
+        """删除会话持久化文件"""
+        file_path = self._session_file_path(session_id)
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                print(f"[SessionManager] 删除会话文件失败 {session_id}: {e}")
+    
+    # ----- 会话 CRUD -----
     
     def create_session(
         self,
@@ -42,6 +117,7 @@ class SessionManager:
         model: str = "qwen-plus",
         skills: List[str] = None,
         metadata: Dict[str, Any] = None,
+        thread_id: Optional[str] = None,
     ) -> Session:
         """
         创建新会话
@@ -51,13 +127,15 @@ class SessionManager:
             model: 使用的模型
             skills: 加载的 Skills
             metadata: 元数据
+            thread_id: 指定线程 ID（可选）
             
         Returns:
             新创建的会话
         """
         now = datetime.now().isoformat()
         session_id = str(uuid.uuid4())
-        thread_id = f"thread-{session_id[:8]}"
+        if not thread_id:
+            thread_id = f"thread-{session_id[:8]}"
         
         session = Session(
             session_id=session_id,
@@ -72,6 +150,7 @@ class SessionManager:
         )
         
         self.sessions[session_id] = session
+        self._save_session(session)
         return session
     
     def get_session(self, session_id: str) -> Optional[Session]:
@@ -85,6 +164,34 @@ class SessionManager:
                 return session
         return None
     
+    def ensure_session_for_thread(
+        self,
+        thread_id: str,
+        user_id: Optional[str] = None,
+        model: str = "qwen-plus",
+    ) -> Session:
+        """
+        确保指定 thread_id 存在会话。如果不存在则创建。
+        
+        Args:
+            thread_id: 线程 ID
+            user_id: 用户 ID（创建时使用）
+            model: 模型名称
+            
+        Returns:
+            已存在或新创建的会话
+        """
+        existing = self.get_session_by_thread(thread_id)
+        if existing:
+            return existing
+        
+        # 创建新会话，使用指定的 thread_id
+        return self.create_session(
+            user_id=user_id,
+            model=model,
+            thread_id=thread_id,
+        )
+    
     def add_message(
         self,
         session_id: str,
@@ -93,7 +200,7 @@ class SessionManager:
         metadata: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         """
-        向会话添加消息
+        向会话添加消息（自动持久化）
         
         Args:
             session_id: 会话 ID
@@ -118,6 +225,9 @@ class SessionManager:
         
         session.messages.append(message)
         session.updated_at = datetime.now().isoformat()
+        
+        # 自动持久化
+        self._save_session(session)
         
         return message
     
@@ -152,12 +262,14 @@ class SessionManager:
             session.metadata.update(metadata)
         
         session.updated_at = datetime.now().isoformat()
+        self._save_session(session)
         return session
     
     def delete_session(self, session_id: str) -> bool:
-        """删除会话"""
+        """删除会话（同时删除持久化文件）"""
         if session_id in self.sessions:
             del self.sessions[session_id]
+            self._delete_session_file(session_id)
             return True
         return False
     
@@ -177,7 +289,9 @@ class SessionManager:
         return sessions
     
     def clear_all(self) -> None:
-        """清空所有会话"""
+        """清空所有会话（同时删除所有持久化文件）"""
+        for session_id in list(self.sessions.keys()):
+            self._delete_session_file(session_id)
         self.sessions.clear()
 
 

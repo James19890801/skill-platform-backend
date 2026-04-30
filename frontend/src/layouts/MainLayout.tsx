@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Typography, Breadcrumb, Button, Space } from 'antd';
+import { Layout, Menu, Typography, Breadcrumb, Button, Space, Drawer, Grid } from 'antd';
 import {
   DashboardOutlined,
   RobotOutlined,
@@ -16,6 +16,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
+const { useBreakpoint } = Grid;
 
 // Agent 平台菜单配置
 const menuConfig = [
@@ -68,8 +69,11 @@ const defaultUser = {
 
 const MainLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   // 扁平化菜单项
   const flatMenuItems = menuConfig.flatMap((group) => group.items);
@@ -108,6 +112,7 @@ const MainLayout: React.FC = () => {
 
   const handleMenuClick = ({ key }: { key: string }) => {
     navigate(key);
+    setMobileNavOpen(false);
   };
 
   // 构建菜单项
@@ -134,6 +139,92 @@ const MainLayout: React.FC = () => {
     return items;
   };
 
+  // ============ 移动端布局 ============
+  if (isMobile) {
+    return (
+      <Layout style={{ minHeight: '100vh' }}>
+        <Header
+          style={{
+            padding: '0 16px',
+            background: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+            height: 56,
+            lineHeight: '56px',
+            position: 'sticky',
+            top: 0,
+            zIndex: 99,
+          }}
+        >
+          <Space>
+            <Button
+              type="text"
+              icon={<MenuFoldOutlined />}
+              onClick={() => setMobileNavOpen(true)}
+              style={{ fontSize: 18, color: '#333' }}
+            />
+            <span
+              style={{
+                fontSize: 18,
+                fontWeight: 700,
+                letterSpacing: '1px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+              }}
+            >
+              E2E AI
+            </span>
+          </Space>
+          <Text style={{ fontSize: 13, color: '#94a3b8' }}>{defaultUser.name}</Text>
+        </Header>
+
+        <Drawer
+          title={
+            <span
+              style={{
+                fontWeight: 700,
+                fontSize: 16,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+              }}
+            >
+              E2E AI
+            </span>
+          }
+          placement="left"
+          open={mobileNavOpen}
+          onClose={() => setMobileNavOpen(false)}
+          width={280}
+        >
+          <Menu
+            mode="inline"
+            selectedKeys={[getSelectedKey()]}
+            items={buildMenuItems()}
+            onClick={handleMenuClick}
+            style={{ borderRight: 'none', marginTop: 8 }}
+          />
+        </Drawer>
+
+        <Content
+          style={{
+            padding: 12,
+            background: '#f5f5f5',
+            minHeight: 'calc(100vh - 56px)',
+          }}
+        >
+          <Outlet />
+        </Content>
+      </Layout>
+    );
+  }
+
+  // ============ 桌面端布局 ============
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Sider

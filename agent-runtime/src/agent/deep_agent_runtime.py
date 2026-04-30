@@ -200,6 +200,7 @@ class DeepAgentRuntime:
         self,
         thread_id: str,
         user_input: str,
+        history: List[Dict] = None,
     ):
         """
         流式运行 Agent
@@ -207,6 +208,7 @@ class DeepAgentRuntime:
         Args:
             thread_id: 会话线程 ID
             user_input: 用户输入文本
+            history: 对话历史列表 [{"role": "user"/"assistant", "content": "..."}]
             
         Yields:
             流式输出的消息块
@@ -216,10 +218,24 @@ class DeepAgentRuntime:
         
         agent = self._agents[thread_id]
         
+        # 保存历史到 agent
+        if history:
+            agent["history"] = history
+        
         if HAS_DEEP_AGENTS and HAS_LANGCHAIN and hasattr(agent, 'astream'):
             # 使用 Deep Agent SDK
+            # 构建包含历史的输入
+            agent_history = agent.get("history", [])
+            messages = []
+            for msg in agent_history:
+                if msg["role"] == "user":
+                    messages.append(HumanMessage(content=msg["content"]))
+                elif msg["role"] == "assistant":
+                    messages.append(AIMessage(content=msg["content"]))
+            messages.append(HumanMessage(content=user_input))
+            
             input_data = {
-                "messages": [HumanMessage(content=user_input)]
+                "messages": messages
             }
             async for chunk in agent.astream(input_data):
                 yield chunk
@@ -234,6 +250,8 @@ class DeepAgentRuntime:
         self,
         thread_id: str,
         user_input: str,
+        history: List[Dict] = None,
+        stream: bool = False,
     ) -> Dict:
         """
         非流式运行 Agent
@@ -241,6 +259,8 @@ class DeepAgentRuntime:
         Args:
             thread_id: 会话线程 ID
             user_input: 用户输入文本
+            history: 对话历史列表
+            stream: 是否流式输出
             
         Returns:
             执行结果
@@ -250,10 +270,23 @@ class DeepAgentRuntime:
         
         agent = self._agents[thread_id]
         
+        # 保存历史到 agent
+        if history:
+            agent["history"] = history
+        
         if HAS_DEEP_AGENTS and HAS_LANGCHAIN and hasattr(agent, 'ainvoke'):
             # 使用 Deep Agent SDK
+            agent_history = agent.get("history", [])
+            messages = []
+            for msg in agent_history:
+                if msg["role"] == "user":
+                    messages.append(HumanMessage(content=msg["content"]))
+                elif msg["role"] == "assistant":
+                    messages.append(AIMessage(content=msg["content"]))
+            messages.append(HumanMessage(content=user_input))
+            
             input_data = {
-                "messages": [HumanMessage(content=user_input)]
+                "messages": messages
             }
             result = await agent.ainvoke(input_data)
             return result

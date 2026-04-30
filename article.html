@@ -1,314 +1,493 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>当所有人都在谈 AI for Process，我们选择把它做成产品</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>一个产品经理用AI Coding半年，硬核造了个端到端AI智能体平台</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 1.8;
+  color: #333;
+  background: #fff;
+  max-width: 677px;
+  margin: 0 auto;
+  padding: 20px;
+}
+h1 { font-size: 22px; font-weight: bold; color: #1a1a1a; margin: 30px 0 15px; text-align: center; }
+h2 {
+  font-size: 18px; font-weight: bold; color: #1a1a1a;
+  border-left: 4px solid #10b981; padding-left: 12px; margin: 30px 0 15px;
+}
+h3 { font-size: 16px; font-weight: bold; color: #333; margin: 20px 0 10px; }
+p { margin-bottom: 16px; font-size: 15px; line-height: 1.8; color: #333; text-align: justify; }
+strong { color: #1a1a1a; }
+.author-info { color: #999; font-size: 13px; margin-bottom: 24px; text-align: center; }
+.quote {
+  background: #f0fdf4;
+  border-left: 4px solid #10b981;
+  padding: 16px 20px;
+  margin: 20px 0;
+  font-style: italic;
+  color: #555;
+  border-radius: 0 8px 8px 0;
+}
+pre {
+  background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px;
+  font-size: 13px; line-height: 1.6; overflow-x: auto; margin: 20px 0;
+}
+code { font-family: 'Cascadia Code', 'Fira Code', monospace; }
+ul { margin: 16px 0 16px 20px; }
+li { font-size: 15px; line-height: 2; color: #333; }
+.header-img { width: 100%; display: block; margin: 0 auto 20px; border-radius: 12px; }
+.infographic { margin: 32px 0; }
+.infographic img { width: 100%; border-radius: 12px; display: block; }
+.image-caption { font-size: 13px; color: #999; margin-top: 10px; text-align: center; font-style: italic; }
+.divider {
+  text-align: center; color: #ccc; font-size: 20px;
+  letter-spacing: 8px; margin: 30px 0;
+}
+.cta-box {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #fff;
+  padding: 24px;
+  border-radius: 12px;
+  margin: 30px 0;
+  text-align: center;
+}
+.cta-box p { color: #fff; margin: 0; font-size: 15px; }
+.copy-btn {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #fff;
+  border: none;
+  padding: 14px 24px;
+  border-radius: 50px;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(16,185,129,0.4);
+  z-index: 999;
+  transition: all 0.3s;
+}
+.copy-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 25px rgba(16,185,129,0.5); }
+.toast {
+  position: fixed;
+  bottom: 90px;
+  right: 30px;
+  background: #52c41a;
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  z-index: 1000;
+}
+.toast.show { opacity: 1; }
+@media (max-width: 677px) {
+  body { padding: 16px; }
+  .copy-btn { bottom: 20px; right: 20px; padding: 12px 20px; font-size: 14px; }
+}
+</style>
 </head>
-<body style="background: #fff; margin: 0; padding: 0;">
+<body>
 
-<!-- 整体容器 -->
-<section style="padding: 20px; line-height: 1.8; color: #333; max-width: 680px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+<div id="article-content">
 
-<!-- 标题 -->
-<h1 style="font-size: 22px; font-weight: bold; color: #1a1a1a; text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #2563eb;">
-当所有人都在谈 AI for Process，我们选择把它做成产品
-</h1>
+<img id="header-img" class="header-img" alt="文章头图"/>
+
+<p class="author-info">冯周冲 · AI产品经理 · 边学AI Coding边造轮子</p>
 
 <!-- 导语 -->
-<section style="background: #f7f7f7; padding: 15px 20px; border-left: 4px solid #2563eb; margin: 20px 0; font-size: 15px; color: #666;">
-行业都在谈"AI for Process"，但停留在方法论层面远远不够。我们将流程管理与AI能力建设融合为一套完整的产品体系——AI智能资产平台，从架构规划到Skill交付，用产品化的方式解决企业Skill无序建设的核心痛点。
-</section>
+<img id="gold-0" style="width:100%;display:block;margin:20px 0;" alt="导语金句"/>
 
-<!-- 第一章 -->
-<h2 style="font-size: 18px; font-weight: bold; color: #1a1a1a; margin: 30px 0 15px; padding-left: 12px; border-left: 4px solid #2563eb;">
-一、问题——企业Skill建设正在失控
-</h2>
+<h2 style="font-size:18px;font-weight:bold;color:#1a1a1a;border-left:4px solid #10b981;padding-left:12px;margin:30px 0 15px;">一、它在做什么？—— 一个端到端的AI智能体平台</h2>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-2026年，企业AI落地已经进入深水区。智能体不再稀缺，各类大模型平台上的Agent数量早已突破百万量级。然而，一个令人担忧的现象正在浮现：<span style="color: #2563eb; font-weight: bold;">智能体数量充足，但Skill建设却面临系统性危机。</span>
-</p>
+<p>先说它是什么。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-这种危机不是因为技术能力不够，而是因为缺乏统一的规划和管理体系。我们在大量企业调研中发现，Skill建设的混乱已经成为制约AI价值落地的关键瓶颈。
-</p>
+<p>这是一套<strong style="color:#10b981;">端到端的AI智能体平台</strong>（E2E AI Agent Platform）。你可以在上面创建自己的AI Agent，给它写system prompt，给它挂载能力模块（我们叫Skill），挂载知识库，开记忆开关，然后跟它对话。它在云端用 Deep Agent 引擎 + LangGraph 图编排来执行你的请求，过程中自动拆任务、调工具、写文档、出产物。</p>
 
-<section style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">①</span> <strong>私域Skill泛滥</strong>：各业务团队各自为战，重复造轮子的现象比比皆是。法务团队做了一个合同审核Skill，采购团队不知道，又做了一个功能几乎一样的版本。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">②</span> <strong>标准严重不统一</strong>：同一业务流程被不同团队封装出功能重叠但接口完全不同的Skill，导致后续复用和集成成本极高。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">③</span> <strong>无法度量和管控</strong>：没有人能说清组织到底有多少个Skill、覆盖了哪些业务流程、还有多少能力空白需要填补。</p>
-</section>
+<div class="infographic">
+<img src="/Users/Administrator/Desktop/skill-platform/screenshots/live_01_ai_plaza.png" style="width:100%;border-radius:12px;display:block;border:1px solid #e2e8f0;" alt="Agent工作台 - 首页"/>
+<p class="image-caption">图1：Agent工作台——已创建的Agent都在这里展示</p>
+</div>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-神州数码在其发布的"AI for Process"蓝皮书中指出：企业需要将AI能力与业务流程深度绑定，才能真正释放大模型的价值。这个方向没有问题，但光有方法论是不行的。
-</p>
+<p>你可以理解成这是一个Agent的创建和执行平台，对标市面上那些AI Agent构建工具，但架构思路不太一样。</p>
 
-<blockquote style="background: #fafafa; padding: 15px 20px; border-left: 4px solid #ddd; margin: 20px 0; font-size: 15px; color: #666; font-style: italic;">
-如果不落到产品维度，流程体系只是墙上的图，Skill建设依然是一盘散沙。
-</blockquote>
+<p>长远规划还有一套完整的流程设计和编排引擎，让Agent能按照预设的流程图去执行任务。加上云端+本地协同，基本上是往AI时代的流程引擎方向在走。</p>
 
-<!-- 第二章 -->
-<h2 style="font-size: 18px; font-weight: bold; color: #1a1a1a; margin: 30px 0 15px; padding-left: 12px; border-left: 4px solid #2563eb;">
-二、思路——从流程架构到Skill资产的产品化闭环
-</h2>
+<h2 style="font-size:18px;font-weight:bold;color:#1a1a1a;border-left:4px solid #10b981;padding-left:12px;margin:30px 0 15px;">二、底层架构：Deep Agent + LangGraph + 百炼模型</h2>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-面对这一系统性挑战，我们提出了一个核心主张：<span style="color: #2563eb; font-weight: bold;">AI智能资产 = 面向组织级的流程体系去构建、管理、度量Skill资产。</span>
-</p>
+<p>先讲一下整体架构，因为这是我学AI Coding过程中啃得最狠的一块。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-这不是一个新概念的发明，而是将流程管理的成熟方法论与AI能力建设进行深度融合。我们设计了一条完整的链路：
-</p>
+<p>整个平台拆三层：</p>
 
-<section style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); padding: 25px; border-radius: 8px; margin: 20px 0; text-align: center;">
-  <p style="margin: 0; font-size: 16px; font-weight: bold; color: #1a1a1a;">
-    <span style="color: #2563eb;">建架构</span> → <span style="color: #2563eb;">建流程</span> → <span style="color: #2563eb;">AI规划Skill</span> → <span style="color: #2563eb;">编写Skill</span> → <span style="color: #2563eb;">分发安装</span>
-  </p>
-</section>
+<img id="arch-box" style="width:100%;display:block;margin:20px 0;" alt="三层架构图"/>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-这条链路的设计逻辑参照了华为的流程管理体系。华为在流程建设上有一个核心原则：先建架构（L1-L4四级架构），再往架构节点下挂具体的流程文件，最后基于流程进行能力盘点和治理。
-</p>
+<p>最核心的是运行时层，也就是 <strong>agent-runtime</strong> 模块。它是一个独立的 Python FastAPI 服务，跑在云端，底层用了两样东西：</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-我们将这一原则延伸到Skill领域：<span style="color: #2563eb; font-weight: bold;">架构本身统筹所有Skill。</span>建流程的时候必须先在架构上"打点"定位，建Skill也是一样。没有架构，就没有全局视角，Skill建设就会陷入无序状态。
-</p>
+<p>第一个是 <strong style="color:#10b981;">Deep Agent SDK</strong>。这是一套智能体的核心开发框架，提供 create_deep_agent 这样的接口。你可以理解成它是一个"Agent的脚手架"——你给它一个模型、一堆工具、一套系统提示词，它帮你组装成一个完整的Agent实例。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-阿里云在其技术文章中提出了一个重要观点：从Prompt到Skills的演进代表着AI能力的质变。Prompt是一次性的对话，执行完就消失了；而Skill是可沉淀、可复用、可评估的长期资产。
-</p>
+<p>第二个是 <strong style="color:#10b981;">LangGraph</strong>。这是LangChain团队出的图编排引擎，用来定义Agent的多步执行流程。传统的大模型调用是一问一答，但有了LangGraph，Agent可以走一个"图"：先规划，再执行，中间可以调工具，判断结果，决定下一步走哪个分支，最后汇总输出。</p>
 
-<blockquote style="background: #fafafa; padding: 15px 20px; border-left: 4px solid #ddd; margin: 20px 0; font-size: 15px; color: #666; font-style: italic;">
-这正是我们要做的事情——把AI能力从一次性的Prompt消耗，升级为可管理的Skill资产。
-</blockquote>
+<p>这两个东西搭配起来什么效果？我给你们看一段核心代码，其实挺直观的：</p>
 
-<!-- 第三章 -->
-<h2 style="font-size: 18px; font-weight: bold; color: #1a1a1a; margin: 30px 0 15px; padding-left: 12px; border-left: 4px solid #2563eb;">
-三、产品——AI智能资产平台完整介绍
-</h2>
+<pre><code># Deep Agent SDK 创建Agent
+agent = create_deep_agent(
+    model=llm,                    # 通义千问 Plus/Max
+    tools=all_tools,              # Skill里定义的工具
+    system_prompt=full_prompt,    # 系统提示词
+)
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-基于上述思路，我们打造了<span style="color: #2563eb; font-weight: bold;">AI智能资产平台</span>。这是一套完整的产品体系，覆盖从架构规划到Skill交付的全链路。下面我们逐一介绍各个核心模块。
-</p>
+# LangGraph 流式执行
+async for chunk in agent.astream(input_data):
+    # 实时吐出内容给前端
+    yield chunk</code></pre>
 
-<!-- 3.1 -->
-<h3 style="font-size: 16px; font-weight: bold; color: #333; margin: 25px 0 12px;">
-3.1 业务架构树：顶层骨架
-</h3>
+<p>对，核心代码就这么几行。但真正难的是前面那些准备工作——怎么把用户的system prompt和Skill指令拼成完整的full_prompt，怎么把各种工具挂载上去，怎么处理对话历史，怎么做SSE流式输出。这些都在agent-runtime那一千多行代码里了。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-业务架构树是整个平台的骨架，采用四级架构体系：<span style="color: #2563eb; font-weight: bold;">L1业务域 → L2业务子域 → L3业务流程 → L4子流程/环节</span>。这套体系与华为流程架构标准对齐，确保企业级的流程治理能力。
-</p>
+<p>底座模型用的是<strong style="color:#10b981;">通义千问（百炼平台）</strong>，通过OpenAI兼容协议调用，支持qwen-turbo/plus/max三档切换。为什么选百炼？因为便宜，而且国内访问稳定。作为个人项目来说，这个性价比很重要。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-在交互设计上，我们采用了<span style="color: #2563eb; font-weight: bold;">左树右图</span>的布局方式：左侧是可编辑的架构树列表，右侧是实时同步的脑图可视化。用户在左侧进行任何编辑操作——增删节点、调整层级、拖拽排序——右侧脑图都会即时更新，形成所见即所得的体验。
-</p>
+<h2 style="font-size:18px;font-weight:bold;color:#1a1a1a;border-left:4px solid #10b981;padding-left:12px;margin:30px 0 15px;">三、这个平台到底能干什么？</h2>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-架构树的核心能力之一是<span style="color: #2563eb; font-weight: bold;">Skill覆盖度可视化</span>。我们用颜色深浅来映射覆盖率：深蓝色表示高覆盖，浅红色表示低覆盖。管理者一眼就能看清全局，哪些业务领域的Skill建设已经比较成熟，哪些还存在明显空白。
-</p>
+<p>光讲底层太干了，来点实际的。你可以理解成这是一个"Agent的创建和执行平台"，对标市面上那些AI Agent构建工具（比如Dify、Coze），但架构思路不太一样。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-覆盖率的计算采用<span style="color: #2563eb; font-weight: bold;">递进聚合</span>机制：末级节点是数据源，分子是已建Skill数量，分母是应建Skill数量；父节点则聚合所有后代节点的分子之和与分母之和，一直递进到根节点。这不是简单的百分比平均，而是分子分母的精确累加，确保统计口径的严谨性。
-</p>
+<h3 style="font-size:16px;font-weight:bold;color:#333;margin:20px 0 10px;">3.1 创建Agent：就像配一个"AI员工"</h3>
 
-<section style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">①</span> <strong>版本管理</strong>：架构树支持版本号机制，可以保存快照、切换历史版本、追溯演进过程。当架构发生重大调整时，历史版本不会丢失。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">②</span> <strong>全节点CRUD</strong>：每个节点都支持增删改操作，支持拖拽排序，操作流畅自然。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">③</span> <strong>详情面板</strong>：选中末级节点时，底部会展开详情面板，展示关联文件、关联Skill、覆盖率详情等完整信息。</p>
-</section>
+<p>打开"AI广场"，点击创建Agent，你会看到一个分三步的表单：</p>
 
-<!-- 3.2 -->
-<h3 style="font-size: 16px; font-weight: bold; color: #333; margin: 25px 0 12px;">
-3.2 流程画布：在架构上"建流程"
-</h3>
+<div class="infographic">
+<img src="/Users/Administrator/Desktop/skill-platform/screenshots/live_02_create_agent.png" style="width:100%;border-radius:12px;display:block;border:1px solid #e2e8f0;" alt="创建Agent - 三步配置表单"/>
+<p class="image-caption">图2：创建Agent——三步配置，先基础信息、再能力挂载、再高级参数</p>
+</div>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-流程画布是承接架构树的第二层能力，用于管理具体的业务流程。这里有一个关键的设计原则：<span style="color: #2563eb; font-weight: bold;">新建流程时必须选择架构节点</span>，而且只能选择末级节点（L4层）。这个强制约束确保了每一条流程都有明确的归属，不会成为"孤儿流程"。
-</p>
+<img id="steps-box" style="width:100%;display:block;margin:20px 0;" alt="三步创建Agent"/>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-每条流程卡片上都会清晰地展示其所属的架构路径，例如"法务管理 / 合同管理 / 合同审批流程"。这样即使流程数量很多，用户也能快速定位和理解每条流程的业务归属。
-</p>
+<p>保存之后，这个Agent就"上线"了。你可以在AI广场看到它，也可以直接点"对话"进去跟它聊天。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-流程画布支持多种内容形式：
-</p>
+<div class="infographic">
+<img src="/Users/Administrator/Desktop/skill-platform/screenshots/live_04_skill_market.png" style="width:100%;border-radius:12px;display:block;border:1px solid #e2e8f0;" alt="Skill市场 - 可挂载的能力模块"/>
+<p class="image-caption">图4：Skill市场——Agent可挂载的标准化能力模块</p>
+</div>
 
-<section style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">①</span> <strong>导入流程文件</strong>：支持上传SOP文档、流程图、操作手册等各类流程资料，系统会自动解析和关联。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">②</span> <strong>编写流程说明书</strong>：直接在平台内用文字描述流程的目标、范围、关键步骤，形成结构化的流程文档。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">③</span> <strong>双向关联</strong>：流程与架构树的关联是双向的——在架构树上能看到哪些节点已挂载流程，在流程画布上能看到所属架构位置。</p>
-</section>
+<p>这个设计其实挺产品经理思维的——我是一个PM的话，我怎么定义一个AI员工？先告诉他你是谁（System Prompt），再给你配工具（Skills），再给你参考资料（知识库），再决定要不要记住以前的对话（记忆开关）。这不就是 onboarding 一个新员工的逻辑吗？</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-这种双向关联的设计，让架构和流程形成有机整体，而不是两套独立的系统。管理者可以从架构视角俯瞰全局，也可以从流程视角深入细节。
-</p>
+<h3 style="font-size:16px;font-weight:bold;color:#333;margin:20px 0 10px;">3.2 对话与产物Canvas：不只是聊天</h3>
 
-<!-- 3.3 -->
-<h3 style="font-size: 16px; font-weight: bold; color: #333; margin: 25px 0 12px;">
-3.3 AI Skill规划：让LLM帮你盘点
-</h3>
+<p>对话界面长这样：左侧是正常的对话流，右侧是一个"产物画布"（我们叫Canvas）。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-这是平台最具创新性的能力之一。传统的Skill盘点依赖人工梳理，效率低、容易遗漏、且高度依赖个人经验。我们将这一过程升级为<span style="color: #2563eb; font-weight: bold;">AI辅助分析</span>。
-</p>
+<div class="infographic">
+<img src="/Users/Administrator/Desktop/skill-platform/screenshots/live_03_chat_canvas.png" style="width:100%;border-radius:12px;display:block;border:1px solid #e2e8f0;" alt="对话界面 - 与Agent聊天"/>
+<p class="image-caption">图3：对话界面——与Agent实时对话，支持模型切换</p>
+</div>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-操作流程非常简洁：用户选择目标架构节点后，系统自动加载该节点关联的流程文件和说明书。然后，平台调用大语言模型进行分析，系统内置了专业的提示词模板：
-</p>
+<p>为什么有Canvas？因为在真实工作场景中，你跟Agent聊天不只是为了聊天，而是要产出东西的。可能是它给你写了一段代码，可能是给你生成了一份分析报告，也可能是一个表格。这些东西不应该淹没在对话流里，得有个专门的区域来展示和操作。</p>
 
-<blockquote style="background: #fafafa; padding: 15px 20px; border-left: 4px solid #ddd; margin: 20px 0; font-size: 15px; color: #666; font-style: italic;">
-"你是一位流程管理专家，请基于以下业务流程信息，规划出该流程所需的核心Skill清单，包括名称、描述、适用场景、优先级。"
-</blockquote>
+<p>所以我们的设计是：AI回复中的代码块、表格，会被自动识别为"产物卡片"。点击卡片，右侧Canvas就会展开，支持预览模式和源码模式切换，中间的拖拽条还可以左右调整宽度。你甚至可以直接把产物下载成Word文档。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-LLM会根据流程内容自动输出Skill建议，结果以表格形式展示，用户可以勾选后一键导入到Skill管理模块。整个过程从分析到导入，可以在几分钟内完成。
-</p>
+<p>这个设计是我自己比较满意的一个产品细节。它解决了一个真实痛点——"AI说了很多，但我要的东西在哪里"。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-这里需要强调一点：<span style="color: #2563eb; font-weight: bold;">这不是"AI帮你写代码"，而是"AI帮你做流程分析"</span>。它体现的是咨询顾问的能力，而不是程序员的能力。AI在这个环节扮演的角色是业务分析师，帮助用户从流程文档中提炼出应该建设的Skill清单。
-</p>
+<h3 style="font-size:16px;font-weight:bold;color:#333;margin:20px 0 10px;">3.3 Skill体系：Agent的"可插拔能力"</h3>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-这一能力的价值在于：它让Skill盘点从"有经验的人才能做"变成了"所有人都能做"。即使是刚接手某个业务域的新人，也能借助AI快速完成Skill规划，而且质量有保障。
-</p>
+<p>Skill是这个平台最底层的能力单元。每个Skill本质上是一个遵循Anthropic SKILL.md标准的指令包。</p>
 
-<!-- 3.4 -->
-<h3 style="font-size: 16px; font-weight: bold; color: #333; margin: 25px 0 12px;">
-3.4 Skill编写工具：从规划到落地
-</h3>
+<p>一个Skill的目录结构是这样的：</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-完成Skill规划后，下一步是将规划转化为可执行的Skill。平台提供了完整的Skill编写工具，界面采用左右分栏设计：
-</p>
+<pre><code>skills/
+├── skill.yaml       # 元数据：名称、版本、作者
+├── SKILL.md         # 核心指令：告诉Agent怎么做
+├── tools/           # 工具函数（Python文件）
+└── templates/       # 输出模板</code></pre>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-<span style="color: #2563eb; font-weight: bold;">左栏是基本信息区</span>，包括Skill名称、类型（纯业务型/轻技术型/重技术型）、所属业务域、子域、详细描述等。这些信息用于Skill的分类管理和搜索发现。
-</p>
+<p>啊对，看到 skill.yaml 和 SKILL.md 这个结构，你是不是觉得眼熟？对，就是Anthropic当初提出的Skill标准格式。我们直接沿用了这个标准，因为不用自创一套。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-<span style="color: #2563eb; font-weight: bold;">右栏是Skill编辑器</span>，核心是Prompt编辑器，用户可以在这里编写完整的Skill指令。同时支持定义输入Schema和输出Schema（JSON格式），让Skill的接口规范化、可对接。
-</p>
+<p>平台内置了四个Skill：流程分析、数据分析、风险识别、报告生成。每个Skill都有自己的SKILL.md，里面写清楚了这个Skill擅长什么、怎么用、输入输出是什么。当Agent被创建时，选中的Skill会被加载到system prompt里，成为Agent能力的一部分。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-编辑器内置了<span style="color: #2563eb; font-weight: bold;">AI辅助生成</span>能力：用户只需填写Skill名称和描述，点击按钮后，AI会自动生成Prompt草稿。这大大降低了Skill编写的门槛，让业务人员也能快速产出高质量的Skill。
-</p>
+<p>运行时加载Skill的代码如下：</p>
 
-<section style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">①</span> <strong>适用组织范围</strong>：多选组织树节点，指定该Skill适用于哪些部门或团队。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">②</span> <strong>适用岗位范围</strong>：多选岗位Model，指定该Skill适用于哪些具体岗位。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">③</span> <strong>版本管理</strong>：每次修改都会生成新版本，支持版本回溯和变更日志追踪。</p>
-</section>
+<pre><code>for skill_name in selected_skills:
+    skill = loaded_skills[skill_name]
+    # 把SKILL.md内容塞进system prompt
+    prompts.append(
+        f"\n### Skill: {skill.name}\n{skill.instructions}"
+    )
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-这里有一个关键设计：<span style="color: #2563eb; font-weight: bold;">必须指定适用范围</span>。这确保了每个Skill从诞生之日起就有明确的归属和边界，不会成为"无主Skill"。这是治理无序建设问题的关键约束。
-</p>
+full_prompt = base_prompt + "\n".join(prompts)</code></pre>
 
-<!-- 3.5 -->
-<h3 style="font-size: 16px; font-weight: bold; color: #333; margin: 25px 0 12px;">
-3.5 安装与分发：Skill的流通机制
-</h3>
+<p>说白了就是这么回事——把Skill的指令文档拼到系统提示词里，Agent就知道了这个能力该怎么用。简单粗暴但有效。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-Skill建好之后，如何让它流通起来、被更多人使用？这就是安装与分发模块要解决的问题。
-</p>
+<h3 style="font-size:16px;font-weight:bold;color:#333;margin:20px 0 10px;">3.4 其他核心能力</h3>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-<span style="color: #2563eb; font-weight: bold;">Skill市场</span>是平台的核心枢纽，集中展示所有已发布的Skill。市场支持按业务域分类浏览，也支持关键词搜索。每个Skill卡片展示名称、描述、所属业务域、发布者、安装量等关键信息，用户可以快速评估是否适合自己的需求。
-</p>
+<img id="cap-box" style="width:100%;display:block;margin:20px 0;" alt="核心能力汇总"/>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-<span style="color: #2563eb; font-weight: bold;">安装机制</span>允许其他组织或岗位将Skill"安装"到自己的能力体系中。安装时需要选择目标组织和岗位，安装完成后，该Skill会自动出现在对应组织和岗位的能力清单中。
-</p>
+<h2 style="font-size:18px;font-weight:bold;color:#1a1a1a;border-left:4px solid #10b981;padding-left:12px;margin:30px 0 15px;">四、一个PM为什么要学AI Coding？</h2>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-这解决了一个关键问题：<span style="color: #2563eb; font-weight: bold;">Skill的跨组织复用</span>。好的Skill不应该被锁在一个团队里，而应该能够流通到所有需要它的地方。法务团队做的合同审核Skill，经过市场发布后，采购团队、销售团队都可以安装使用，避免重复建设。
-</p>
+<p>好，产品介绍完了，聊点私货。</p>
 
-<section style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">①</span> <strong>主动分发</strong>：Skill管理列表支持分发操作，Skill所有者可以主动将Skill推送给其他组织。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">②</span> <strong>安装状态追踪</strong>：平台记录每个Skill的安装历史，包括安装时间、安装组织、安装岗位等，形成完整的流通链路。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">③</span> <strong>版本同步</strong>：当Skill发布新版本时，已安装的组织会收到更新提醒，可以选择同步升级。</p>
-</section>
+<p>我本身是AI产品经理，不是工程师出身。以前我做产品就是画原型、写PRD、跟研发battle。代码？我不碰的。但2025年开始，AI Coding工具（Cursor、Claude、Copilot这些）的成熟度实在是到了一个拐点，我就想——要不我试试自己写？</p>
 
-<!-- 第四章 -->
-<h2 style="font-size: 18px; font-weight: bold; color: #1a1a1a; margin: 30px 0 15px; padding-left: 12px; border-left: 4px solid #2563eb;">
-四、先进性——为什么这是"产品级"而不是"PPT级"
-</h2>
+<p>但学AI Coding不能只学理论，你得有个够复杂的项目来练手。就像学游泳不能只在岸上比划，得下水。那下水就得选个水深一点的地方——所以我选了造一个端到端的AI智能体平台。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-市面上谈AI for Process的内容很多，但大多数停留在方法论或概念图谱层面。我们的AI智能资产平台与它们有本质区别：<span style="color: #2563eb; font-weight: bold;">这是一套已经上线、可以直接访问体验的完整产品。</span>
-</p>
+<p>为什么说它复杂？你看啊：</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-这不是方法论的图谱，而是可操作、可交互、有数据流转的真实产品。每一个功能都经过了完整的产品设计、交互开发和测试验证。用户可以立即上手使用，而不是看完文章后还要自己从零开始构建。
-</p>
+<ul>
+  <li>前端要写React交互，有路由、状态管理、Canvas分栏拖拽、SSE流式渲染</li>
+  <li>后端是NestJS + TypeORM + SQLite，有完整的CRUD和AI编排</li>
+  <li>Python运行时要用FastAPI + Deep Agent SDK + LangGraph</li>
+  <li>要跟百炼API对接，处理流式和非流式请求</li>
+  <li>前中后三层之间要做SSE通信</li>
+  <li>还要考虑Docker化部署、Cloudflare Pages、Railway</li>
+</ul>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-平台的先进性体现在以下几个方面：
-</p>
+<p>你看，前中后三层，三种语言（TypeScript、Python、JavaScript），三种框架（NestJS、FastAPI、React），还得对接大模型API。一个项目把前端、后端、AI、运维全串起来了。</p>
 
-<section style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">①</span> <strong>覆盖率体系</strong>让"Skill建设进度"第一次可量化。管理层终于能够清晰地回答"我们建了多少Skill、还差多少"这个关键问题。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">②</span> <strong>架构版本管理</strong>让演进过程有迹可循。每一次架构调整都有记录，可以回溯、可以对比、可以审计。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">③</span> <strong>AI规划能力</strong>让Skill盘点从"人工梳理"升级为"AI辅助分析"，效率和质量双重提升。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">④</span> <strong>安装分发机制</strong>让Skill能够真正流通，解决跨组织复用的难题。</p>
-</section>
+<img id="gold-1" style="width:100%;display:block;margin:20px 0;" alt="金句：从画PRD到写代码跑上线"/>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-对比行业现状：神州数码提出的AI for Process框架侧重咨询方法论，帮助企业理解"应该怎么做"；阿里云的Skill标准侧重开发者工具，帮助技术人员"怎么实现"。
-</p>
+<h2 style="font-size:18px;font-weight:bold;color:#1a1a1a;border-left:4px solid #10b981;padding-left:12px;margin:30px 0 15px;">五、对产品经理来说，AI Coding到底值不值？</h2>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-我们的定位不同：<span style="color: #2563eb; font-weight: bold;">这是一个面向业务管理者的产品化平台</span>。它不需要用户理解复杂的技术概念，也不需要编写代码。业务人员可以直接上手，完成从架构规划到Skill交付的全流程。
-</p>
+<p>这个话题可能是很多PM同行关心的。我说几个真实感受：</p>
 
-<!-- 第五章 -->
-<h2 style="font-size: 18px; font-weight: bold; color: #1a1a1a; margin: 30px 0 15px; padding-left: 12px; border-left: 4px solid #2563eb;">
-五、展望——AI智能资产的未来
-</h2>
+<p>第一，<strong style="color:#10b981;">AI Coding不是让你变成工程师，而是让你不再"被动"。</strong>以前我跟研发说"这个功能加一下"，对方说"做不了"，我就信了。现在我自己写一遍就知道到底做得了做不了，属于哪种做不了——是技术真不行、还是不想做、还是时间不够。这种判断力对PM来说价值巨大。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-当我们在架构树上看到覆盖率从0%逐步趋近100%，意味着这个组织的AI能力已经系统性地渗透到每一条业务流程。这是一个令人振奋的愿景，也是我们努力的方向。
-</p>
+<p>第二，<strong style="color:#10b981;">你能把产品的"最后一公里"走完。</strong>以前我做PM，产品交付到"PRD评审通过"就结束了。现在写代码、部署、上线、甚至写公众号宣传，整个链路我都能参与。这种完整感是做PM很难体会到的。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-平台的未来演进方向已经清晰：
-</p>
+<p>第三，<strong style="color:#10b981;">AI Coding的学习曲线确实陡，但没想象中那么可怕。</strong>尤其是有产品思维打底的情况下——你知道要做什么、为什么做、做成什么样算好。AI帮你解决的是"怎么写"的问题，而不需要AI帮你解决"是什么"的问题。后者才是PM的看家本领。</p>
 
-<section style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">①</span> <strong>Skill执行监控</strong>：追踪每个Skill的调用情况、成功率、响应时间，让运营数据可见。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">②</span> <strong>效果评估体系</strong>：建立Skill的效果评估机制，哪些Skill真正产生了价值、哪些需要优化，一目了然。</p>
-  <p style="margin: 10px 0; font-size: 15px;"><span style="color: #2563eb; font-weight: bold;">③</span> <strong>跨组织Skill市场</strong>：打破企业边界，建立更大范围的Skill流通生态。</p>
-</section>
+<p>当然，也有代价。我大概花了半年时间，每天下班后和周末都在写。中间踩了无数坑——LangGraph的图编排理解错了，SSE的格式搞反了，百炼的API认证一直报错，Docker镜像反复build了十几版。这些东西如果是工程师来做可能一两天就搞定了，我自己折腾可能要一两周。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-我们坚信一个核心理念：<span style="color: #2563eb; font-weight: bold;">AI能力的建设不应该是无序的——它需要被规划、被度量、被管理，就像任何一项企业资产一样。</span>
-</p>
+<p>但反过来想——如果我不学AI Coding，这些东西可能永远都不会在我的能力范围之内。现在我至少知道了整个链路是怎么回事，下次跟团队讨论的时候，我可以说人话、也可以说技术话。</p>
 
-<p style="font-size: 16px; color: #333; margin: 15px 0; text-align: justify; line-height: 2;">
-当AI从"工具"升级为"资产"，企业的AI建设才能真正进入可持续发展的轨道。这正是AI智能资产平台存在的意义。
-</p>
+<h2 style="font-size:18px;font-weight:bold;color:#1a1a1a;border-left:4px solid #10b981;padding-left:12px;margin:30px 0 15px;">六、未来规划：往"AI时代的流程引擎"走</h2>
 
-<!-- 结尾引导 -->
-<section style="background: #f8fafc; padding: 25px; border-radius: 8px; margin: 30px 0; border: 1px solid #e2e8f0;">
-<p style="font-size: 16px; color: #333; margin: 0 0 15px; text-align: center;">
-如果你也在思考如何系统性地构建组织的AI能力，<br/>欢迎体验AI智能资产平台。
-</p>
-</section>
+<p>虽然现在这个平台已经能用，但我心里清楚它还在早期。接下来几个方向是我比较在意的：</p>
+
+<img id="future-box" style="width:100%;display:block;margin:20px 0;" alt="未来规划"/>
+
+<p>当然，这些都是靠我一人之力慢慢磨。但说实话，我还挺享受这个过程的——因为每一步都有东西在学，每一个功能上线都有实实在在的成就感。</p>
+
+<!-- 结尾 -->
+<img id="gold-2" style="width:100%;display:block;margin:30px 0;" alt="结尾金句"/>
 
 <!-- 产品链接 -->
-<section style="text-align: center; padding: 20px; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border-radius: 8px; margin-top: 30px;">
-  <p style="color: #fff; font-size: 16px; margin: 0 0 10px; font-weight: bold;">产品体验地址</p>
-  <p style="color: #fff; font-size: 14px; margin: 0;">https://skill-platform.pages.dev</p>
-</section>
+<div class="cta-box">
+  <p style="margin-bottom:8px;font-weight:bold;">在线体验</p>
+  <p>https://e2eai.pages.dev</p>
+</div>
 
-<!-- 结束语 -->
-<p style="font-size: 14px; color: #999; margin: 30px 0 0; text-align: center;">
-—— 完 ——
-</p>
+<p style="font-size:14px;color:#999;margin:30px 0 0;text-align:center;">—— 完 ——</p>
 
-</section>
+</div><!-- end article-content -->
+
+<button class="copy-btn" onclick="copyArticle()">📋 一键复制全文</button>
+<div class="toast" id="toast">✅ 已复制到剪贴板</div>
+
+<script>
+// ===== DPR=3 Canvas渲染工具 =====
+const DPR = 3;
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function canvasToPng(drawFn, elId, W, H) {
+  var c = document.createElement('canvas');
+  c.width = W * DPR;
+  c.height = H * DPR;
+  var ctx = c.getContext('2d');
+  ctx.scale(DPR, DPR);
+  drawFn(ctx, W, H);
+  document.getElementById(elId).src = c.toDataURL('image/png', 1.0);
+}
+
+// ===== 头图 =====
+function drawHeader(ctx, W, H) {
+  var g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#10b981'); g.addColorStop(0.5, '#059669'); g.addColorStop(1, '#047857');
+  ctx.fillStyle = g; roundRect(ctx, 0, 0, W, H, 16); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+  ctx.font = 'bold 28px "PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('端到端 AI 智能体平台', W/2, 70);
+  ctx.font = '18px "PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillText('Deep Agent SDK + LangGraph + 百炼模型', W/2, 110);
+  ctx.font = '15px "PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.fillText('一个AI产品经理的自学练手项目', W/2, 148);
+}
+
+// ===== 导语金句 =====
+function drawGold(ctx, W, H) {
+  var g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#f0fdf4'); g.addColorStop(1, '#d1fae5');
+  ctx.fillStyle = g; roundRect(ctx, 0, 0, W, H, 12); ctx.fill();
+  ctx.strokeStyle = '#a7f3d0'; ctx.lineWidth = 1.5;
+  roundRect(ctx, 0, 0, W, H, 12); ctx.stroke();
+  ctx.fillStyle = '#065f46'; ctx.textAlign = 'left';
+  ctx.font = '16px "PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('一个做产品出身的人，靠AI Coding把整套东西从零搭出来。', 20, 35);
+  ctx.fillText('前端React + 后端NestJS + Python Agent Runtime + Cloudflare上线', 20, 65);
+  ctx.fillText('—— 整个链路跑通了。就当个复盘吧。', 20, 95);
+}
+
+// ===== 三层架构图 =====
+function drawArch(ctx, W, H) {
+  ctx.fillStyle = '#f0fdf4'; roundRect(ctx, 10, 0, W-20, H, 12); ctx.fill();
+  var colors = ['#10b981','#059669','#047857'];
+  var labels = [
+    ['前端层 (React)', 'Agent创建 / 对话界面 / 产物Canvas'],
+    ['中间层 (NestJS)', 'Agent管理 / 对话编排 / Skill管理'],
+    ['运行时层 (Python)', 'Deep Agent SDK + LangGraph + 百炼模型']
+  ];
+  var y = 15; var h = 42;
+  for (var i = 0; i < 3; i++) {
+    ctx.fillStyle = colors[i]; roundRect(ctx, 30, y, W-60, h, 8); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+    ctx.font = 'bold 14px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(labels[i][0], 44, y + 18);
+    ctx.font = '12px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText(labels[i][1], 44, y + 34);
+    y += h + 8;
+  }
+}
+
+// ===== 三步创建 =====
+function drawSteps(ctx, W, H) {
+  ctx.fillStyle = '#fafafa'; roundRect(ctx, 10, 0, W-20, H, 12); ctx.fill();
+  ctx.strokeStyle = '#e8e8e8'; ctx.lineWidth = 1;
+  roundRect(ctx, 10, 0, W-20, H, 12); ctx.stroke();
+  var steps = [
+    ['1', '基础配置', '取个名字，写段描述，选个模型，写System Prompt'],
+    ['2', '能力配置', '挂载Skill模块和知识库，就像给员工配工具和资料'],
+    ['3', '高级设置', '是否开启长期记忆、温度参数、最大输出长度']
+  ];
+  var y = 14;
+  steps.forEach(function(s) {
+    ctx.fillStyle = '#10b981';
+    ctx.beginPath(); ctx.arc(38, y+18, 14, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+    ctx.font = 'bold 14px sans-serif'; ctx.fillText(s[0], 38, y+23);
+    ctx.fillStyle = '#1a1a1a'; ctx.textAlign = 'left';
+    ctx.font = 'bold 14px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(s[1], 64, y+16);
+    ctx.fillStyle = '#666'; ctx.font = '13px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(s[2], 64, y+34);
+    y += 52;
+  });
+}
+
+// ===== 核心能力汇总 =====
+function drawCap(ctx, W, H) {
+  ctx.fillStyle = '#fafafa'; roundRect(ctx, 10, 0, W-20, H, 12); ctx.fill();
+  var items = [
+    ['🧠 Planning', '任务分解与追踪 — 复杂任务自动拆成子任务清单'],
+    ['📝 Long-term Memory', '跨会话持久记忆 — 记住你的偏好和历史'],
+    ['📚 知识库挂载', '流程知识库/产品文档/规章制度一键关联'],
+    ['💬 多会话管理', '多个对话窗口，各自上下文隔离互不影响'],
+    ['⚡ SSE流式输出', '实时推送到前端，不卡不等']
+  ];
+  var y = 12;
+  items.forEach(function(item) {
+    ctx.fillStyle = '#10b981'; ctx.textAlign = 'left';
+    ctx.font = 'bold 13px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(item[0], 24, y+16);
+    ctx.fillStyle = '#555';
+    ctx.font = '13px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(item[1], 150, y+16);
+    y += 32;
+  });
+}
+
+// ===== 金句块 =====
+function drawQuot(ctx, W, H, lines) {
+  var g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#f0fdf4'); g.addColorStop(1, '#d1fae5');
+  ctx.fillStyle = g; roundRect(ctx, 0, 0, W, H, 12); ctx.fill();
+  ctx.strokeStyle = '#a7f3d0'; ctx.lineWidth = 1.5;
+  roundRect(ctx, 0, 0, W, H, 12); ctx.stroke();
+  ctx.fillStyle = '#065f46'; ctx.textAlign = 'center';
+  ctx.font = 'bold 16px "PingFang SC","Microsoft YaHei",sans-serif';
+  lines.forEach(function(line, i) {
+    ctx.fillText(line, W/2, H/2 - (lines.length-1)*12 + i*28);
+  });
+}
+
+// ===== 未来规划 =====
+function drawFuture(ctx, W, H) {
+  ctx.fillStyle = '#fafafa'; roundRect(ctx, 10, 0, W-20, H, 12); ctx.fill();
+  var items = [
+    ['①', '流程设计与编排', '拖拽出流程图，Agent按节点串并行执行'],
+    ['②', '云端+本地协同', 'Agent可跑在云端也可部署到本地，数据同步'],
+    ['③', 'Agent效果评估', '准确率、完成率、用户满意度量化打分'],
+    ['④', 'Skill生态市场', '社区贡献和分享Skill，平台变分发中心']
+  ];
+  var y = 14;
+  items.forEach(function(item) {
+    ctx.fillStyle = '#10b981'; ctx.textAlign = 'left';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText(item[0], 24, y+18);
+    ctx.fillStyle = '#1a1a1a';
+    ctx.font = 'bold 14px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(item[1], 52, y+18);
+    ctx.fillStyle = '#666';
+    ctx.font = '13px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(item[2], 52, y+36);
+    y += 52;
+  });
+}
+
+// ===== 统一渲染 =====
+window.addEventListener('DOMContentLoaded', function() {
+  canvasToPng(drawHeader, 'header-img', 660, 180);
+  canvasToPng(drawGold, 'gold-0', 660, 110);
+  canvasToPng(drawArch, 'arch-box', 660, 156);
+  canvasToPng(drawSteps, 'steps-box', 660, 175);
+  canvasToPng(drawCap, 'cap-box', 660, 170);
+  canvasToPng(function(ctx, W, H) {
+    drawQuot(ctx, W, H, ['从"画PRD"到"写代码跑上线"的全链路打通。', '事实证明，可以。']);
+  }, 'gold-1', 660, 85);
+  canvasToPng(drawFuture, 'future-box', 660, 225);
+  canvasToPng(function(ctx, W, H) {
+    drawQuot(ctx, W, H, [
+      'AI Coding这东西，最好的学习方法就是——',
+      '别学了，直接做。'
+    ]);
+  }, 'gold-2', 660, 85);
+});
+
+// ===== 一键复制 =====
+function copyArticle() {
+  var article = document.getElementById('article-content');
+  var range = document.createRange();
+  range.selectNode(article);
+  var sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  try {
+    document.execCommand('copy');
+    var toast = document.getElementById('toast');
+    toast.classList.add('show');
+    setTimeout(function() { toast.classList.remove('show'); }, 2500);
+  } catch(e) {
+    alert('请手动 Ctrl+A 全选后复制');
+  }
+  sel.removeAllRanges();
+}
+</script>
+
 </body>
 </html>

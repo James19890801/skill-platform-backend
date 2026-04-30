@@ -139,19 +139,46 @@ async def chat(request: ChatRequest):
     支持流式和非流式输出
     """
     runtime = get_runtime()
+    session_manager = get_session_manager()
+    
+    # 确保会话存在并获取历史上下文
+    session = session_manager.ensure_session_for_thread(
+        thread_id=request.thread_id,
+        model=request.model or settings.default_model,
+    )
+    history = session_manager.get_history(session.session_id)
     
     if request.model:
         runtime.model = request.model
+    
+    # 先保存用户消息
+    session_manager.add_message(
+        session_id=session.session_id,
+        role="user",
+        content=request.message,
+        metadata={"model": request.model or settings.default_model},
+    )
     
     try:
         if request.stream:
             # 流式输出
             async def generate():
-                async for chunk in runtime.run(
+                full_response = ""
+                async for chunk in runtime.run_stream(
                     thread_id=request.thread_id,
                     user_input=request.message,
-                    stream=True,
+                    history=history,
                 ):
+                    # 收集完整响应用于保存
+                    if isinstance(chunk, dict) and chunk.get("type") == "content":
+                        full_response += chunk.get("content", "")
+                    elif isinstance(chunk, dict) and chunk.get("type") == "done":
+                        if full_response:
+                            session_manager.add_message(
+                                session_id=session.session_id,
+                                role="assistant",
+                                content=full_response,
+                            )
                     # 解析 chunk 并格式化
                     yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
@@ -165,12 +192,23 @@ async def chat(request: ChatRequest):
             result = await runtime.run(
                 thread_id=request.thread_id,
                 user_input=request.message,
+                history=history,
                 stream=False,
             )
             
+            result_str = str(result)
+            
+            # 保存助手回复
+            if result_str:
+                session_manager.add_message(
+                    session_id=session.session_id,
+                    role="assistant",
+                    content=result_str,
+                )
+            
             return ChatResponse(
                 thread_id=request.thread_id,
-                response=str(result),
+                response=result_str,
                 metadata={"model": runtime.model},
             )
     except Exception as e:
@@ -185,6 +223,14 @@ async def chat_v2(request: ChatRequest):
     用于测试百炼 API 流式输出，无需 Deep Agent SDK
     """
     chat_service = get_chat_service()
+    session_manager = get_session_manager()
+    
+    # 确保会话存在并获取历史上下文
+    session = session_manager.ensure_session_for_thread(
+        thread_id=request.thread_id,
+        model=request.model or settings.default_model,
+    )
+    history = session_manager.get_history(session.session_id)
     
     # 系统提示
     system_prompt = """你是一个智能流程自动化助手，具备以下核心能力：
@@ -201,16 +247,36 @@ async def chat_v2(request: ChatRequest):
 - 及时总结和汇报
 """
     
+    # 先保存用户消息
+    session_manager.add_message(
+        session_id=session.session_id,
+        role="user",
+        content=request.message,
+        metadata={"model": request.model or settings.default_model},
+    )
+    
     try:
         if request.stream:
             # 流式输出
             async def generate():
+                full_response = ""
                 async for chunk in chat_service.chat(
                     message=request.message,
                     model=request.model,
                     system_prompt=system_prompt,
+                    history=history,
                     stream=True,
                 ):
+                    if chunk.get("type") == "content":
+                        full_response += chunk.get("content", "")
+                    elif chunk.get("type") == "done":
+                        # 流结束，保存助手回复
+                        if full_response:
+                            session_manager.add_message(
+                                session_id=session.session_id,
+                                role="assistant",
+                                content=full_response,
+                            )
                     yield chat_service.format_sse(chunk)
             
             return StreamingResponse(
@@ -224,10 +290,19 @@ async def chat_v2(request: ChatRequest):
                 message=request.message,
                 model=request.model,
                 system_prompt=system_prompt,
+                history=history,
                 stream=False,
             ):
                 if chunk.get("type") == "content":
                     full_content += chunk.get("content", "")
+            
+            # 保存助手回复
+            if full_content:
+                session_manager.add_message(
+                    session_id=session.session_id,
+                    role="assistant",
+                    content=full_content,
+                )
             
             return ChatResponse(
                 thread_id=request.thread_id,
@@ -390,6 +465,90 @@ async def clear_tasks():
     planning = get_planning_tool()
     planning.clear_tasks()
     return {"success": True, "message": "所有任务已清空"}
+
+
+# ============ Document Generation API ============
+
+class GenerateDocxRequest(BaseModel):
+    """生成 Word 文档请求"""
+    title: str = "文档"
+    sections: List[Dict[str, Any]] = []
+    process_data: Optional[Dict[str, Any]] = None
+    process_name: Optional[str] = None
+    doc_type: str = "report"  # "report" or "process"
+
+
+@ app.post("/tools/generate-docx")
+async def generate_docx(request: GenerateDocxRequest):
+    """
+    生成 Word 文档
+    
+    - doc_type="report": 使用 sections 参数生成报告文档
+    - doc_type="process": 使用 process_data 和 process_name 生成流程文档
+    """
+    from tools.document_generator import (
+        generate_report_document,
+        generate_process_document,
+    )
+    
+    try:
+        if request.doc_type == "process" and request.process_data:
+            filepath = generate_process_document(
+                process_name=request.process_name or request.title,
+                process_data=request.process_data,
+            )
+        else:
+            filepath = generate_report_document(
+                title=request.title,
+                sections=request.sections,
+            )
+        
+        filename = os.path.basename(filepath)
+        
+        return {
+            "success": True,
+            "filename": filename,
+            "path": filepath,
+            "download_url": f"/tools/download/{filename}",
+            "message": f"文档已生成: {filename}",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@ app.get("/tools/download/{filename}")
+async def download_docx(filename: str):
+    """下载生成的文档"""
+    from tools.document_generator import DOCUMENTS_OUTPUT_DIR
+    
+    # 安全检查：防止路径穿越
+    safe_filename = os.path.basename(filename)
+    filepath = os.path.join(DOCUMENTS_OUTPUT_DIR, safe_filename)
+    
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail=f"文件不存在: {safe_filename}")
+    
+    # 根据扩展名设置 Content-Type
+    ext = os.path.splitext(safe_filename)[1].lower()
+    media_types = {
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        path=filepath,
+        filename=safe_filename,
+        media_type=media_types.get(ext, "application/octet-stream"),
+    )
+
+
+@ app.get("/tools/documents")
+async def list_documents():
+    """列出已生成的文档"""
+    from tools.document_generator import list_generated_docs
+    docs = list_generated_docs()
+    return {"documents": docs, "total": len(docs)}
 
 
 # ============ Session API ============
