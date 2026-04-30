@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import OpenAI from 'openai';
+import { Agent } from '../entities/agent.entity';
+import { Skill } from '../entities/skill.entity';
 
 export interface ProcessFileInfo {
   name: string;
@@ -152,7 +156,12 @@ export class AiService {
   private client: OpenAI;
   private readonly model = 'qwen-plus';
 
-  constructor() {
+  constructor(
+    @InjectRepository(Agent)
+    private agentRepository: Repository<Agent>,
+    @InjectRepository(Skill)
+    private skillRepository: Repository<Skill>,
+  ) {
     this.client = new OpenAI({
       apiKey: process.env.QWEN_API_KEY || 'sk-35e6ff25e8a149d79b54d2656c107e98',
       baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -283,6 +292,8 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
   /**
    * AI 对话流式输出
    * 支持传递 agent 系统提示词和 skills 上下文
+   * - 若 agentId 提供，从数据库加载 agent 的真实 systemPrompt 和关联 skills
+   * - 若 skills 提供，查找对应的 Skill 定义注入到系统提示中
    */
   async chatStream(
     message: string,
@@ -291,9 +302,49 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     agentId?: number,
     skills?: string[],
   ): Promise<string> {
-    const systemPrompt = agentId
-      ? `你是一个智能助手，根据用户的 Agent 配置回答用户的问题。`
-      : `你是一个智能流程自动化助手，具备规划、分析和执行能力。`;
+    let systemPrompt: string;
+
+    if (agentId) {
+      try {
+        const agent = await this.agentRepository.findOne({ where: { id: agentId } });
+        if (agent) {
+          // 使用 Agent 的真实系统提示词
+          systemPrompt = agent.systemPrompt || `你是一个智能助手，名称是「${agent.name}」，根据用户的指令提供帮助。`;
+
+          // 如果有关联的 skills，加载 skill 定义并注入到系统提示中
+          const agentSkills: string[] = agent.skills
+            ? (typeof agent.skills === 'string' ? JSON.parse(agent.skills) : agent.skills)
+            : (skills || []);
+
+          if (agentSkills.length > 0) {
+            // 从数据库中查询这些 Skill 的详细定义
+            const skillDefs = await this.skillRepository
+              .createQueryBuilder('skill')
+              .where('skill.name IN (:...names)', { names: agentSkills })
+              .getMany();
+
+            if (skillDefs.length > 0) {
+              const skillsContext = skillDefs.map((s) => {
+                const parts = [`### ${s.name}`];
+                if (s.description) parts.push(`描述: ${s.description}`);
+                if (s.agentPrompt) parts.push(`Prompt: ${s.agentPrompt}`);
+                if (s.toolDefinition) parts.push(`工具定义: ${s.toolDefinition}`);
+                return parts.join('\n');
+              }).join('\n\n');
+
+              systemPrompt += `\n\n你拥有以下可用工具技能，根据用户需求选择合适的技能来使用：\n\n${skillsContext}`;
+            }
+          }
+        } else {
+          systemPrompt = '你是一个智能助手，帮助用户完成各种任务。';
+        }
+      } catch (err) {
+        this.logger.error(`Failed to load agent #${agentId}:`, err);
+        systemPrompt = '你是一个智能助手，帮助用户完成各种任务。';
+      }
+    } else {
+      systemPrompt = `你是一个智能流程自动化助手，具备规划、分析和执行能力。`;
+    }
 
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
