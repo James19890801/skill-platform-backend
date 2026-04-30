@@ -1,5 +1,6 @@
-import { Controller, Post, Get, Body, Query, Res, HttpException, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBody, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { Controller, Post, Body, Res, HttpException, HttpStatus } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
+import { IsString, IsOptional, IsNumber, IsBoolean, IsArray } from 'class-validator';
 import { Response } from 'express';
 import { AiService, PlanSkillsInput, PlannedSkill, ProcessFileInfo } from './ai.service';
 
@@ -24,11 +25,26 @@ class PlanSkillsResponse {
 
 // Chat 请求 DTO
 class ChatDto {
+  @IsString()
   thread_id: string;
+
+  @IsString()
   message: string;
+
+  @IsOptional()
+  @IsString()
   model?: string;
+
+  @IsOptional()
+  @IsNumber()
   agentId?: number;
+
+  @IsOptional()
+  @IsArray()
   skills?: string[];
+
+  @IsOptional()
+  @IsBoolean()
   stream?: boolean;
 }
 
