@@ -46,6 +46,8 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
 import MermaidRenderer from '../../components/MermaidRenderer';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const { TextArea } = Input;
 const { Text, Title } = Typography;
@@ -207,62 +209,7 @@ const AgentChatCanvas: React.FC = () => {
       .trim();
   };
 
-  // ★ 判断是否是标准 markdown 表格（有分隔行）
-  const isMarkdownTable = (block: string): boolean => {
-    const lines = block.trim().split('\n').filter(l => l.trim().length > 0);
-    if (lines.length < 2) return false;
-    // 第一行必须是 | 开头 | 结尾
-    if (!/^\|.*\|$/.test(lines[0].trim())) return false;
-    // 第二行必须是分隔线（包含 ---）
-    if (!/^\|[-:\s|]+\|$/.test(lines[1].trim())) return false;
-    return true;
-  };
-
-  // ★ 渲染 Markdown 表格为 HTML table
-  const renderMarkdownTable = (key: number, tableLines: string[]) => {
-    const parseRow = (line: string) =>
-      line.split('|').filter((_, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim());
-
-    const headers = tableLines.length > 0 ? parseRow(tableLines[0]) : [];
-    const dataRows = tableLines.slice(2).map(parseRow);
-
-    return (
-      <div key={key} style={{ overflowX: 'auto', marginBottom: 12 }}>
-        <table style={{
-          width: '100%', borderCollapse: 'collapse', fontSize: 13,
-          border: '1px solid #e2e8f0', borderRadius: 6,
-        }}>
-          <thead>
-            <tr style={{ background: '#f1f5f9' }}>
-              {headers.map((h, i) => (
-                <th key={i} style={{
-                  padding: '8px 12px', borderBottom: '2px solid #e2e8f0',
-                  textAlign: 'left', fontWeight: 600, whiteSpace: 'nowrap',
-                }}>
-                  {cleanText(h)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {dataRows.map((row, ri) => (
-              <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#fafafa' }}>
-                {row.map((cell, ci) => (
-                  <td key={ci} style={{
-                    padding: '6px 12px', borderBottom: '1px solid #e2e8f0',
-                  }}>
-                    {cleanText(cell)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-
-  // ★ 渲染消息内容
+  // ★ 渲染消息内容（基于 react-markdown，支持表格、Mermaid、代码块）
   const renderMessageContent = (msg: Message) => {
     const artifacts: JSX.Element[] = [];
   
@@ -270,7 +217,6 @@ const AgentChatCanvas: React.FC = () => {
       msg.artifacts.forEach((artifact) => {
         if (artifact.type === 'table') return;
           
-        // Mermaid 代码块产物：标记为 mermaid 类型以便 inline 渲染
         const isMermaid = artifact.type === 'code' && isMermaidCode(artifact.content);
 
         artifacts.push(
@@ -349,153 +295,77 @@ const AgentChatCanvas: React.FC = () => {
       });
     }
 
-    // ★ 渲染内容：全面改写 - 逐行扫描，不依赖空行分隔
-    const renderContentWithTables = (rawContent: string) => {
-      const elements: JSX.Element[] = [];
-      let key = 0;
+    // 预处理：清理 <br> 标签（ReactMarkdown 自动处理其余所有 GFM 格式）
+    const preprocessed = msg.content.replace(/<br\s*\/?>/gi, '\n');
 
-      // 预处理：将 <br> 转换为换行
-      let content = rawContent.replace(/<br\s*\/?>/gi, '\n');
-
-      const lines = content.split('\n');
-      let i = 0;
-
-      while (i < lines.length) {
-        const line = lines[i];
-
-        // 跳过空行
-        if (line.trim() === '') {
-          i++;
-          continue;
-        }
-
-        // === 1. HTML 表格 <table>...</table> ===
-        if (/<table/i.test(line)) {
-          const tableLines: string[] = [line];
-          i++;
-          while (i < lines.length && !/<\/table>/i.test(lines[i])) {
-            tableLines.push(lines[i]);
-            i++;
-          }
-          if (i < lines.length) {
-            tableLines.push(lines[i]);
-            i++;
-          }
-          elements.push(
-            <div key={key++} style={{ overflowX: 'auto', marginBottom: 12 }}>
-              <div dangerouslySetInnerHTML={{ __html: tableLines.join('\n') }} />
+    // ReactMarkdown 自定义组件：渲染表格/Mermaid/代码块
+    const renderContent = (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          table: ({ children }) => (
+            <div style={{ overflowX: 'auto', marginBottom: 12 }}>
+              <table style={{
+                width: '100%', borderCollapse: 'collapse', fontSize: 13,
+                border: '1px solid #e2e8f0', borderRadius: 6,
+              }}>
+                {children}
+              </table>
             </div>
-          );
-          continue;
-        }
-
-        // === 2. Markdown 表格 ===
-        if (/^\|.*\|$/.test(line.trim()) && i + 1 < lines.length && /^\|[-:\s|]+\|$/.test(lines[i + 1].trim())) {
-          const tableLines: string[] = [];
-          while (i < lines.length && /^\|.*\|$/.test(lines[i].trim())) {
-            tableLines.push(lines[i]);
-            i++;
-          }
-          if (tableLines.length >= 2) {
-            elements.push(renderMarkdownTable(key++, tableLines));
-          }
-          continue;
-        }
-
-        // === 3. 代码块 ```...``` ===
-        if (/^```/.test(line.trim())) {
-          const codeLines: string[] = [];
-          i++;
-          while (i < lines.length && !/^```/.test(lines[i].trim())) {
-            codeLines.push(lines[i]);
-            i++;
-          }
-          if (i < lines.length) i++;
-
-          const codeContent = codeLines.join('\n').trim();
-
-          if (codeContent) {
+          ),
+          thead: ({ children }) => <thead style={{ background: '#f1f5f9' }}>{children}</thead>,
+          th: ({ children }) => (
+            <th style={{
+              padding: '8px 12px', borderBottom: '2px solid #e2e8f0',
+              textAlign: 'left', fontWeight: 600, whiteSpace: 'nowrap',
+            }}>
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td style={{ padding: '6px 12px', borderBottom: '1px solid #e2e8f0' }}>
+              {children}
+            </td>
+          ),
+          code: ({ className, children, ...props }) => {
+            const isInline = !className;
+            if (isInline) {
+              return <code style={{ background: '#f0f0f0', padding: '2px 6px', borderRadius: 4, fontSize: '0.9em' }}>{children}</code>;
+            }
+            const codeContent = String(children).replace(/\n$/, '');
             if (isMermaidCode(codeContent)) {
-              elements.push(
-                <div key={key++} style={{ marginBottom: 12 }}>
+              return (
+                <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#6366f1', marginBottom: 8 }}>
                     📊 流程图
                   </div>
-                  <MermaidRenderer chart={codeContent} id={`mr-${key}`} />
+                  <MermaidRenderer chart={codeContent} id={`md-mermaid-${Math.random().toString(36).slice(2, 8)}`} />
                 </div>
               );
-            } else {
-              elements.push(
-                <pre key={key++} style={{
-                  background: '#1e1e1e', color: '#d4d4d4', borderRadius: 8,
-                  padding: 12, fontSize: 12, overflow: 'auto', lineHeight: 1.5, marginBottom: 12,
-                }}>
-                  <code>{codeContent}</code>
-                </pre>
-              );
             }
-          }
-          continue;
-        }
-
-        // === 4. 普通文本 ===
-        const textLines: string[] = [];
-        while (i < lines.length) {
-          const currentLine = lines[i];
-          const trimmed = currentLine.trim();
-
-          if (trimmed === '' ||
-              /^```/.test(trimmed) ||
-              (/^\|.*\|$/.test(trimmed) && i + 1 < lines.length && /^\|[-:\s|]+\|$/.test(lines[i + 1].trim())) ||
-              /<table/i.test(trimmed)) {
-            break;
-          }
-          textLines.push(currentLine);
-          i++;
-        }
-
-        if (textLines.length > 0) {
-          const cleanedPara = textLines
-            .join('\n')
-            .replace(/<\/?[a-zA-Z][^>]*>/g, '')
-            .replace(/\|/g, '')
-            .replace(/\*\*(.*?)\*\*/g, '$1')
-            .replace(/\*(.*?)\*/g, '$1')
-            .replace(/`([^`]+)`/g, '$1')
-            .replace(/^#+\s+/gm, '')
-            .replace(/^\s*[-*+]\s+/gm, '• ')
-            .replace(/^\s*\d+\.\s+/gm, '')
-            .replace(/[○●◆◇]/g, '')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .trim();
-
-          if (cleanedPara) {
-            elements.push(
-              <Text key={key++} style={{ whiteSpace: 'pre-wrap', display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
-                {cleanedPara}
-              </Text>
+            return (
+              <pre style={{
+                background: '#1e1e1e', color: '#d4d4d4', borderRadius: 8,
+                padding: 12, fontSize: 12, overflow: 'auto', lineHeight: 1.5, marginBottom: 12,
+              }}>
+                <code>{codeContent}</code>
+              </pre>
             );
-          }
-        }
-      }
-
-      if (elements.length === 0 && content.trim()) {
-        elements.push(
-          <Text key="fallback" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-            {cleanText(content)}
-          </Text>
-        );
-      }
-
-      return elements;
-    };
+          },
+          p: ({ children }) => (
+            <Text style={{ whiteSpace: 'pre-wrap', display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
+              {children}
+            </Text>
+          ),
+        }}
+      >
+        {preprocessed}
+      </ReactMarkdown>
+    );
   
     return (
       <div>
-        {renderContentWithTables(msg.content)}
+        {renderContent}
         {artifacts}
         {/* 下载 Word 按钮 */}
         {msg.role === 'assistant' && msg.content.trim() && (

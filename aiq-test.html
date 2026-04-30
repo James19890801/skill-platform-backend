@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>AIQ 自测 - 你的AI商有多高？</title>
+<style>
+:root {
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --primary-light: #3b82f6;
+  --primary-bg: #eff6ff;
+  --accent-purple: #8b5cf6;
+  --accent-pink: #db2777;
+  --accent-amber: #f59e0b;
+  --accent-green: #10b981;
+  --bg-main: #f0f4f8;
+  --bg-card: #ffffff;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --border: #e2e8f0;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+  --radius: 16px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
+  --safe-bottom: env(safe-area-inset-bottom, 16px);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  background: var(--bg-main);
+  color: var(--text-primary);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+.page { display: none; min-height: 100vh; }
+.page.active { display: flex; flex-direction: column; }
+@keyframes fadeIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: none; } }
+.fade-in { animation: fadeIn .35s ease; }
+
+/* ===== 欢迎页 ===== */
+#page-welcome { align-items: center; justify-content: center; padding: 24px 16px; }
+.welcome-hero {
+  text-align: center; width: 100%; max-width: 400px;
+}
+.welcome-icon {
+  width: 72px; height: 72px; margin: 0 auto 20px;
+  background: linear-gradient(135deg, var(--primary), var(--accent-purple));
+  border-radius: 20px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 32px; color: #fff;
+  box-shadow: 0 8px 24px rgba(37,99,235,0.25);
+}
+.welcome-title { font-size: 26px; font-weight: 700; margin-bottom: 8px; }
+.welcome-sub { font-size: 14px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 24px; }
+.welcome-dims {
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 28px;
+}
+.dim-tag {
+  padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 500;
+  border: 1.5px solid; background: rgba(37,99,235,0.06);
+}
+.welcome-form { width: 100%; max-width: 400px; }
+.form-group { margin-bottom: 16px; }
+.form-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; display: block; }
+.form-input {
+  width: 100%; padding: 14px 16px;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 15px; outline: none; transition: border .2s;
+  font-family: inherit;
+}
+.form-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.btn {
+  display: block; width: 100%; padding: 14px; border: none; border-radius: var(--radius-sm);
+  font-size: 16px; font-weight: 600; cursor: pointer; transition: all .2s;
+  font-family: inherit; text-align: center;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff; box-shadow: 0 4px 14px rgba(37,99,235,0.3);
+}
+.btn-primary:active { transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn-ghost {
+  background: transparent; color: var(--text-secondary);
+  border: 1.5px solid var(--border);
+}
+.btn-ghost:active { background: var(--bg-main); }
+
+/* ===== 答题页 ===== */
+.quiz-header {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--bg-card); padding: 16px 20px 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.quiz-header-top {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+}
+.quiz-progress { font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+.quiz-dim-badge {
+  font-size: 11px; padding: 3px 10px; border-radius: 20px;
+  border: 1px solid var(--primary); color: var(--primary); background: var(--primary-bg);
+  font-weight: 600;
+}
+.progress-track { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.progress-fill {
+  height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, var(--primary), var(--primary-light));
+  transition: width .4s ease;
+}
+.quiz-body { flex: 1; padding: 16px; max-width: 520px; margin: 0 auto; width: 100%; }
+.question-card {
+  background: var(--bg-card); border-radius: var(--radius);
+  padding: 24px 20px; margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+.question-num { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+.question-text {
+  font-size: 16px; line-height: 1.7; font-weight: 500;
+  color: var(--text-primary); margin-bottom: 20px;
+}
+.options-list { display: flex; flex-direction: column; gap: 10px; }
+.option-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  cursor: pointer; transition: all .2s;
+  background: var(--bg-card);
+}
+.option-item:active { transform: scale(0.99); }
+.option-item:hover { border-color: var(--primary-light); background: #f8faff; }
+.option-item.selected {
+  border-color: var(--primary); background: var(--primary-bg);
+}
+.option-dot {
+  width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px;
+  border-radius: 50%; border: 2px solid #d1d5db;
+  transition: all .2s;
+}
+.option-item.selected .option-dot {
+  border-color: var(--primary); background: var(--primary);
+  box-shadow: inset 0 0 0 4px #fff;
+}
+.option-text { font-size: 14px; line-height: 1.6; color: var(--text-secondary); }
+.option-item.selected .option-text { color: var(--text-primary); font-weight: 500; }
+.quiz-nav {
+  padding: 0 16px 16px; max-width: 520px; margin: 0 auto; width: 100%;
+  display: flex; gap: 10px;
+}
+.quiz-nav .btn { flex: 1; }
+.quiz-nav .btn-prev { flex: 0 0 auto; padding: 14px 20px; }
+
+/* ===== 生成中 ===== */
+#page-generating {
+  align-items: center; justify-content: center;
+  text-align: center; padding: 40px 24px;
+}
+.spinner {
+  width: 64px; height: 64px; margin: 0 auto 24px; position: relative;
+}
+.spinner-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 3px solid transparent;
+  border-top-color: var(--primary);
+  animation: spin 0.8s linear infinite;
+}
+.spinner-ring:nth-child(2) { inset: 8px; border-top-color: var(--accent-purple); animation-duration: 1s; animation-direction: reverse; }
+.spinner-ring:nth-child(3) { inset: 16px; border-top-color: var(--accent-green); animation-duration: 1.2s; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.gen-title { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+.gen-sub { font-size: 14px; color: var(--text-secondary); margin-bottom: 32px; }
+.gen-steps { text-align: left; max-width: 300px; margin: 0 auto; }
+.gen-step {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 0; font-size: 13px; color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.gen-step.done { color: var(--accent-green); }
+.gen-step.active { color: var(--text-primary); font-weight: 500; }
+.gen-step-icon { width: 20px; height: 20px; flex-shrink: 0; }
+
+/* ===== 结果页 ===== */
+.result-scroll { flex: 1; overflow-y: auto; padding-bottom: var(--safe-bottom); }
+.result-hero {
+  background: linear-gradient(135deg, #1e293b, #334155);
+  color: #fff; padding: 32px 20px 28px; text-align: center;
+}
+.result-hero-name { font-size: 13px; opacity: 0.7; margin-bottom: 4px; }
+.result-hero-score {
+  font-size: 52px; font-weight: 800;
+  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.1;
+}
+.result-hero-label { font-size: 13px; opacity: 0.6; margin-bottom: 8px; }
+.result-level-badge {
+  display: inline-block; padding: 6px 20px; border-radius: 20px;
+  font-size: 14px; font-weight: 700;
+  border: 2px solid rgba(255,255,255,0.3);
+}
+.result-dim-summary { margin-bottom: 6px; }
+.result-content { padding: 20px; max-width: 520px; margin: 0 auto; }
+.section-title {
+  font-size: 13px; font-weight: 700; color: var(--text-muted);
+  letter-spacing: 0.5px; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.dim-bars { display: flex; flex-direction: column; gap: 14px; margin-bottom: 24px; }
+.dim-bar-item { display: flex; flex-direction: column; gap: 5px; }
+.dim-bar-top { display: flex; justify-content: space-between; align-items: center; }
+.dim-bar-name { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+.dim-bar-score { font-size: 14px; font-weight: 700; }
+.dim-bar-track { height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+.dim-bar-fill { height: 100%; border-radius: 3px; transition: width 1s ease; }
+.report-box {
+  background: #f8fafc; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 20px;
+  font-size: 14px; line-height: 1.9; color: var(--text-secondary);
+  white-space: pre-wrap; word-break: break-word;
+  margin-bottom: 20px;
+}
+.advice-box {
+  background: var(--primary-bg); border-left: 3px solid var(--primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 16px 20px; margin-bottom: 16px;
+}
+.advice-box h4 { font-size: 14px; margin-bottom: 6px; color: var(--primary-dark); }
+.advice-box p { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+.result-actions { padding: 0 0 24px; }
+.result-actions .btn { margin-top: 10px; }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: #1e293b; color: #fff;
+  padding: 12px 20px; border-radius: var(--radius-sm);
+  font-size: 14px; z-index: 999;
+  display: none; white-space: nowrap;
+}
+
+/* Responsive */
+@media (max-width: 420px) {
+  .result-hero { padding: 24px 16px 20px; }
+  .result-hero-score { font-size: 42px; }
+  .question-card { padding: 20px 16px; }
+  .option-item { padding: 12px 14px; }
+  .option-text { font-size: 13px; }
+  .welcome-title { font-size: 22px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ====== 欢迎页 ====== -->
+<div id="page-welcome" class="page active">
+  <div class="welcome-hero fade-in">
+    <div class="welcome-icon">AI</div>
+    <div class="welcome-title">AIQ 自测</div>
+    <div class="welcome-sub">
+      不是智商，不是情商——是<b>AI商</b>。<br>
+      30 道场景题，测测你跟 AI 协作的真实水平。
+    </div>
+    <div class="welcome-dims">
+      <span class="dim-tag" style="color:#2563eb;border-color:#2563eb">提示素养</span>
+      <span class="dim-tag" style="color:#7c3aed;border-color:#7c3aed">算法共情</span>
+      <span class="dim-tag" style="color:#db2777;border-color:#db2777">判断力</span>
+    </div>
+    <div class="welcome-form">
+      <div class="form-group">
+        <label class="form-label">你的昵称</label>
+        <input id="name-input" class="form-input" type="text" placeholder="输入昵称或匿名" maxlength="20">
+      </div>
+      <button class="btn btn-primary" id="btn-start" onclick="startTest()">开始测试（30题 · 约10分钟）</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 答题页 ====== -->
+<div id="page-quiz" class="page">
+  <div class="quiz-header">
+    <div class="quiz-header-top">
+      <span class="quiz-progress" id="quiz-progress">第 1 题 / 共 30 题</span>
+      <span class="quiz-dim-badge" id="quiz-dim-badge">提示素养</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progress-fill" style="width:3%"></div>
+    </div>
+  </div>
+  <div class="quiz-body fade-in" id="quiz-body">
+    <div class="question-card" id="question-card">
+      <div class="question-num" id="question-num">提示素养 · 第 1 题</div>
+      <div class="question-text" id="question-text"></div>
+    </div>
+    <div class="options-list" id="options-list"></div>
+  </div>
+  <div class="quiz-nav">
+    <button class="btn btn-ghost btn-prev" id="btn-prev" onclick="prevQ()" style="display:none">上一题</button>
+    <button class="btn btn-primary" id="btn-next" onclick="nextQ()" disabled>下一题</button>
+  </div>
+</div>
+
+<!-- ====== 生成中 ====== -->
+<div id="page-generating" class="page">
+  <div class="spinner">
+    <div class="spinner-ring"></div>
+    <div class="spinner-ring"></div>
+    <div class="spinner-ring"></div>
+  </div>
+  <div class="gen-title">正在生成你的 AIQ 报告</div>
+  <div class="gen-sub">大模型正在分析答题数据...</div>
+  <div class="gen-steps">
+    <div class="gen-step active" id="st-1">
+      <svg class="gen-step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      计算三维度得分
+    </div>
+    <div class="gen-step" id="st-2">
+      <svg class="gen-step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      AI 分析评估结论
+    </div>
+    <div class="gen-step" id="st-3">
+      <svg class="gen-step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      生成专属提升建议
+    </div>
+  </div>
+</div>
+
+<!-- ====== 结果页 ====== -->
+<div id="page-result" class="page">
+  <div class="result-scroll">
+    <div class="result-hero">
+      <div class="result-hero-name" id="result-name"></div>
+      <div class="result-hero-score" id="result-score">--</div>
+      <div class="result-hero-label">综合 AIQ 得分</div>
+      <div class="result-level-badge" id="result-badge"></div>
+    </div>
+    <div class="result-content">
+      <div class="section-title">三维度得分</div>
+      <div class="dim-bars" id="dim-bars"></div>
+
+      <div class="section-title">AI 专属评估报告</div>
+      <div class="report-box" id="report-box">正在生成...</div>
+
+      <div class="section-title">提升建议</div>
+      <div id="advice-boxes"></div>
+
+      <div class="result-actions">
+        <button class="btn btn-primary" onclick="location.reload()">重新测试</button>
+        <button class="btn btn-ghost" onclick="shareResult()">分享结果</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== 题库：30道场景题 =====
+const QUESTIONS = [
+  // ===== 维度一：提示素养 (1-10) =====
+  {
+    id:1, dim:1,
+    q:'你要让AI写一份新能源汽车行业分析。你给了一段很宽的需求"帮我写一份市场分析"，AI给了通用的套话。你会怎么优化？',
+    opts:[
+      '"你是一位资深汽车分析师，请基于公开财报对比比亚迪、特斯拉、蔚来2026年Q1的销量变化。格式：核心结论+三点分析，每点200字以内"',
+      '"重新写一份，要有数据、有对比、有深度，不要套话"',
+      '"分析新能源车市场，从销量、政策、技术三个角度展开"',
+      '"写详细一点，要有数据支撑"'
+    ],
+    correct:0
+  },
+  {
+    id:2, dim:1,
+    q:'AI用Python写了一个数据清洗函数，能运行但没处理空值和异常值。你想让它补充这些逻辑，最有效的说法是？',
+    opts:[
+      '"加一些错误处理逻辑"',
+      '"请在代码中添加：1)空值用列均值填充 2)超出3倍标准差的标记为异常 3)返回清洗前后数据量对比日志"',
+      '"这个函数不完整，没有处理异常情况，重写一个健壮的版本"',
+      '"写一个补充函数来专门处理空值和异常值"'
+    ],
+    correct:1
+  },
+  {
+    id:3, dim:1,
+    q:'AI翻译了一份商务合同，但翻译腔很重。你想让它改得更自然，怎么说最有效？',
+    opts:[
+      '"重新翻译一次，要自然一点"',
+      '"你翻得太生硬了，请用地道的中文商务语言重新翻译，保持法律术语准确，把所有被动语态改成主动表达"',
+      '"用更自然的中文重新翻，不要直译"',
+      '"把这段翻译改成更像人写的"'
+    ],
+    correct:1
+  },
+  {
+    id:4, dim:1,
+    q:'你在做一个HR招聘管理系统，想跟AI做一次高质量的功能头脑风暴。以下哪种方式最能激发有效产出？',
+    opts:[
+      '"帮我头脑风暴一些新功能"',
+      '"我们的产品是HR招聘系统，用户是招聘经理，痛点是简历筛选效率低。请用"用户故事+竞品差异+技术可行性+优先级"这个框架帮我构思"',
+      '"有什么好的产品功能建议吗？参考一下飞书"',
+      '"你扮演产品顾问，帮我想想还能加什么功能"'
+    ],
+    correct:1
+  },
+  {
+    id:5, dim:1,
+    q:'你要让AI分析20份PDF研究报告（每份50-100页）提取关键信息。最合理的操作流程是？',
+    opts:[
+      '把所有PDF一次性拖进去说"总结这20份的核心观点"',
+      '先告诉AI分析框架（市场规模/竞争格局/技术趋势），然后每份PDF单独上传并指定按框架提取，最后让AI汇总',
+      '让AI先浏览目录和摘要，再决定重点分析哪些部分',
+      '分4批，每批5份说"总结核心观点，下一批继续"'
+    ],
+    correct:1
+  },
+  {
+    id:6, dim:1,
+    q:'AI给你写了5000字的方案，你只需要一页A4纸的摘要。该如何让它快速压缩？',
+    opts:[
+      '"太长了，缩短一点"',
+      '"压缩到800字以内。保留核心结论和三个关键建议，删除案例详情和背景介绍。结尾加一段下一步行动"',
+      '"说重点，把不重要的都删掉"',
+      '"提取精简版，包含主要结论和建议"'
+    ],
+    correct:1
+  },
+  {
+    id:7, dim:1,
+    q:'你想让AI扮演一个吹毛求疵的客户来帮你打磨产品方案。应该如何设定角色才能得到最有价值的反馈？',
+    opts:[
+      '"你现在是一个很难搞的客户，对我的方案提意见"',
+      '"你是一家500强企业的采购总监，关注ROI、风险控制和供应商稳定性。请从成本效益(40%)、实施风险(30%)、长期价值(30%)三个角度批判我的方案，给出具体的质疑点和改进建议"',
+      '"请从客户角度批评我的方案，要尖锐一点"',
+      '"扮演一个严谨的客户，对方案提意见"'
+    ],
+    correct:1
+  },
+  {
+    id:8, dim:1,
+    q:'AI完全理解错了你的需求，给了毫不相关的内容。你怎么引导它回到正轨？',
+    opts:[
+      '"不对，完全错了，重新来"',
+      '"不用重新开始。我刚才说的需求你可能理解成了X，但我实际需要的是Y，特别是第三点——这里跟你想的可能不一样"',
+      '"我说的是A不是B，搞混了，重做"',
+      '算了，换个方式重新问'
+    ],
+    correct:1
+  },
+  {
+    id:9, dim:1,
+    q:'你需要对比三个技术方案（A/B/C）并给出推荐。以下哪个Prompt能获得最有价值的分析？',
+    opts:[
+      '"对比方案A、B、C，告诉我哪个最好"',
+      '"从开发成本(30%)、上线周期(20%)、可扩展性(25%)、维护成本(25%)对比A/B/C。每个方案给出优缺点，最后按加权得分排序并说明理由"',
+      '"分别介绍三个方案的优缺点"',
+      '"你是技术架构师，请帮我评估这三个方案"'
+    ],
+    correct:1
+  },
+  {
+    id:10, dim:1,
+    q:'你想让AI帮你起草一份项目周报，但AI完全不了解这个项目背景。第一步最应该做什么？',
+    opts:[
+      '直接说"帮我写一份项目周报"',
+      '先提供完整背景：项目名称、目标、当前阶段、里程碑。再给出周报模板和本周核心进展要点，让AI填充完善',
+      '自己先写个初稿，再让AI润色',
+      '告诉AI项目名称，让它自己去查背景'
+    ],
+    correct:1
+  },
+
+  // ===== 维度二：算法共情 (11-20) =====
+  {
+    id:11, dim:2,
+    q:'你是一家电商公司的运营经理。以下哪个任务交给AI处理，最容易出现严重问题？',
+    opts:[
+      '根据销售数据生成一份月度运营报告',
+      '分析客户评论的情感倾向，识别出"质量不错，但发货太慢"是正面还是负面',
+      '让AI识别客户评论中是否包含反讽，例如"呵呵，你们的产品真靠谱"',
+      '将产品描述从中文翻译成英文'
+    ],
+    correct:2
+  },
+  {
+    id:12, dim:2,
+    q:'你接到一个需求：让AI分析一张会议室照片中每个人的微表情，判断谁在说谎。以下哪个判断最合理？',
+    opts:[
+      '这个需求很合理，AI的图像识别能力已经很强了',
+      'AI可以分析基本表情（开心/难过/生气），但微表情测谎需要专业心理学训练，远超AI能力边界',
+      '先让AI识别面部表情，再结合语音分析来判断',
+      'AI做不了图像分析，应该找CV工程师定制模型'
+    ],
+    correct:1
+  },
+  {
+    id:13, dim:2,
+    q:'朋友说："我用AI分析历史股票数据，预测出下周某只股票会涨10%，要不要跟进？"你会怎么回应？',
+    opts:[
+      '"AI分析历史数据是有依据的，可以小仓位试试"',
+      '"AI可以分析历史趋势模式作为参考，但股市受政策、消息、情绪等不可预测因素影响，短期预测不可靠"',
+      '"相信AI的专业分析，它比人客观"',
+      '"把AI的预测逻辑发给我看看，我帮你验证"'
+    ],
+    correct:1
+  },
+  {
+    id:14, dim:2,
+    q:'你用AI写一份行业研究报告，AI在报告中说"根据XX机构2026年预测，全球AI市场规模将达到5000亿美元"。但实际上该机构的预测是3000亿美元。这属于什么类型的AI局限？',
+    opts:[
+      '这是AI的推理错误，逻辑不够严谨',
+      '这是典型的AI幻觉（Hallucination）——AI会用自信的语气编造看似合理但实际上错误的信息',
+      '这是AI的数据延迟问题，训练数据没有更新到最新',
+      '这是AI的理解能力不够，没读懂原文'
+    ],
+    correct:1
+  },
+  {
+    id:15, dim:2,
+    q:'你让AI生成一张"穿着宇航服在火星上喝咖啡"的图片。它生成的图里，人的手指有6根，咖啡杯的把手是断开的。这说明什么？',
+    opts:[
+      '这个AI模型版本太低，换一个最新模型就好了',
+      '这是正常现象。当前AI图像生成在细节逻辑（手指数量、物体结构）上仍不稳定，需要在prompt中加强约束或后期修图',
+      '这是你的训练数据不够好',
+      'AI对"火星"的理解有偏差'
+    ],
+    correct:1
+  },
+  {
+    id:16, dim:2,
+    q:'你让AI帮你起草一份商业合同。以下哪个做法最不明智？',
+    opts:[
+      '让AI生成初稿后，自己逐条审核修改',
+      '用AI生成合同后，直接发给对方签署',
+      '让AI生成初稿，再请律师做法律审查',
+      '先用AI了解合同的基本结构和常见条款'
+    ],
+    correct:1
+  },
+  {
+    id:17, dim:2,
+    q:'你给AI一段非常长的公司财报PDF（200页），让它分析其中的关键财务指标。AI说"超出上下文限制，无法处理"。以下哪个理解是正确的？',
+    opts:[
+      '这个AI太垃圾了，换个更强的AI',
+      '这是AI上下文窗口（Context Window）的物理限制。可以分段提取：先让AI分析目录结构，再分段输入关键章节',
+      '需要把PDF压缩成图片再识别',
+      '需要先给AI安装一个插件才能处理长文档'
+    ],
+    correct:1
+  },
+  {
+    id:18, dim:2,
+    q:'你问AI："今天是2026年4月30日，阿里巴巴今天在香港的收盘价是多少？"AI回答了一个具体数字。你应该怎么做？',
+    opts:[
+      '直接采用这个数据，AI的信息通常很准',
+      'AI的知识截止日期不是实时的，而且它没有实时股市接入能力。这个数字极大概率是编造的，需要去查实时行情',
+      '让AI再确认一遍',
+      '这个数据应该是准确的，因为AI可以联网'
+    ],
+    correct:1
+  },
+  {
+    id:19, dim:2,
+    q:'你公司HR想用AI做一道伦理测试题："遇到一个能力很强但性别歧视严重的候选人，要不要录用？"以下哪个处理方式最合理？',
+    opts:[
+      '让AI从公平就业角度给出客观建议',
+      '这个问题涉及复杂的伦理判断和价值权衡，AI不具备真正的道德推理能力。应该由管理层和法务依据公司价值观和法律法规共同决策',
+      '让AI搜集相关法律法规再判断',
+      '让AI分析利弊各有哪些'
+    ],
+    correct:1
+  },
+  {
+    id:20, dim:2,
+    q:'以下哪种说法最准确地反映了当前AI的能力现状？',
+    opts:[
+      'AI在所有认知任务上已经超过人类平均水平',
+      'AI在文本处理、代码生成、信息总结等方面非常出色，但在情感理解、因果推理、实时信息获取和非理性分析上仍有明显短板',
+      'AI只擅长数学和编程，不擅长创意和写作',
+      'AI的能力主要看参数大小，参数越大越全能'
+    ],
+    correct:1
+  },
+
+  // ===== 维度三：判断力 (21-30) =====
+  {
+    id:21, dim:3,
+    q:'AI给你写了一篇竞品分析报告，里面提到"竞品X公司2025年营收增长了300%"。这个数字看起来很惊人。你应该怎么做？',
+    opts:[
+      '直接引用，AI的数据一般不会错',
+      '先判断这个增长数字是否合理（行业平均增长率是多少？），再去查X公司的公开财报验证。AI经常编造看似合理但实际错误的数据',
+      '让AI再确认一遍这个数据',
+      '保留这个数据，但加个脚注注明来源'
+    ],
+    correct:1
+  },
+  {
+    id:22, dim:3,
+    q:'你用AI生成了一段Python代码，运行时报错"IndexError: list index out of range"。你检查后发现第15行有一个off-by-one错误。这说明什么？',
+    opts:[
+      'AI写的代码就是不太靠谱，以后自己写',
+      'AI生成的代码需要人工review才能使用。发现bug后，可以告诉AI具体的错误信息，让它修正',
+      '这是AI水平不够，换个更强的模型重新生成',
+      '报错说明参数设置有问题'
+    ],
+    correct:1
+  },
+  {
+    id:23, dim:3,
+    q:'AI给了一份市场分析，其中写道"根据IDC报告，2025年全球AI软件市场规模为620亿美元"。你印象中这个数字似乎不对。你会怎么做？',
+    opts:[
+      '引用这个数据，因为是AI查到的',
+      '你的直觉是对的。AI善于编造看起来专业的假数据——包括假机构名称、假报告标题、假数字。去IDC官网核实后再决定是否引用',
+      '让AI注明数据的出处和页面',
+      '这个数字看起来合理，可以用'
+    ],
+    correct:1
+  },
+  {
+    id:24, dim:3,
+    q:'AI给你推荐了三种解决方案，并给出了推荐排序：A > B > C。但你在仔细阅读后发现，AI评价C方案时给出的负面理由其实也适用于A方案。这说明什么？',
+    opts:[
+      'AI总体判断还是对的，小瑕疵不影响结论',
+      'AI的推理存在逻辑不一致性。这说明你需要对AI的推理过程进行审查，指出矛盾点让AI重新分析',
+      '方案C确实不好，忽略这个矛盾',
+      'AI是对的，可能是我的理解有偏差'
+    ],
+    correct:1
+  },
+  {
+    id:25, dim:3,
+    q:'你让AI为某知名互联网公司招聘写一份JD。AI写的JD开头说"我们是一家快速发展的创业公司"。你的判断是？',
+    opts:[
+      '这是标准的JD开头用语，没问题',
+      'AI生成了模版化的内容，没有结合具体公司背景。知名互联网公司不应称自己为"创业公司"。需要提供公司具体信息让AI重新生成',
+      '创业公司这个描述也没太大问题',
+      '可以接受，读者知道是什么意思'
+    ],
+    correct:1
+  },
+  {
+    id:26, dim:3,
+    q:'你用AI处理一份含用户身份证号的Excel文件。AI主动说"我可以帮你分析这些数据"。最明智的做法是？',
+    opts:[
+      '让AI分析，但要提醒它不要泄露数据',
+      '绝对不能将个人敏感信息（身份证号）发给AI处理，这存在严重的数据隐私风险。应该先对数据进行脱敏处理',
+      '用企业版AI就没事了',
+      '加上一句"请不要保存数据"就可以了'
+    ],
+    correct:1
+  },
+  {
+    id:27, dim:3,
+    q:'AI给你的设计方案评了"优秀（90/100分）"，并说了很多优点。你的第一反应应该是？',
+    opts:[
+      '很开心，AI都认可说明方案确实不错',
+      'AI倾向于给出正面评价，尤其是你问得比较笼统的时候。应该要求AI给出具体缺点和改进方向，或者从相反角度进行批判',
+      '把评分截图给团队看',
+      '把这个方案定稿'
+    ],
+    correct:1
+  },
+  {
+    id:28, dim:3,
+    q:'你让AI写一份产品上线Checklist。AI给了10条，但你发现缺少了"数据迁移验证"和"回滚方案确认"这两个关键步骤。你该怎么办？',
+    opts:[
+      '直接加上这两个步骤就可以了',
+      '指出AI遗漏的关键步骤，并补充完整的上下文——"这个产品涉及数据迁移，请检查并补充所有与数据迁移和容灾回滚相关的checklist项"',
+      'AI的清单只是参考，自己从头列一份',
+      '这两个步骤没那么重要'
+    ],
+    correct:1
+  },
+  {
+    id:29, dim:3,
+    q:'AI说"根据权威研究表明，每天喝3杯咖啡可以延长寿命5年"。但AI没有给出具体的研究名称和作者。你该怎么判断？',
+    opts:[
+      '相信AI的专业性，它不会凭空编造',
+      'AI的"权威研究""研究表明"经常是幻觉。应该要求AI给出具体的研究名称、期刊、作者、发表年份，然后去核实。如果AI给不出，就不要引用',
+      '这个结论听起来合理，可以用',
+      '要求AI补充更多细节数据'
+    ],
+    correct:1
+  },
+  {
+    id:30, dim:3,
+    q:'你让AI整理会议纪要，AI给出了条理清晰的总结。但你回忆会议中有一个关键决策AI没有记录。你应该怎么做？',
+    opts:[
+      '自己在纪要末尾补充这个决策',
+      '告诉AI你漏了什么——"会议中还有一个关于预算追加的关键决策，请补充到纪要中，并更新相关的影响分析"',
+      'AI只提取了主要信息，漏掉一两个点很正常',
+      '重新让AI生成一次，可能就能包含进去'
+    ],
+    correct:1
+  }
+];
+
+// ===== 配置 =====
+const QWEN_API_KEY = "sk-35e6ff25e8a149d79b54d2656c107e98";
+const DIM_NAMES = ['', '提示素养', '算法共情', '判断力'];
+const DIM_COLORS = ['', '#2563eb', '#7c3aed', '#db2777'];
+const DIM_LEVELS = [
+  '',
+  [
+    { range:[0,3], label:'初级 · 你的提示词需要更多思考', desc:'需要提升需求拆解和精确表达能力。建议多练习"角色+上下文+约束+格式"四要素框架。' },
+    { range:[4,6], label:'中级 · 你有基本提示意识', desc:'能写出较清晰的prompt，但有时不够精准。可以尝试给AI更具体的约束条件和输出格式。' },
+    { range:[7,9], label:'高级 · 你擅长驾驭AI', desc:'你懂得如何设计高效的提示策略，能精准控制AI的输出质量。' },
+    { range:[10,10], label:'专家 · 你是提示工程高手', desc:'你能用精确的指令设计让AI发挥最大价值，是团队中的AI使用标杆。' }
+  ],
+  [
+    { range:[0,3], label:'初级 · 对AI能力认知偏模糊', desc:'建议多了解不同AI模型的技术边界，理解AI擅长什么、不擅长什么。' },
+    { range:[4,6], label:'中级 · 有一定算法共情基础', desc:'基本了解AI的优劣势，但在一些边界场景的判断上还需要加强。' },
+    { range:[7,9], label:'高级 · 你了解AI的边界', desc:'你能准确判断AI的适用场景，知道什么时候该用、什么时候不该用。' },
+    { range:[10,10], label:'专家 · 你有算法共情天赋', desc:'你对AI能力边界有非常清醒的认知，能够设计出最优的人机协作方案。' }
+  ],
+  [
+    { range:[0,3], label:'初级 · 对AI输出缺乏警惕', desc:'容易被AI笃定的语气说服。建议养成"每条AI信息都值得核实"的习惯。' },
+    { range:[4,6], label:'中级 · 有一定判断力', desc:'能发现明显的AI错误，但对隐蔽的幻觉和逻辑漏洞还不够敏感。' },
+    { range:[7,9], label:'高级 · 你是一个好编辑', desc:'你能有效识别和纠正AI的错误，知道如何引导AI优化产出。' },
+    { range:[10,10], label:'专家 · 你有AI审核之眼', desc:'你对AI输出有极高的辨别力，能在海量信息中快速定位问题，并给出精准的改进方向。' }
+  ]
+];
+
+// ===== 状态 =====
+let state = {
+  name: '',
+  questions: [],
+  current: 0,
+  answers: {},
+  submitted: false
+};
+
+// ===== 工具 =====
+function $(id) { return document.getElementById(id); }
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  $(id).classList.add('active');
+  window.scrollTo(0,0);
+}
+function showToast(msg, dur=2500) {
+  const t = $('toast');
+  t.textContent = msg; t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', dur);
+}
+
+// ===== 随机打乱顺序（保持维度均衡） =====
+function shuffleQuestions() {
+  // 先按维度分组
+  const grouped = {1:[], 2:[], 3:[]};
+  QUESTIONS.forEach(q => grouped[q.dim].push(q));
+  // 每个维度随机打乱
+  Object.values(grouped).forEach(arr => arr.sort(() => Math.random()-0.5));
+  // 按维度轮流取题（保证均匀分布）
+  const result = [];
+  for (let i = 0; i < 10; i++) {
+    for (let d = 1; d <= 3; d++) {
+      result.push(grouped[d][i]);
+    }
+  }
+  return result;
+}
+
+// ===== 渲染题目 =====
+function renderQ() {
+  const q = state.questions[state.current];
+  const idx = state.current;
+  const total = state.questions.length;
+  const dimName = DIM_NAMES[q.dim];
+  const dimColor = DIM_COLORS[q.dim];
+
+  // 进度
+  $('quiz-progress').textContent = `第 ${idx+1} 题 / 共 ${total} 题`;
+  $('progress-fill').style.width = `${((idx+1)/total)*100}%`;
+  const badge = $('quiz-dim-badge');
+  badge.textContent = dimName;
+  badge.style.color = dimColor;
+  badge.style.borderColor = dimColor;
+  badge.style.background = dimColor + '12';
+
+  // 题目
+  $('question-num').textContent = dimName + ' · 第 ' + (Math.floor(idx/3)+1) + ' 题';
+  $('question-text').textContent = q.q;
+
+  // 选项
+  const list = $('options-list');
+  list.innerHTML = '';
+  q.opts.forEach((opt, i) => {
+    const div = document.createElement('div');
+    div.className = 'option-item' + (state.answers[q.id] === i ? ' selected' : '');
+    div.innerHTML = `<div class="option-dot"></div><div class="option-text">${opt}</div>`;
+    div.onclick = () => selectOpt(i);
+    list.appendChild(div);
+  });
+
+  // 按钮
+  $('btn-prev').style.display = idx === 0 ? 'none' : '';
+  const nextBtn = $('btn-next');
+  nextBtn.disabled = state.answers[q.id] === undefined;
+  nextBtn.textContent = idx === total - 1 ? '提交并生成报告' : '下一题';
+}
+
+function selectOpt(i) {
+  const q = state.questions[state.current];
+  state.answers[q.id] = i;
+  document.querySelectorAll('.option-item').forEach((el, idx) => {
+    el.classList.toggle('selected', idx === i);
+  });
+  $('btn-next').disabled = false;
+}
+
+function prevQ() {
+  if (state.current > 0) { state.current--; renderQ(); }
+}
+function nextQ() {
+  if (state.current < state.questions.length - 1) {
+    state.current++;
+    renderQ();
+    // 动画
+    $('quiz-body').classList.remove('fade-in');
+    void $('quiz-body').offsetWidth;
+    $('quiz-body').classList.add('fade-in');
+  } else {
+    submitTest();
+  }
+}
+
+// ===== 开始测试 =====
+function startTest() {
+  const name = $('name-input').value.trim();
+  if (!name) {
+    $('name-input').style.borderColor = '#ef4444';
+    $('name-input').placeholder = '请填写昵称';
+    return;
+  }
+  state.name = name;
+  state.questions = shuffleQuestions();
+  state.current = 0;
+  state.answers = {};
+  renderQ();
+  showPage('page-quiz');
+}
+
+// ===== 计算得分 =====
+function calcScores() {
+  const dimScores = {1:0, 2:0, 3:0};
+  Object.entries(state.answers).forEach(([qid, ans]) => {
+    const q = QUESTIONS.find(x => x.id === parseInt(qid));
+    if (q && ans === q.correct) dimScores[q.dim]++;
+  });
+  return dimScores;
+}
+
+function getLevel(dim, score) {
+  const levels = DIM_LEVELS[dim];
+  for (const lv of levels) {
+    if (score >= lv.range[0] && score <= lv.range[1]) return lv;
+  }
+  return levels[0];
+}
+
+// ===== 提交测试 =====
+async function submitTest() {
+  state.submitted = true;
+  showPage('page-generating');
+  animateSteps();
+
+  const dimScores = calcScores();
+  const totalScore = Object.values(dimScores).reduce((a,b)=>a+b,0);
+  const totalPct = Math.round(totalScore / 30 * 100);
+
+  // 生成报告
+  const report = await generateReport(totalPct, dimScores);
+  showResult(totalPct, dimScores, report);
+}
+
+function animateSteps() {
+  const steps = ['st-1','st-2','st-3'];
+  steps.forEach((id, i) => {
+    setTimeout(() => {
+      $(id).classList.remove('active');
+      $(id).classList.add('done');
+      if (steps[i+1]) $(steps[i+1]).classList.add('active');
+    }, i * 1000 + 600);
+  });
+}
+
+// ===== 调用大模型生成报告 =====
+async function generateReport(totalPct, dimScores) {
+  const dimLines = Object.entries(dimScores)
+    .map(([d, s]) => `  - ${DIM_NAMES[parseInt(d)]}：${s}/10分（${Math.round(s/10*100)}分）`)
+    .join('\n');
+  const levelInfo = totalPct >= 80 ? '很高' : totalPct >= 60 ? '中等偏上' : totalPct >= 40 ? '中等' : '偏低';
+
+  const prompt = `你是一位AI素养测评专家。以下是一位用户在AIQ（Artificial Intelligence Quotient）测试中的表现数据，请为其生成一份个性化的评估报告。
+
+用户：${state.name}
+综合AIQ得分：${totalPct}分（满分100）
+整体水平：${levelInfo}
+
+三维度得分（每题1分，满分10分）：
+${dimLines}
+
+评分标准（每题1分，选对得1分）：
+- 提示素养：测试用户精准表达意图、拆解复杂任务、与AI有效对话的能力
+- 算法共情：测试用户对AI能力边界和局限的认知深度
+- 判断力：测试用户验证AI输出、识别错误、引导AI优化的能力
+
+请生成一份200-300字的评估报告，要求：
+1. 语言口语化、亲切，不要像机器写的
+2. 先给总体评价（1句话总结），再分别点评三个维度
+3. 每个维度的点评要结合分数，给出具体的、可操作的建议
+4. 最后给一句鼓励的话
+5. 不要用Markdown格式（不要星号、井号），用自然段落
+6. 直接输出报告正文`;
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25000);
+    const resp = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + QWEN_API_KEY
+      },
+      body: JSON.stringify({
+        model: "qwen-plus",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 600,
+        temperature: 0.8
+      })
+    });
+    clearTimeout(timer);
+    const data = await resp.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return buildFallbackReport(dimScores);
+    return content;
+  } catch(e) {
+    return buildFallbackReport(dimScores);
+  }
+}
+
+function buildFallbackReport(dimScores) {
+  const bestDim = Object.entries(dimScores).sort((a,b)=>b[1]-a[1])[0];
+  const worstDim = Object.entries(dimScores).sort((a,b)=>a[1]-b[1])[0];
+  const bestName = DIM_NAMES[parseInt(bestDim[0])];
+  const worstName = DIM_NAMES[parseInt(worstDim[0])];
+  return `${state.name}，你的AIQ综合评估来了。\n\n整体来看，你在${bestName}维度表现相对突出（${bestDim[1]}/10分），说明你在这方面已经有一定积累。但在${worstName}维度（${worstDim[1]}/10分），还有提升空间。\n\n建议你可以针对${worstName}维度做针对性练习——看看优秀的人是怎么做的，多在实际场景中刻意练习。AIQ不是一成不变的，随着你用AI越来越多，这三个维度的能力都会自然提升。\n\n加油，下次再测肯定有进步！`;
+}
+
+// ===== 展示结果 =====
+function showResult(totalPct, dimScores, report) {
+  $('result-name').textContent = state.name;
+  $('result-score').textContent = totalPct;
+
+  // 评级
+  let levelText, levelColor;
+  if (totalPct >= 80) { levelText = 'AIQ 专家'; levelColor = 'rgba(37,99,235,0.2)'; }
+  else if (totalPct >= 60) { levelText = 'AIQ 高手'; levelColor = 'rgba(16,185,129,0.2)'; }
+  else if (totalPct >= 40) { levelText = 'AIQ 进阶中'; levelColor = 'rgba(245,158,11,0.2)'; }
+  else { levelText = 'AIQ 入门'; levelColor = 'rgba(239,68,68,0.2)'; }
+  const badge = $('result-badge');
+  badge.textContent = levelText;
+  badge.style.background = levelColor;
+  badge.style.borderColor = levelColor;
+
+  // 维度柱状图
+  const barsEl = $('dim-bars');
+  barsEl.innerHTML = '';
+  [1,2,3].forEach(dim => {
+    const s = dimScores[dim] || 0;
+    const color = DIM_COLORS[dim];
+    const pct = Math.round(s/10*100);
+    const div = document.createElement('div');
+    div.className = 'dim-bar-item';
+    div.innerHTML = `
+      <div class="dim-bar-top">
+        <span class="dim-bar-name">${DIM_NAMES[dim]}</span>
+        <span class="dim-bar-score" style="color:${color}">${s}/10（${pct}分）</span>
+      </div>
+      <div class="dim-bar-track">
+        <div class="dim-bar-fill" data-w="${pct}" style="width:0%;background:${color}"></div>
+      </div>`;
+    barsEl.appendChild(div);
+  });
+  // 动画
+  setTimeout(() => {
+    document.querySelectorAll('.dim-bar-fill').forEach(el => {
+      el.style.width = el.dataset.w + '%';
+    });
+  }, 100);
+
+  // 报告
+  $('report-box').textContent = report;
+
+  // 提升建议
+  const adviceEl = $('advice-boxes');
+  adviceEl.innerHTML = '';
+  [1,2,3].forEach(dim => {
+    const s = dimScores[dim] || 0;
+    const lv = getLevel(dim, s);
+    const color = DIM_COLORS[dim];
+    adviceEl.innerHTML += `
+      <div class="advice-box" style="border-left-color:${color}">
+        <h4 style="color:${color}">${DIM_NAMES[dim]} · ${lv.label}</h4>
+        <p>${lv.desc}</p>
+      </div>`;
+  });
+
+  showPage('page-result');
+}
+
+// ===== 分享 =====
+function shareResult() {
+  const text = `我的AIQ得分：${$('result-score').textContent}分（${$('result-badge').textContent}）\n快来测测你的AI商：打开公众号文章，点击链接开始测试`;
+  if (navigator.share) {
+    navigator.share({ title: 'AIQ自测', text }).catch(() => {});
+  } else {
+    showToast('截图分享吧：' + text);
+  }
+}
+</script>
+</body>
+</html>

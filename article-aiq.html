@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIQ是什么？三个维度测测你的"AI商"</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 1.8;
+  color: #333;
+  background: #fff;
+  max-width: 677px;
+  margin: 0 auto;
+  padding: 20px;
+}
+h1 { font-size: 22px; font-weight: bold; color: #1a1a1a; margin: 30px 0 15px; text-align: center; }
+h2 {
+  font-size: 18px; font-weight: bold; color: #1a1a1a;
+  border-left: 4px solid #6366f1; padding-left: 12px; margin: 30px 0 15px;
+}
+h3 { font-size: 16px; font-weight: bold; color: #333; margin: 20px 0 10px; }
+p { margin-bottom: 16px; font-size: 15px; line-height: 1.8; color: #333; text-align: justify; }
+strong { color: #1a1a1a; }
+.author-info { color: #999; font-size: 13px; margin-bottom: 24px; text-align: center; }
+.quote {
+  background: #eef2ff;
+  border-left: 4px solid #6366f1;
+  padding: 16px 20px;
+  margin: 20px 0;
+  font-style: italic;
+  color: #555;
+  border-radius: 0 8px 8px 0;
+}
+pre {
+  background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px;
+  font-size: 13px; line-height: 1.6; overflow-x: auto; margin: 20px 0;
+}
+code { font-family: 'Cascadia Code', 'Fira Code', monospace; }
+ul { margin: 16px 0 16px 20px; }
+li { font-size: 15px; line-height: 2; color: #333; }
+.header-img { width: 100%; display: block; margin: 0 auto 20px; border-radius: 12px; }
+.infographic { margin: 32px 0; }
+.infographic img { width: 100%; border-radius: 12px; display: block; }
+.image-caption { font-size: 13px; color: #999; margin-top: 10px; text-align: center; font-style: italic; }
+.divider {
+  text-align: center; color: #ccc; font-size: 20px;
+  letter-spacing: 8px; margin: 30px 0;
+}
+.cta-box {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #fff;
+  padding: 24px;
+  border-radius: 12px;
+  margin: 30px 0;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.cta-box:hover { transform: translateY(-2px); }
+.cta-box p { color: #fff; margin: 0; font-size: 15px; }
+.cta-box .sub { font-size: 13px; opacity: 0.85; margin-top: 8px; }
+.copy-btn {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #fff;
+  border: none;
+  padding: 14px 24px;
+  border-radius: 50px;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(99,102,241,0.4);
+  z-index: 999;
+  transition: all 0.3s;
+}
+.copy-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 25px rgba(99,102,241,0.5); }
+.toast {
+  position: fixed;
+  bottom: 90px;
+  right: 30px;
+  background: #52c41a;
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  z-index: 1000;
+}
+.toast.show { opacity: 1; }
+.tag { display: inline-block; background: #eef2ff; color: #4f46e5; padding: 2px 10px; border-radius: 4px; font-size: 13px; font-weight: bold; margin-right: 6px; }
+@media (max-width: 677px) {
+  body { padding: 16px; }
+  .copy-btn { bottom: 20px; right: 20px; padding: 12px 20px; font-size: 14px; }
+}
+</style>
+</head>
+<body>
+
+<div id="article-content">
+
+<img id="header-img" class="header-img" alt="文章头图"/>
+
+<p class="author-info">冯周冲 · AI产品经理 · 边学AI Coding边造轮子</p>
+
+<!-- 导语 -->
+<img id="gold-0" style="width:100%;display:block;margin:20px 0;" alt="导语金句"/>
+
+<p>最近"AIQ"这个概念又被翻出来了。不是智商（IQ）、不是情商（EQ），是 AIQ——你跟AI协作的能力水平。</p>
+
+<p>这词其实不是新词，但今年有两篇论文把它重新拉回了视野。一篇是印度研究员发在arXiv上的框架论文（2503.16438），另一篇我做流程管理调研时候翻到的ResearchGate上的文章。两篇的核心逻辑惊人一致——他们把AIQ拆成了三个维度：</p>
+
+<div class="quote">
+  <p><strong>提示素养</strong>——你能不能把自己的意图精准地表达给AI听</p>
+  <p><strong>算法共情</strong>——你知不知道AI擅长什么、不擅长什么</p>
+  <p><strong>判断力</strong>——AI给了你一坨东西，你能辨别好坏吗</p>
+</div>
+
+<p>对，就这三个。每一个都挺值得掰开聊聊的。我觉得这事对做产品的人，或者任何跟AI打交道的人来说，都是个挺实在的自我审视框架。</p>
+
+<h2>一、提示素养——你能不能把脑子里的想法"翻译"给AI听</h2>
+
+<p>说白了就是你会不会写提示词（Prompt）。但"写提示词"这四个字背后，其实是一个更底层的能力：<strong>你能不能把一个模糊的需求，拆解成AI能理解的具体指令</strong>。</p>
+
+<p>举个例子，你让AI"帮我写一份市场分析"。这个prompt太宽了，AI给你的东西大概率是模板化的套话，你看着觉得"好像说了什么又好像什么都没说"。但如果你说：</p>
+
+<div class="quote">
+  <p>"你是一个资深的市场分析师，帮我分析一下新能源汽车行业在2026年第一季度的竞争格局。重点关注比亚迪、特斯拉、蔚来三家。格式：先给一个核心结论，然后分三点展开，每点控制在200字以内。数据源限定在公开财报和行业报告。"</p>
+</div>
+
+<p>你看，这就不一样了。你给了角色、给了范围、给了格式、给了数据约束。AI拿到这些东西，产出的质量完全不是一个量级。</p>
+
+<p>所以提示素养表面上看是"会不会写prompt"，实际上是<strong>你的需求拆解能力</strong>——你能不能把一个复杂问题拆成步骤、能不能想清楚边界条件、能不能用清晰的语言表达出来。这些东西其实跟产品经理写PRD的逻辑一模一样。</p>
+
+<p>有个挺有意思的研究叫GLAT（Generative AI Literacy Assessment Test），他们发现很多学生用AI最大的障碍不是AI不好用，而是<strong>自己说不清楚要什么</strong>。对，问题出在人身上，不在AI身上。</p>
+
+<h2>二、算法共情——你知不知道AI擅长什么、不擅长什么</h2>
+
+<p>这个词是我觉得三个里面最有意思的。"算法共情"听着很玄，其实很简单——<strong>你对AI的能力边界有没有一个清醒的认知</strong>。</p>
+
+<p>很多人用AI是"万能论"——啥都扔给AI。也有人是"怀疑论"——啥都不信AI。这两种都有问题。</p>
+
+<p>真实情况是：</p>
+
+<ul>
+  <li><strong>文本类任务</strong>——写文案、翻译、润色、总结、头脑风暴、写代码。这些AI非常擅长，甚至比大部分人都好。</li>
+  <li><strong>数据类任务</strong>——分析表格、做统计、画图表。AI能做，但需要你给它清晰的结构和指引，而且得自己验证结果。</li>
+  <li><strong>图像类任务</strong>——生成图片、识别图像内容。AI能做，但细节上经常翻车（手指、文字、逻辑关系），只能"有个意思"。</li>
+  <li><strong>情感判断</strong>——理解复杂的人类情绪、提供情感支持。AI可以模仿，但别指望它真的"懂你"。</li>
+  <li><strong>非理性分析</strong>——涉及潜意识、文化隐喻、讽刺、双关。这些AI极其不擅长。</li>
+</ul>
+
+<p>比如我见过有人让AI"分析一下这张图里的微表情，判断这个人是不是在说谎"。对，这个需求你想想就知道不靠谱——<strong>AI连真假笑都分不太清楚，你要它做微表情测谎？</strong></p>
+
+<p>这就是算法共情不够。你知道AI能力边界在哪，就知道什么事交给AI、什么事自己来、什么事需要人机一起上。说白了就是<strong>分工协作的智慧</strong>。</p>
+
+<p>打个比方，你不会让一个会计去帮你写宣传文案对吧？同样的道理，你得知道AI这个"员工"擅长什么岗位。</p>
+
+<h2>三、判断力——AI给了你一坨东西，你能辨别好坏吗</h2>
+
+<p>这个维度可能是最重要的，也可能是最被忽略的。</p>
+
+<p>AI生成东西的速度是很快，快到你甚至来不及思考它给得对不对。但问题就在这里——<strong>AI是概率模型，它不是搜索引擎，它会一本正经地胡说八道</strong>。</p>
+
+<p>这种现象叫"幻觉"（Hallucination），就是AI用非常自信的口吻说出完全错误的信息。比如你问"2024年诺贝尔物理学奖得主是谁"，如果AI的数据截止到2023年，它会自信地给你一个2023年的答案，而且看起来特别靠谱，格式完整、语气笃定——但你仔细一想就知道不对。</p>
+
+<p>所以判断力体现在几个方面：</p>
+
+<ul>
+  <li><strong>事实核查</strong>——AI说的关键数字和事实，你能识别出可疑的地方并去验证</li>
+  <li><strong>逻辑验证</strong>——AI的推理过程有没有明显的逻辑漏洞</li>
+  <li><strong>审美判断</strong>——AI产出的内容质量怎么样，你自己有没有一个判断标准</li>
+  <li><strong>迭代引导</strong>——发现问题后，你能不能告诉AI"这里不对，重新来"并给出方向</li>
+</ul>
+
+<p>说白了，<strong>如果你自己不具备基本的辨别能力，AI的"高效率"反而是一种危险</strong>——你会在更短的时间内生产出更多有问题的内容，而不自知。</p>
+
+<div class="quote">
+  <p>我见过最典型的场景：一个人让AI写一份竞品分析报告，AI编了几个不存在的竞品功能，那个人直接拿去用了。不是因为他懒，是因为他根本不知道怎么验证AI给的信息对不对。这就是判断力的缺失。</p>
+</div>
+
+<h2>所以，你的AIQ到底怎么样？</h2>
+
+<p>这三个维度——提示素养、算法共情、判断力——其实相辅相成。你提示素养好，能让AI产出更好的结果；你算法共情好，能用AI做它擅长的事、避开它的短板；你判断力好，能确保结果靠谱。</p>
+
+<p>缺一个都不行。</p>
+
+<p>那我就在想——<strong>如果这个框架真的成立，那能不能用来衡量一个人跟AI协作的水平？</strong></p>
+
+<p>所以基于这三个维度，我设计了一套自测题。每个维度10道场景题，一共30题。没有是非题，没有一眼看出答案的题，全部是真实工作场景——比如"你让AI写份报告，它给了一堆东西，接下来你该怎么做"。你需要在每个场景下做出你的判断。</p>
+
+<p>做完了你会得到一份报告：三个维度分别的得分、综合AIQ评级，还有每个维度的提升建议。</p>
+
+<div class="cta-box" onclick="window.open('aiq-test.html','_blank')">
+  <p style="margin-bottom:6px;font-weight:bold;font-size:17px;">测测你的AIQ</p>
+  <p>30道场景题，10分钟，看看你在哪个水平</p>
+  <p class="sub">点击打开 →</p>
+</div>
+
+<p>我自己先测了一遍，做完发现——哎，我以为我"算法共情"挺好的，结果分数最低。原来我对AI图像能力的期望太高了。这就是自测的意义吧，帮你看清自己以为的和实际之间的差距。</p>
+
+<p>试试看，说不定你也有意外发现。</p>
+
+<p style="font-size:14px;color:#999;margin:30px 0 0;text-align:center;">—— 完 ——</p>
+<p style="font-size:13px;color:#bbb;margin:10px 0 30px;text-align:center;">参考：arXiv:2503.16438 · GLAT (Jin et al., 2024) · ResearchGate AIQ Framework</p>
+
+</div><!-- end article-content -->
+
+<button class="copy-btn" onclick="copyArticle()">📋 一键复制全文</button>
+<div class="toast" id="toast">✅ 已复制到剪贴板</div>
+
+<script>
+const DPR = 3;
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function canvasToPng(drawFn, elId, W, H) {
+  var c = document.createElement('canvas');
+  c.width = W * DPR;
+  c.height = H * DPR;
+  var ctx = c.getContext('2d');
+  ctx.scale(DPR, DPR);
+  drawFn(ctx, W, H);
+  document.getElementById(elId).src = c.toDataURL('image/png', 1.0);
+}
+
+// 头图
+function drawHeader(ctx, W, H) {
+  var g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#6366f1'); g.addColorStop(0.5, '#4f46e5'); g.addColorStop(1, '#4338ca');
+  ctx.fillStyle = g; roundRect(ctx, 0, 0, W, H, 16); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+  ctx.font = 'bold 30px "PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('AIQ 是什么？', W/2, 58);
+  ctx.font = '20px "PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.fillText('三个维度，测测你的"AI商"', W/2, 98);
+  ctx.font = '15px "PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.fillText('提示素养 · 算法共情 · 判断力', W/2, 140);
+}
+
+// 导语金句
+function drawGold(ctx, W, H) {
+  var g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#eef2ff'); g.addColorStop(1, '#c7d2fe');
+  ctx.fillStyle = g; roundRect(ctx, 0, 0, W, H, 12); ctx.fill();
+  ctx.strokeStyle = '#a5b4fc'; ctx.lineWidth = 1.5;
+  roundRect(ctx, 0, 0, W, H, 12); ctx.stroke();
+  ctx.fillStyle = '#312e81'; ctx.textAlign = 'left';
+  ctx.font = '16px "PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('AI 时代，真正拉开差距的不是你会不会用 AI，', 20, 35);
+  ctx.fillText('而是你跟 AI 协作的能力有多强。', 20, 65);
+  ctx.fillText('—— 这就是 AIQ。', 20, 95);
+}
+
+// 三维度示意图
+function drawDims(ctx, W, H) {
+  ctx.fillStyle = '#f8fafc'; roundRect(ctx, 10, 0, W-20, H, 12); ctx.fill();
+  ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+  roundRect(ctx, 10, 0, W-20, H, 12); ctx.stroke();
+  var dims = [
+    ['提示素养', '精准表达意图，拆解复杂任务，有效对话', '#6366f1'],
+    ['算法共情', '了解AI能力边界，知道擅长与不擅长', '#8b5cf6'],
+    ['判断力', '验证AI输出，识别错误，引导优化', '#a855f7']
+  ];
+  var y = 16; var h = 46;
+  dims.forEach(function(d) {
+    ctx.fillStyle = d[2]; roundRect(ctx, 24, y, W-48, h, 8); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+    ctx.font = 'bold 15px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(d[0], 40, y + 20);
+    ctx.font = '13px "PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText(d[1], 40, y + 38);
+    y += h + 8;
+  });
+}
+
+window.addEventListener('DOMContentLoaded', function() {
+  canvasToPng(drawHeader, 'header-img', 660, 170);
+  canvasToPng(drawGold, 'gold-0', 660, 110);
+});
+
+function copyArticle() {
+  var article = document.getElementById('article-content');
+  var range = document.createRange();
+  range.selectNode(article);
+  var sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  try {
+    document.execCommand('copy');
+    var toast = document.getElementById('toast');
+    toast.classList.add('show');
+    setTimeout(function() { toast.classList.remove('show'); }, 2500);
+  } catch(e) {
+    alert('请手动 Ctrl+A 全选后复制');
+  }
+  sel.removeAllRanges();
+}
+</script>
+
+</body>
+</html>
