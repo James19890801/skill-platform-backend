@@ -48,6 +48,20 @@ class ChatDto {
   stream?: boolean;
 }
 
+// ===== Export DTO =====
+class ExportDto {
+  @IsString()
+  content: string;
+
+  @IsString()
+  @IsOptional()
+  format?: 'docx' | 'xlsx';
+
+  @IsString()
+  @IsOptional()
+  filename?: string;
+}
+
 @ApiTags('AI')
 @Controller('api/ai')
 export class AiController {
@@ -102,6 +116,7 @@ export class AiController {
           body.model,
           body.agentId,
           body.skills,
+          body.thread_id,
         );
 
         res.write('data: [DONE]\n\n');
@@ -114,6 +129,7 @@ export class AiController {
           body.model,
           body.agentId,
           body.skills,
+          body.thread_id,
         );
         res.json({
           thread_id: body.thread_id,
@@ -127,6 +143,24 @@ export class AiController {
           success: false,
           message: error instanceof Error ? error.message : 'AI 对话失败',
         },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('export-docx')
+  @ApiOperation({ summary: '导出文本文档为 Word / Excel' })
+  async exportDocx(@Body() body: ExportDto, @Res() res: Response) {
+    try {
+      const buffer = await this.aiService.generateDocx(body.content, body.format || 'docx');
+      const ext = body.format === 'xlsx' ? 'xlsx' : 'docx';
+      const filename = body.filename || `export.${ext}`;
+      res.setHeader('Content-Type', body.format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+      res.send(buffer);
+    } catch (error) {
+      throw new HttpException(
+        { success: false, message: error instanceof Error ? error.message : '导出失败' },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

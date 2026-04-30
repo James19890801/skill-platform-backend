@@ -156,6 +156,9 @@ export class AiService {
   private client: OpenAI;
   private readonly model = 'qwen-plus';
 
+  // 对话历史存储：thread_id -> messages[]
+  private conversationStore: Map<string, Array<{ role: 'system' | 'user' | 'assistant'; content: string }>> = new Map();
+
   constructor(
     @InjectRepository(Agent)
     private agentRepository: Repository<Agent>,
@@ -294,6 +297,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
    * 支持传递 agent 系统提示词和 skills 上下文
    * - 若 agentId 提供，从数据库加载 agent 的真实 systemPrompt 和关联 skills
    * - 若 skills 提供，查找对应的 Skill 定义注入到系统提示中
+   * - 使用 thread_id 存储和恢复对话历史，确保多轮记忆
    */
   async chatStream(
     message: string,
@@ -301,23 +305,22 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     model?: string,
     agentId?: number,
     skills?: string[],
+    threadId?: string,
   ): Promise<string> {
+    // ===== 1. 构建系统提示词 =====
     let systemPrompt: string;
 
     if (agentId) {
       try {
         const agent = await this.agentRepository.findOne({ where: { id: agentId } });
         if (agent) {
-          // 使用 Agent 的真实系统提示词
           systemPrompt = agent.systemPrompt || `你是一个智能助手，名称是「${agent.name}」，根据用户的指令提供帮助。`;
 
-          // 如果有关联的 skills，加载 skill 定义并注入到系统提示中
           const agentSkills: string[] = agent.skills
             ? (typeof agent.skills === 'string' ? JSON.parse(agent.skills) : agent.skills)
             : (skills || []);
 
           if (agentSkills.length > 0) {
-            // 从数据库中查询这些 Skill 的详细定义
             const skillDefs = await this.skillRepository
               .createQueryBuilder('skill')
               .where('skill.name IN (:...names)', { names: agentSkills })
@@ -346,16 +349,25 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       systemPrompt = `你是一个智能流程自动化助手，具备规划、分析和执行能力。`;
     }
 
+    // ===== 2. 加载对话历史 =====
+    const threadKey = threadId || 'default';
+    const history = this.conversationStore.get(threadKey) || [];
+
+    // ===== 3. 构建完整消息列表 =====
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
+      ...history,
       { role: 'user', content: message },
     ];
 
+    // 记录用户消息到历史
+    history.push({ role: 'user', content: message });
+
+    // ===== 4. 调用大模型 =====
     const modelName = model || this.model;
     let fullContent = '';
 
     if (onChunk) {
-      // 流式输出
       const stream = await this.client.chat.completions.create({
         model: modelName,
         messages,
@@ -372,7 +384,6 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         }
       }
     } else {
-      // 非流式输出
       const completion = await this.client.chat.completions.create({
         model: modelName,
         messages,
@@ -383,6 +394,185 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       fullContent = completion.choices[0]?.message?.content || '';
     }
 
+    // ===== 5. 保存历史 =====
+    history.push({ role: 'assistant', content: fullContent });
+    this.conversationStore.set(threadKey, history);
+
+    // 限制历史长度：最多保留最近20轮（40条消息）
+    const MAX_HISTORY_PAIRS = 20;
+    const systemMsgCount = 1;
+    const totalMsgs = history.length;
+    if (totalMsgs > MAX_HISTORY_PAIRS * 2) {
+      const excess = totalMsgs - MAX_HISTORY_PAIRS * 2;
+      history.splice(0, excess);
+    }
+
     return fullContent;
+  }
+
+  /**
+   * 将 Markdown 文本转换为 Word 文档 (.docx)
+   * 支持表格、标题、段落等基本格式
+   */
+  async generateDocx(content: string, format: 'docx' | 'xlsx' = 'docx'): Promise<Buffer> {
+    const {
+      Document,
+      Packer,
+      Paragraph,
+      TextRun,
+      Table,
+      TableRow,
+      TableCell,
+      WidthType,
+      AlignmentType,
+      HeadingLevel,
+    } = require('docx');
+
+    const children: any[] = [];
+    const lines = content.split('\n');
+    let i = 0;
+
+    const parseTable = (startIdx: number): { table: any; nextIdx: number } | null => {
+      const rows: string[] = [];
+      let idx = startIdx;
+      while (idx < lines.length && lines[idx].trim().startsWith('|')) {
+        rows.push(lines[idx].trim());
+        idx++;
+      }
+      if (rows.length < 2) return null;
+
+      const headerCells = rows[0].split('|').filter(c => c.trim().length > 0);
+      const separatorRow = rows[1];
+      const isSeparator = separatorRow.includes('---') || separatorRow.includes('---');
+      const dataRows = isSeparator ? rows.slice(2) : rows.slice(1);
+
+      const tableRows: any[] = [];
+
+      // Header row
+      if (isSeparator) {
+        tableRows.push(
+          new TableRow({
+            tableHeader: true,
+            children: headerCells.map(
+              cell =>
+                new TableCell({
+                  children: [
+                    new Paragraph({
+                      children: [new TextRun({ text: cell.trim(), bold: true, size: 20 })],
+                    }),
+                  ],
+                  width: { size: 1000, type: WidthType.DXA },
+                }),
+            ),
+          }),
+        );
+      }
+
+      // Data rows
+      for (const rowStr of dataRows) {
+        const cells = rowStr.split('|').filter(c => c.trim().length > 0);
+        if (cells.length === 0) continue;
+        tableRows.push(
+          new TableRow({
+            children: cells.map(
+              cell =>
+                new TableCell({
+                  children: [
+                    new Paragraph({
+                      children: [new TextRun({ text: cell.trim(), size: 20 })],
+                    }),
+                  ],
+                }),
+            ),
+          }),
+        );
+      }
+
+      return { table: new Table({ rows: tableRows }), nextIdx: idx };
+    };
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      // 空行
+      if (line.trim() === '') {
+        children.push(new Paragraph({ spacing: { after: 100 } }));
+        i++;
+        continue;
+      }
+
+      // 表格
+      if (line.trim().startsWith('|')) {
+        const result = parseTable(i);
+        if (result) {
+          children.push(result.table);
+          children.push(new Paragraph({ spacing: { after: 200 } }));
+          i = result.nextIdx;
+          continue;
+        }
+      }
+
+      // 标题 (## 或 ###)
+      const h2Match = line.match(/^##\s+(.+)/);
+      const h3Match = line.match(/^###\s+(.+)/);
+      if (h2Match) {
+        children.push(
+          new Paragraph({
+            heading: HeadingLevel.HEADING_2,
+            children: [new TextRun({ text: h2Match[1], bold: true, size: 28 })],
+            spacing: { before: 300, after: 150 },
+          }),
+        );
+        i++;
+        continue;
+      }
+      if (h3Match) {
+        children.push(
+          new Paragraph({
+            heading: HeadingLevel.HEADING_3,
+            children: [new TextRun({ text: h3Match[1], bold: true, size: 24 })],
+            spacing: { before: 200, after: 100 },
+          }),
+        );
+        i++;
+        continue;
+      }
+
+      // 普通段落（支持加粗 **text**）
+      const parts: any[] = [];
+      const boldPattern = /\*\*(.+?)\*\*/g;
+      let lastIdx = 0;
+      let boldMatch: RegExpExecArray | null;
+      while ((boldMatch = boldPattern.exec(line)) !== null) {
+        if (boldMatch.index > lastIdx) {
+          parts.push(new TextRun({ text: line.slice(lastIdx, boldMatch.index), size: 20 }));
+        }
+        parts.push(new TextRun({ text: boldMatch[1], bold: true, size: 20 }));
+        lastIdx = boldMatch.index + boldMatch[0].length;
+      }
+      if (lastIdx < line.length) {
+        parts.push(new TextRun({ text: line.slice(lastIdx), size: 20 }));
+      }
+      if (parts.length === 0 && line.trim()) {
+        parts.push(new TextRun({ text: line.trim(), size: 20 }));
+      }
+      if (parts.length > 0) {
+        children.push(
+          new Paragraph({
+            children: parts,
+            spacing: { after: 120 },
+          }),
+        );
+      }
+      i++;
+    }
+
+    const doc = new Document({
+      title: '导出文档',
+      sections: [{ children }],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    return Buffer.from(buffer);
   }
 }
