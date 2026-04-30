@@ -155,8 +155,6 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
   private client: OpenAI;
   private readonly model = 'qwen-plus';
-
-  // 对话历史存储：thread_id -> messages[]
   private conversationStore: Map<string, Array<{ role: 'system' | 'user' | 'assistant'; content: string }>> = new Map();
 
   constructor(
@@ -408,6 +406,56 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     }
 
     return fullContent;
+  }
+
+  /**
+   * 获取所有对话会话列表
+   */
+  getConversations(): Array<{
+    threadId: string;
+    messageCount: number;
+    firstMessage: string;
+    lastMessageTime: string;
+  }> {
+    const conversations: Array<{
+      threadId: string;
+      messageCount: number;
+      firstMessage: string;
+      lastMessageTime: string;
+    }> = [];
+
+    for (const [threadId, history] of this.conversationStore.entries()) {
+      const userMessages = history.filter(m => m.role === 'user');
+      const firstUserMsg = userMessages.length > 0 ? userMessages[0].content.slice(0, 80) : '(空)';
+      const lastMsg = history.length > 0 ? history[history.length - 1] : null;
+      conversations.push({
+        threadId,
+        messageCount: history.length,
+        firstMessage: firstUserMsg,
+        lastMessageTime: lastMsg ? new Date().toISOString() : '',
+      });
+    }
+
+    // 按最后更新时间倒序
+    conversations.sort((a, b) => b.lastMessageTime.localeCompare(a.lastMessageTime));
+    return conversations;
+  }
+
+  /**
+   * 获取指定会话的完整历史
+   */
+  getConversationHistory(threadId: string): Array<{ role: string; content: string }> {
+    const history = this.conversationStore.get(threadId);
+    if (!history) return [];
+    // 返回不含 system 消息的对话历史
+    return history.filter(m => m.role !== 'system');
+  }
+
+  /**
+   * 清除指定会话
+   */
+  clearConversation(threadId: string): boolean {
+    return this.conversationStore.delete(threadId);
   }
 
   /**

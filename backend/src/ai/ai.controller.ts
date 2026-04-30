@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Res, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, Param, Res, HttpException, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { IsString, IsOptional, IsNumber, IsBoolean, IsArray } from 'class-validator';
 import { Response } from 'express';
@@ -164,5 +164,33 @@ export class AiController {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  // ===== 会话管理 =====
+
+  @Get('conversations')
+  @ApiOperation({ summary: '获取所有对话会话列表' })
+  getConversations() {
+    return this.aiService.getConversations();
+  }
+
+  @Get('conversations/:threadId')
+  @ApiOperation({ summary: '获取指定会话的完整历史' })
+  getConversationHistory(@Param('threadId') threadId: string) {
+    const history = this.aiService.getConversationHistory(threadId);
+    return { threadId, messages: history, total: history.length };
+  }
+
+  @Delete('conversations/:threadId')
+  @ApiOperation({ summary: '清除指定会话' })
+  clearConversation(@Param('threadId') threadId: string) {
+    const deleted = this.aiService.clearConversation(threadId);
+    if (!deleted) {
+      throw new HttpException(
+        { success: false, message: '会话不存在' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return { success: true, message: '会话已清除' };
   }
 }

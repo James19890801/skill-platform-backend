@@ -7,6 +7,7 @@
  * - 点击产物卡片 → 右侧 Canvas 展开展示详情
  * - 左右分栏支持拖拽调整宽度
  * - 输入框始终固定在底部
+ * - 支持多会话管理：历史会话列表、新建会话
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
@@ -19,9 +20,11 @@ import {
   Tag,
   Spin,
   Select,
-  Tabs,
   Empty,
   Tooltip,
+  Drawer,
+  List,
+  message,
 } from 'antd';
 import {
   SendOutlined,
@@ -34,8 +37,11 @@ import {
   CloseOutlined,
   CopyOutlined,
   EyeOutlined,
+  HistoryOutlined,
+  PlusOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 
 const { TextArea } = Input;
 const { Text, Title } = Typography;
@@ -45,7 +51,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  artifacts?: Artifact[]; // ★ 产物列表
+  artifacts?: Artifact[];
 }
 
 interface Artifact {
@@ -56,8 +62,17 @@ interface Artifact {
   language?: string;
 }
 
+interface ConversationSummary {
+  threadId: string;
+  messageCount: number;
+  firstMessage: string;
+}
+
+const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
+
 const AgentChatCanvas: React.FC = () => {
   const { agentId } = useParams();
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -65,8 +80,16 @@ const AgentChatCanvas: React.FC = () => {
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [currentArtifact, setCurrentArtifact] = useState<Artifact | null>(null);
   const [canvasViewMode, setCanvasViewMode] = useState<'preview' | 'code'>('preview');
-  const [leftWidth, setLeftWidth] = useState(100); // 百分比
+  const [leftWidth, setLeftWidth] = useState(100);
   const [isDragging, setIsDragging] = useState(false);
+
+  // 会话管理状态
+  const [currentThreadId, setCurrentThreadId] = useState<string>(
+    `thread-${Date.now()}`
+  );
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -156,119 +179,241 @@ const AgentChatCanvas: React.FC = () => {
     return artifacts;
   }, []);
 
-  // ★ 渲染消息内容（将产物替换为可点击卡片）
+  // ★ 渲染消息内容（将产物替换为可点击卡片，表格直接渲染）
   const renderMessageContent = (msg: Message) => {
-    if (!msg.artifacts || msg.artifacts.length === 0) {
-      // 处理纯文本内容，移除markdown标记
-      const cleanText = msg.content
-        .replace(/```[\s\S]*?```/g, '') // 移除代码块
-        .replace(/\|.*\|(?:\n\|[-:\s|]+)+\n?(?:\|.*\|(?=\n|$))*/g, '') // 移除表格
-        .replace(/\*\*(.*?)\*\*/g, '$1') // 移除粗体标记
-        .replace(/\*(.*?)\*/g, '$1') // 移除斜体标记
-        .replace(/~~(.*?)~~/g, '$1') // 移除删除线标记
-        .replace(/`(.*?)`/g, '$1') // 移除行内代码标记
-        .replace(/^#+\s+/gm, '') // 移除标题标记
-        .replace(/^\s*[-+*]\s+/gm, '• ') // 替换列表标记为圆点
-        .replace(/^\s*\d+\.\s+/gm, (match) => match.replace(/^\s*(\d+)\.\s+/, '$1. ')) // 保持数字列表
-        .trim();
-      
-      return <Text style={{ whiteSpace: 'pre-wrap' }}>{cleanText}</Text>;
-    }
-
-    const artifactCards: JSX.Element[] = [];
-
-    msg.artifacts.forEach((artifact) => {
-      artifactCards.push(
-        <div
-          key={artifact.id}
-          className="artifact-card"
-          style={{
-            marginTop: 12,
-            padding: '8px 12px',
-            background: '#f0f5ff',
-            border: '1px dashed #b7c8f0',
-            borderRadius: 8,
-            cursor: 'pointer',
-            transition: 'all 0.15s',
-            position: 'relative',
-          }}
-          onClick={() => openCanvas(artifact)}
-        >
-          <Space>
-            <Tag color="blue" style={{ margin: 0 }}>
-              {artifact.type === 'code' ? '📄' : artifact.type === 'table' ? '📊' : '📄'} {artifact.title}
-            </Tag>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              点击在 Canvas 中查看
-            </Text>
-          </Space>
-          {artifact.type === 'code' && (
-            <pre
-              style={{
-                margin: '8px 0 0',
-                padding: 8,
-                background: '#1e1e1e',
-                color: '#d4d4d4',
-                borderRadius: 6,
-                fontSize: 11,
-                maxHeight: 80,
-                overflow: 'hidden',
-                lineHeight: 1.4,
-              }}
-            >
-              <code>{artifact.content.slice(0, 200)}{artifact.content.length > 200 ? '...' : ''}</code>
-            </pre>
-          )}
+    const artifacts: JSX.Element[] = [];
+  
+    if (msg.artifacts && msg.artifacts.length > 0) {
+      msg.artifacts.forEach((artifact) => {
+        // 表格直接在内容中渲染，不作为可点击卡片
+        if (artifact.type === 'table') return;
           
-          {/* 悬停时显示的操作按钮 */}
+        artifacts.push(
           <div
+            key={artifact.id}
+            className="artifact-card"
             style={{
-              position: 'absolute',
-              top: 8,
-              right: 8,
-              opacity: 0,
-              transition: 'opacity 0.2s',
-              background: 'rgba(255, 255, 255, 0.9)',
-              borderRadius: 4,
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+              marginTop: 12,
+              padding: '8px 12px',
+              background: '#f0f5ff',
+              border: '1px dashed #b7c8f0',
+              borderRadius: 8,
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+              position: 'relative',
             }}
-            className="artifact-actions"
+            onClick={() => openCanvas(artifact)}
           >
-            <Tooltip title="复制内容">
-              <Button
-                size="small"
-                icon={<CopyOutlined />}
-                type="text"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigator.clipboard.writeText(artifact.content);
+            <Space>
+              <Tag color="blue" style={{ margin: 0 }}>
+                📄 {artifact.title}
+              </Tag>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                点击在 Canvas 中查看
+              </Text>
+            </Space>
+            {artifact.type === 'code' && (
+              <pre
+                style={{
+                  margin: '8px 0 0',
+                  padding: 8,
+                  background: '#1e1e1e',
+                  color: '#d4d4d4',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  maxHeight: 80,
+                  overflow: 'hidden',
+                  lineHeight: 1.4,
                 }}
-                style={{ padding: '2px 4px' }}
-              />
-            </Tooltip>
+              >
+                <code>{artifact.content.slice(0, 200)}{artifact.content.length > 200 ? '...' : ''}</code>
+              </pre>
+            )}
+            <div
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                opacity: 0,
+                transition: 'opacity 0.2s',
+                background: 'rgba(255, 255, 255, 0.9)',
+                borderRadius: 4,
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+              }}
+              className="artifact-actions"
+            >
+              <Tooltip title="复制内容">
+                <Button
+                  size="small"
+                  icon={<CopyOutlined />}
+                  type="text"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(artifact.content);
+                  }}
+                  style={{ padding: '2px 4px' }}
+                />
+              </Tooltip>
+            </div>
           </div>
-        </div>
-      );
-    });
-
-    // 清理消息内容中的原始代码块/表格，保留其他文本
-    const tablePattern = '\\|[^\n]+\\|(?:\\n\\|[-:\\s|]+)+\\n?(?:\\|[^\n]+\\|(?=\\n|$))*';
-    let cleanContent = msg.content
-      .replace(/\`\`\`[\s\S]*?\`\`\`/g, '')
-      .replace(new RegExp(tablePattern, 'g'), '')
-      .replace(/\*\*(.*?)\*\*/g, '$1') // 移除粗体标记
-      .replace(/\*(.*?)\*/g, '$1') // 移除斜体标记
-      .replace(/~~(.*?)~~/g, '$1') // 移除删除线标记
-      .replace(/`(.*?)`/g, '$1') // 移除行内代码标记
-      .replace(/^#+\s+/gm, '') // 移除标题标记
-      .replace(/^\s*[-+*]\s+/gm, '• ') // 替换列表标记为圆点
-      .replace(/^\s*\d+\.\s+/gm, (match) => match.replace(/^\s*(\d+)\.\s+/, '$1. ')) // 保持数字列表
-      .trim();
-      
+        );
+      });
+    }
+  
+    // ★ 渲染内容：表格转 HTML table，其余保持干净文本
+    const renderContentWithTables = (content: string) => {
+      const tablePattern = /\|(.+)\|(?:\n\|[-:\s|]+\|(?:\n\|.+?\|)*)/g;
+      const parts: (string | JSX.Element)[] = [];
+      let lastIdx = 0;
+      let match: RegExpExecArray | null;
+  
+      while ((match = tablePattern.exec(content)) !== null) {
+        // 表格之前的文本
+        if (match.index > lastIdx) {
+          const textBefore = content.slice(lastIdx, match.index).trim();
+          if (textBefore) {
+            parts.push(
+              <Text key={`text-${lastIdx}`} style={{ whiteSpace: 'pre-wrap', display: 'block', marginBottom: 8 }}>
+                {textBefore
+                  .replace(/\*\*(.*?)\*\*/g, '$1')
+                  .replace(/\*(.*?)\*/g, '$1')
+                  .replace(/`([^`]+)`/g, '$1')
+                  .replace(/^#+\s+/gm, '')
+                  .replace(/^\s*[-*+]\s+/gm, '• ')}
+              </Text>
+            );
+          }
+        }
+  
+        // 解析表格
+        const tableLines = match[0].trim().split('\n').filter(l => l.trim());
+        if (tableLines.length >= 2) {
+          // 找分隔线
+          let sepIdx = -1;
+          for (let i = 0; i < tableLines.length; i++) {
+            if (tableLines[i].includes('---') || tableLines[i].includes(':-')) {
+              sepIdx = i;
+              break;
+            }
+          }
+          if (sepIdx === -1) sepIdx = 0;
+  
+          const parseRow = (line: string) =>
+            line.split('|').filter((_, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim()).filter(Boolean);
+  
+          const headers = sepIdx > 0 ? parseRow(tableLines[sepIdx - 1]) : [];
+          const dataRows = tableLines.slice(sepIdx + 1).map(parseRow);
+  
+          if (headers.length > 0 && dataRows.length > 0) {
+            parts.push(
+              <div key={`table-${match.index}`} style={{ overflow: 'auto', marginBottom: 8 }}>
+                <table style={{
+                  width: '100%', borderCollapse: 'collapse', fontSize: 13,
+                  border: '1px solid #e2e8f0', borderRadius: 6, overflow: 'hidden',
+                }}>
+                  <thead>
+                    <tr style={{ background: '#f1f5f9' }}>
+                      {headers.map((h, i) => (
+                        <th key={i} style={{ padding: '8px 12px', borderBottom: '2px solid #e2e8f0', textAlign: 'left', fontWeight: 600 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dataRows.map((row, ri) => (
+                      <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : '#fafafa' }}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} style={{ padding: '6px 12px', borderBottom: '1px solid #e2e8f0' }}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          }
+        }
+  
+        lastIdx = match.index + match[0].length;
+      }
+  
+      // 剩余文本
+      if (lastIdx < content.length) {
+        const remaining = content.slice(lastIdx).trim();
+        if (remaining) {
+          parts.push(
+            <Text key={`text-end`} style={{ whiteSpace: 'pre-wrap', display: 'block' }}>
+              {remaining
+                .replace(/\*\*(.*?)\*\*/g, '$1')
+                .replace(/\*(.*?)\*/g, '$1')
+                .replace(/`([^`]+)`/g, '$1')
+                .replace(/^#+\s+/gm, '')
+                .replace(/^\s*[-*+]\s+/gm, '• ')}
+            </Text>
+          );
+        }
+      }
+  
+      if (parts.length === 0 && content.trim()) {
+        parts.push(
+          <Text key="fallback" style={{ whiteSpace: 'pre-wrap' }}>
+            {content
+              .replace(/\*\*(.*?)\*\*/g, '$1')
+              .replace(/\*(.*?)\*/g, '$1')
+              .replace(/`([^`]+)`/g, '$1')
+              .replace(/^#+\s+/gm, '')
+              .replace(/^\s*[-*+]\s+/gm, '• ')}
+          </Text>
+        );
+      }
+  
+      return parts;
+    };
+  
     return (
       <div>
-        {cleanContent && <Text style={{ whiteSpace: 'pre-wrap' }}>{cleanContent}</Text>}
-        {artifactCards}
+        {renderContentWithTables(msg.content)}
+        {artifacts}
+        {/* 下载 Word 按钮 - 仅在 AI 回复时显示 */}
+        {msg.role === 'assistant' && msg.content.trim() && (
+          <div style={{ marginTop: 12, display: 'flex', gap: 6 }}>
+            <Button
+              size="small"
+              icon={<FileTextOutlined />}
+              onClick={async () => {
+                try {
+                  const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
+                  const resp = await fetch(`${API_BASE}/ai/export-docx`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: msg.content, format: 'docx', filename: `对话回复_${Date.now()}.docx` }),
+                  });
+                  if (!resp.ok) throw new Error('导出失败');
+                  const blob = await resp.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `回复_${Date.now()}.docx`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                } catch (e: any) {
+                  message.error('导出 Word 失败: ' + e.message);
+                }
+              }}
+            >
+              下载 Word
+            </Button>
+            <Button
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={() => {
+                navigator.clipboard.writeText(msg.content);
+                message.success('已复制');
+              }}
+            >
+              复制
+            </Button>
+          </div>
+        )}
       </div>
     );
   };
@@ -341,14 +486,14 @@ const AgentChatCanvas: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
       const response = await fetch(`${API_BASE}/ai/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          thread_id: agentId || 'default',
+          thread_id: currentThreadId,
           message: userMessage.content,
           model: selectedModel,
+          agentId: agentId ? Number(agentId) : undefined,
           stream: true,
         }),
       });
@@ -428,6 +573,75 @@ const AgentChatCanvas: React.FC = () => {
     setCurrentArtifact(null);
     setLeftWidth(100);
   };
+
+  // ============ 会话管理 ============
+
+  // 加载历史会话列表
+  const loadConversations = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      const resp = await fetch(`${API_BASE}/ai/conversations`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setConversations(data || []);
+      }
+    } catch {
+      // 静默失败，可能是服务未启动
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, []);
+
+  // 切换到指定会话
+  const switchConversation = async (threadId: string) => {
+    setHistoryVisible(false);
+    setCurrentThreadId(threadId);
+    setMessages([]);
+    setCanvasOpen(false);
+    setIsLoading(true);
+
+    try {
+      const resp = await fetch(`${API_BASE}/ai/conversations/${encodeURIComponent(threadId)}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        const historyMessages: Message[] = (data.messages || []).map(
+          (m: { role: string; content: string }, i: number) => ({
+            id: `msg-history-${i}-${Date.now()}`,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            timestamp: new Date(),
+          })
+        );
+        setMessages(historyMessages);
+      }
+    } catch {
+      message.error('加载历史会话失败');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 新建对话
+  const newConversation = () => {
+    setMessages([]);
+    setCurrentThreadId(`thread-${Date.now()}`);
+    setCanvasOpen(false);
+    setCurrentArtifact(null);
+    setLeftWidth(100);
+    setHistoryVisible(false);
+  };
+
+  // 初始加载会话列表
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
+
+  // 每次消息变化后刷新会话列表
+  useEffect(() => {
+    if (messages.length > 0) {
+      loadConversations();
+    }
+  }, [messages.length]);
 
   // Canvas 内容渲染
   const renderCanvasContent = () => {
@@ -517,8 +731,18 @@ const AgentChatCanvas: React.FC = () => {
           <RobotOutlined style={{ color: '#6366f1', fontSize: 18 }} />
           <Text strong style={{ fontSize: 15 }}>Agent 对话</Text>
           {agentId && <Tag>{agentId}</Tag>}
+          <Tag color="default" style={{ fontSize: 11 }}>
+            {currentThreadId.slice(0, 16)}...
+          </Tag>
         </Space>
         <Space>
+          <Tooltip title="历史会话">
+            <Button
+              icon={<HistoryOutlined />}
+              size="small"
+              onClick={() => { loadConversations(); setHistoryVisible(true); }}
+            />
+          </Tooltip>
           <Select
             value={selectedModel}
             onChange={setSelectedModel}
@@ -636,9 +860,20 @@ const AgentChatCanvas: React.FC = () => {
                 发送
               </Button>
             </Space.Compact>
-            <Text type="secondary" style={{ fontSize: 12, marginTop: 6, display: 'block' }}>
-              按 Enter 发送，Shift + Enter 换行
-            </Text>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                按 Enter 发送，Shift + Enter 换行
+              </Text>
+              <Tooltip title="新建对话">
+                <Button
+                  type="text"
+                  icon={<PlusOutlined />}
+                  size="small"
+                  onClick={newConversation}
+                  style={{ color: '#bbb' }}
+                />
+              </Tooltip>
+            </div>
           </div>
         </div>
 
@@ -724,6 +959,52 @@ const AgentChatCanvas: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* 历史会话抽屉 */}
+      <Drawer
+        title="历史会话"
+        placement="left"
+        open={historyVisible}
+        onClose={() => setHistoryVisible(false)}
+        width={340}
+      >
+        <List
+          loading={loadingHistory}
+          dataSource={conversations}
+          renderItem={(item) => (
+            <List.Item
+              onClick={() => switchConversation(item.threadId)}
+              style={{ cursor: 'pointer' }}
+              actions={[
+                <Button
+                  type="text"
+                  icon={<DeleteOutlined />}
+                  size="small"
+                  danger
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      await fetch(`${API_BASE}/ai/conversations/${encodeURIComponent(item.threadId)}`, {
+                        method: 'DELETE',
+                      });
+                      message.success('已删除');
+                      loadConversations();
+                    } catch {
+                      message.error('删除失败');
+                    }
+                  }}
+                />,
+              ]}
+            >
+              <List.Item.Meta
+                title={item.firstMessage || '(空对话)'}
+                description={`${item.messageCount} 条消息`}
+              />
+            </List.Item>
+          )}
+          locale={{ emptyText: '暂无历史对话' }}
+        />
+      </Drawer>
     </div>
   );
 };
