@@ -142,6 +142,7 @@ class DeepAgentRuntime:
             Deep Agent 实例（LangGraph 编排图）
         """
         # 合并系统提示
+        from tools.builtin import generate_tools_prompt
         base_prompt = """你是一个智能流程自动化助手，具备以下核心能力：
 
 1. Planning - 任务分解与追踪：将复杂任务分解为可执行的步骤
@@ -155,6 +156,10 @@ class DeepAgentRuntime:
 - 保持上下文清晰
 - 及时总结和汇报
 """
+        
+        # 注入内置工具注册信息
+        tools_prompt = generate_tools_prompt()
+        base_prompt = base_prompt + "\n\n" + tools_prompt
         
         # 加载 Skill 指令
         skill_instructions = []

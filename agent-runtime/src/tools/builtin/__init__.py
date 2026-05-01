@@ -122,3 +122,62 @@ def _discover_and_register(registry: ToolRegistry):
     registry.register_many(media_tools.TOOLS)
     registry.register_many(knowledge_tools.TOOLS)
     registry.register_many(system_tools.TOOLS)
+
+
+def generate_tools_prompt() -> str:
+    """
+    生成工具注册信息，格式化为 system prompt 段落
+    让 AI 知道有哪些可用工具及其调用方式
+    """
+    registry = get_tool_registry()
+    tools = registry.list_tools()
+    categories = registry.list_categories()
+    
+    # 分类图标映射
+    icon_map = {
+        "搜索": "🔍",
+        "网页抓取": "🌐",
+        "数据处理": "📊",
+        "文件操作": "📁",
+        "网络": "🌍",
+        "实用工具": "⚙️",
+        "媒体": "🖼️",
+        "知识": "📚",
+        "代码执行": "💻",
+        "系统": "🖥️",
+    }
+    
+    lines = [
+        "## 可用内置工具",
+        "",
+        "你拥有以下内置工具，可以在需要时调用它们来获取信息或执行操作。",
+        "",
+        f"工具总数: {registry.total}，按 {len(categories)} 个分类组织",
+        "",
+        "### 调用方式",
+        "当需要执行某个工具时，在回复中按以下格式输出：",
+        "",
+        '```tool',
+        '{"name": "工具名称", "arguments": {"参数1": "值1", "参数2": "值2"}}',
+        '```',
+        "",
+        "系统会自动解析并执行工具，将结果返回给你。",
+        "",
+    ]
+    
+    # 按分类列出工具
+    for cat in categories:
+        icon = icon_map.get(cat, "🔧")
+        cat_tools = [t for t in tools if t["category"] == cat]
+        lines.append(f"### {icon} {cat}（{len(cat_tools)}个）")
+        lines.append("")
+        for t in cat_tools:
+            params = t.get("parameters", {}).get("properties", {})
+            param_desc = ", ".join(f"{k}" for k in params.keys()) if params else "无参数"
+            lines.append(f"- **{t['name']}**({param_desc}): {t['description']}")
+        lines.append("")
+    
+    lines.append("---")
+    lines.append("请根据需要选择合适的工具。如果不确定使用哪个工具，可以先说明需求，我会推荐合适的工具。")
+    
+    return "\n".join(lines)

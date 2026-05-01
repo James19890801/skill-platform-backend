@@ -234,7 +234,8 @@ async def chat_v2(request: ChatRequest):
     history = session_manager.get_history(session.session_id)
     
     # 系统提示
-    system_prompt = """你是一个智能流程自动化助手，具备以下核心能力：
+    from tools.builtin import generate_tools_prompt
+    base_system_prompt = """你是一个智能流程自动化助手，具备以下核心能力：
 
 1. Planning - 任务分解与追踪：将复杂任务分解为可执行的步骤
 2. Context Management - 上下文管理：有效管理大量信息，防止信息丢失
@@ -247,6 +248,10 @@ async def chat_v2(request: ChatRequest):
 - 保持上下文清晰
 - 及时总结和汇报
 """
+    
+    # 注入内置工具注册信息
+    tools_prompt = generate_tools_prompt()
+    system_prompt = base_system_prompt + "\n\n" + tools_prompt
     
     # 先保存用户消息
     session_manager.add_message(
