@@ -157,12 +157,108 @@ function extractJsonArray(rawContent: string): unknown[] | null {
   }
 }
 
+// ===== 工具定义 =====
+interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, any>;
+  };
+}
+
+const TOOLS: ToolDefinition[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'generate_document',
+      description: '将 Markdown 内容生成为 Word (.docx) 或 Excel (.xlsx) 文档，返回下载链接。适用于用户需要输出正式文档的场景',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: {
+            type: 'string',
+            description: '文档内容，支持 Markdown 格式（标题 ##、表格 | col1 | col2 |、列表、加粗 **text** 等）',
+          },
+          format: {
+            type: 'string',
+            enum: ['docx', 'xlsx'],
+            description: '文档格式：docx = Word 文档, xlsx = Excel 表格',
+          },
+          filename: {
+            type: 'string',
+            description: '文件名（不含扩展名），如 "项目报告"',
+          },
+        },
+        required: ['content', 'format'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'execute_python',
+      description: '运行 Python 代码生成数据分析、图表可视化等结果。适用于用户需要生成图表、执行数据分析、批量处理等场景',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: {
+            type: 'string',
+            description: '要执行的 Python 代码',
+          },
+        },
+        required: ['code'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_web',
+      description: '搜索互联网获取实时信息。适用于用户需要最新资讯、查询事实、了解市场动态等场景',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: '搜索关键词',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_html_report',
+      description: '生成包含交互式图表的 HTML 报告页面。适用于数据可视化展示、Dashboard、分析报告等场景',
+      parameters: {
+        type: 'object',
+        properties: {
+          html: {
+            type: 'string',
+            description: '完整的 HTML 页面代码（包含 ECharts 图表等）',
+          },
+          title: {
+            type: 'string',
+            description: '报告标题',
+          },
+        },
+        required: ['html', 'title'],
+      },
+    },
+  },
+];
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private client: OpenAI;
   private readonly model = 'qwen-plus';
   private conversationStore: Map<string, Array<{ role: 'system' | 'user' | 'assistant'; content: string }>> = new Map();
+  private fileStore = new Map<string, { buffer: Buffer; filename: string; contentType: string }>();
+  private reportStore = new Map<string, { html: string; title: string }>();
 
   constructor(
     @InjectRepository(Agent)
@@ -200,12 +296,11 @@ export class AiService {
 
 请以 JSON 数组格式返回，不要包含其他文字。`;
 
-    // 构建文档内容部分
     let documentsSection = '';
     if (input.processFiles && input.processFiles.length > 0) {
       documentsSection = input.processFiles.map((f) => {
         if (typeof f === 'string') {
-          return `- ${f}`;  // 向后兼容：只有文件名
+          return `- ${f}`;
         }
         const fileContent = f.content?.trim() || '（无内容）';
         return `### ${f.name}（${f.type || '文档'}）\n${fileContent}`;
@@ -213,12 +308,7 @@ export class AiService {
     }
 
     const userPrompt = input.customPrompt || `请为以下业务流程规划所需的 AI Skill：
-
-**流程名称**: ${input.nodeName}
-${input.nodeDescription ? `**流程描述**: ${input.nodeDescription}` : ''}
-${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
-
-请从实际业务操作角度出发，分析上述流程文档中的具体步骤、决策点和风险点，规划 5-8 个具体的、可落地的 AI Skill。`;
+\n**流程名称**: ${input.nodeName}\n${input.nodeDescription ? `**流程描述**: ${input.nodeDescription}` : ''}\n${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}\n\n请从实际业务操作角度出发，分析上述流程文档中的具体步骤、决策点和风险点，规划 5-8 个具体的、可落地的 AI Skill。`;
 
     this.logger.log(`Planning skills for: ${input.nodeName}`);
 
@@ -319,11 +409,8 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       const parts: string[] = [message, '\n\n--- 用户上传了以下附件 ---'];
       for (const att of attachments) {
         if (att.type.startsWith('image/')) {
-          // 图片：以 base64 data URL 形式传递（Qwen 可通过 OpenAI 兼容接口识别）
-          // 同时用文本描述辅助
           parts.push(`- [图片] ${att.name} (${att.type})`);
         } else if (att.type.startsWith('text/') || att.name.match(/\.(txt|md|json|csv|log|yaml|yml|xml|sh|py|js|ts|html|css|sql)$/i)) {
-          // 文本类文件：解码 base64 提取文字内容
           try {
             const base64Data = att.dataUrl.includes(',') ? att.dataUrl.split(',')[1] : att.dataUrl;
             const text = Buffer.from(base64Data, 'base64').toString('utf-8');
@@ -333,7 +420,6 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
             parts.push(`- [文件] ${att.name} (内容解析失败)`);
           }
         } else {
-          // 其他文件类型：仅告知文件名
           parts.push(`- [附件] ${att.name} (${att.type}) — 暂不支持解析此格式，请告知用户文件名即可`);
         }
       }
@@ -379,9 +465,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         systemPrompt = '你是一个智能助手，帮助用户完成各种任务。';
       }
     } else {
-      systemPrompt = `你是一个智能流程自动化助手，具备规划、分析和执行能力。
-
-当前日期：${new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}`;
+      systemPrompt = `你是一个智能流程自动化助手，具备规划、分析和执行能力。\n\n当前日期：${new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}`;
     }
 
     // ===== 2. 加载对话历史 =====
@@ -395,47 +479,113 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       { role: 'user', content: processedMessage },
     ];
 
-    // 记录用户消息到历史（记录原始消息，不含附件内容，避免历史累积过大）
     history.push({ role: 'user', content: message });
 
-    // ===== 4. 调用大模型 =====
+    // ===== 4. 工具调用循环 =====
     const modelName = model || this.model;
+    const apiBaseUrl = process.env.API_BASE_URL || 'https://skill-platform-backend-production.up.railway.app';
     let fullContent = '';
 
-    if (onChunk) {
-      const stream = await this.client.chat.completions.create({
-        model: modelName,
-        messages,
-        temperature: 0.7,
-        max_tokens: 4096,
-        stream: true,
-      } as any);
+    const initialResponse = await this.client.chat.completions.create({
+      model: modelName,
+      messages,
+      tools: TOOLS,
+      tool_choice: 'auto',
+      stream: false,
+    } as any);
 
-      for await (const chunk of stream as any) {
-        const delta = chunk?.choices?.[0]?.delta?.content;
-        if (delta) {
-          fullContent += delta;
-          onChunk(delta);
+    const responseMessage = initialResponse.choices[0]?.message;
+
+    if (responseMessage?.tool_calls && responseMessage.tool_calls.length > 0) {
+      this.logger.log(`AI requested ${responseMessage.tool_calls.length} tool call(s)`);
+      messages.push(responseMessage as any);
+
+      for (const toolCall of responseMessage.tool_calls) {
+        const { name, arguments: rawArgs } = toolCall.function;
+        this.logger.log(`Executing tool: ${name}`);
+
+        let result: any;
+        try {
+          const args = JSON.parse(rawArgs);
+          result = await this.executeToolCall(name, args, apiBaseUrl);
+        } catch (err) {
+          result = { error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` };
         }
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result),
+        } as any);
+      }
+
+      if (onChunk) {
+        const stream = await this.client.chat.completions.create({
+          model: modelName,
+          messages,
+          temperature: 0.7,
+          max_tokens: 4096,
+          stream: true,
+        } as any);
+
+        for await (const chunk of stream as any) {
+          const delta = chunk?.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullContent += delta;
+            onChunk(delta);
+          }
+        }
+      } else {
+        const completion = await this.client.chat.completions.create({
+          model: modelName,
+          messages,
+          temperature: 0.7,
+          max_tokens: 4096,
+        });
+        fullContent = completion.choices[0]?.message?.content || '';
       }
     } else {
-      const completion = await this.client.chat.completions.create({
-        model: modelName,
-        messages,
-        temperature: 0.7,
-        max_tokens: 4096,
-      });
+      fullContent = responseMessage?.content || '';
 
-      fullContent = completion.choices[0]?.message?.content || '';
+      if (onChunk) {
+        if (fullContent) {
+          onChunk(fullContent);
+        } else {
+          const stream = await this.client.chat.completions.create({
+            model: modelName,
+            messages,
+            temperature: 0.7,
+            max_tokens: 4096,
+            stream: true,
+          } as any);
+
+          fullContent = '';
+          for await (const chunk of stream as any) {
+            const delta = chunk?.choices?.[0]?.delta?.content;
+            if (delta) {
+              fullContent += delta;
+              onChunk(delta);
+            }
+          }
+        }
+      } else {
+        if (!fullContent) {
+          const completion = await this.client.chat.completions.create({
+            model: modelName,
+            messages,
+            temperature: 0.7,
+            max_tokens: 4096,
+          });
+          fullContent = completion.choices[0]?.message?.content || '';
+        }
+      }
     }
 
     // ===== 5. 保存历史 =====
     history.push({ role: 'assistant', content: fullContent });
     this.conversationStore.set(threadKey, history);
 
-    // 限制历史长度：最多保留最近20轮（40条消息）
     const MAX_HISTORY_PAIRS = 20;
-    const systemMsgCount = 1;
     const totalMsgs = history.length;
     if (totalMsgs > MAX_HISTORY_PAIRS * 2) {
       const excess = totalMsgs - MAX_HISTORY_PAIRS * 2;
@@ -445,9 +595,6 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     return fullContent;
   }
 
-  /**
-   * 获取所有对话会话列表
-   */
   getConversations(): Array<{
     threadId: string;
     messageCount: number;
@@ -473,34 +620,119 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       });
     }
 
-    // 按最后更新时间倒序
     conversations.sort((a, b) => b.lastMessageTime.localeCompare(a.lastMessageTime));
     return conversations;
   }
 
-  /**
-   * 获取指定会话的完整历史
-   */
   getConversationHistory(threadId: string): Array<{ role: string; content: string }> {
     const history = this.conversationStore.get(threadId);
     if (!history) return [];
-    // 返回不含 system 消息的对话历史
     return history.filter(m => m.role !== 'system');
   }
 
-  /**
-   * 清除指定会话
-   */
   clearConversation(threadId: string): boolean {
     return this.conversationStore.delete(threadId);
   }
 
-  /**
-   * 将 Markdown 文本转换为 Word 文档 (.docx)
-   * 支持表格、标题、段落等基本格式
-   */
+  private async executeToolCall(
+    name: string,
+    args: any,
+    apiBaseUrl: string,
+  ): Promise<any> {
+    switch (name) {
+      case 'generate_document': {
+        const format = args.format || 'docx';
+        const ext = format === 'xlsx' ? 'xlsx' : 'docx';
+        const filename = (args.filename || '文档') + '.' + ext;
+        const buffer = await this.generateDocx(args.content, format);
+        const token = `dl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const contentType =
+          format === 'xlsx'
+            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+        this.fileStore.set(token, { buffer, filename, contentType });
+        setTimeout(() => this.fileStore.delete(token), 10 * 60 * 1000);
+
+        return {
+          success: true,
+          message: '文档已生成',
+          downloadUrl: `${apiBaseUrl}/api/ai/download/${token}`,
+          filename,
+        };
+      }
+
+      case 'search_web': {
+        try {
+          const response = await fetch(
+            `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(args.query)}&count=5`,
+            {
+              headers: {
+                'Ocp-Apim-Subscription-Key': process.env.BING_API_KEY || '',
+              },
+            },
+          );
+          if (!response.ok) {
+            return { error: '搜索服务暂不可用，请重试' };
+          }
+          const data = await response.json();
+          return {
+            results: (data.webPages?.value || []).map((r: any) => ({
+              title: r.name,
+              snippet: r.snippet,
+              url: r.url,
+            })),
+          };
+        } catch {
+          return { error: '搜索服务暂不可用，请稍后重试' };
+        }
+      }
+
+      case 'execute_python': {
+        try {
+          const runtimeUrl = process.env.AGENT_RUNTIME_URL || 'http://localhost:8001';
+          const response = await fetch(`${runtimeUrl}/tools/execute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tool_name: 'execute_python',
+              arguments: { code: args.code },
+            }),
+          });
+          const result = await response.json();
+          return result;
+        } catch {
+          return { error: '代码执行服务暂不可用' };
+        }
+      }
+
+      case 'generate_html_report': {
+        const token = `report-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        this.reportStore.set(token, { html: args.html, title: args.title || '报告' });
+        setTimeout(() => this.reportStore.delete(token), 30 * 60 * 1000);
+
+        return {
+          success: true,
+          message: 'HTML 报告已生成',
+          viewUrl: `${apiBaseUrl}/api/ai/report/${token}`,
+          title: args.title || '报告',
+        };
+      }
+
+      default:
+        return { error: `未知工具: ${name}` };
+    }
+  }
+
+  getFileDownload(token: string): { buffer: Buffer; filename: string; contentType: string } | null {
+    return this.fileStore.get(token) || null;
+  }
+
+  getHtmlReport(token: string): { html: string; title: string } | null {
+    return this.reportStore.get(token) || null;
+  }
+
   async generateDocx(content: string, format: 'docx' | 'xlsx' = 'docx'): Promise<Buffer> {
-    // 清洗内容：去除 HTML 标签、清理 markdown 乱码（保留 | 管道符，表格需要它们）
     const cleaned = content
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/?[a-zA-Z][^>]*>/g, '')
@@ -549,7 +781,6 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
 
       const tableRows: any[] = [];
 
-      // Header row
       if (isSeparator) {
         tableRows.push(
           new TableRow({
@@ -569,7 +800,6 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         );
       }
 
-      // Data rows
       for (const rowStr of dataRows) {
         const cells = rowStr.split('|').filter(c => c.trim().length > 0);
         if (cells.length === 0) continue;
@@ -595,14 +825,12 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     while (i < lines.length) {
       const line = lines[i];
 
-      // 空行
       if (line.trim() === '') {
         children.push(new Paragraph({ spacing: { after: 100 } }));
         i++;
         continue;
       }
 
-      // 表格
       if (line.trim().startsWith('|')) {
         const result = parseTable(i);
         if (result) {
@@ -613,7 +841,6 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         }
       }
 
-      // 标题 (## 或 ###)
       const h2Match = line.match(/^##\s+(.+)/);
       const h3Match = line.match(/^###\s+(.+)/);
       if (h2Match) {
@@ -639,9 +866,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         continue;
       }
 
-      // 普通段落（支持加粗 **text**）
       const parts: any[] = [];
-      // 非表格行：清除残留管道符
       const textLine = line.replace(/\|/g, '');
       const boldPattern = /\*\*(.+?)\*\*/g;
       let lastIdx = 0;
