@@ -1,0 +1,28 @@
+{
+  "session_id": "49bee673-1013-4ee4-a839-bc6900b2af37",
+  "thread_id": "test",
+  "user_id": null,
+  "model": "qwen-plus",
+  "skills": [],
+  "messages": [
+    {
+      "id": "msg-1",
+      "role": "user",
+      "content": "你有多少可用工具？列出前5个",
+      "timestamp": "2026-05-01T08:18:20.118425",
+      "metadata": {
+        "model": "qwen-plus"
+      }
+    },
+    {
+      "id": "msg-2",
+      "role": "assistant",
+      "content": "我目前共有 **43 个可用工具**，按功能分为 10 类（如💻代码执行、📊数据处理、🌐网络等）。\n\n以下是 **前5个工具**（按内置列表顺序）及其简要说明：\n\n1. **`python_repl`** — 执行 Python 代码片段，支持数据分析、计算、逻辑验证等（例如 `print(2**10)` 或 `pandas.DataFrame.describe()`）  \n2. **`shell_exec`** — 执行安全受限的 Shell 命令（如 `ls -l`, `pwd`, `date`），不可执行危险命令（如 `rm -rf`）  \n3. **`chart_gen`** — 生成柱状图/饼图/折线图/横向柱状图，输入数据和标题即可保存为本地图片（如分析销售数据可视化）  \n4. **`markdown_convert`** — 在 Markdown ↔ HTML ↔ 纯文本之间相互转换，适合内容格式适配或预览  \n5. **`base_convert`** — 进制转换工具，支持二进制、八进制、十进制、十六进制之间的任意互转（如 `\"1010\" (bin) → 10 (dec)`）\n\n需要我为你演示其中任一工具的使用，或根据具体任务推荐最合适的工具吗？ 😊",
+      "timestamp": "2026-05-01T08:18:31.033330",
+      "metadata": {}
+    }
+  ],
+  "created_at": "2026-05-01T08:18:20.117908",
+  "updated_at": "2026-05-01T08:18:31.033358",
+  "metadata": {}
+}
