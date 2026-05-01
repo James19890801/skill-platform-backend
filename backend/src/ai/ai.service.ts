@@ -5,6 +5,13 @@ import OpenAI from 'openai';
 import { Agent } from '../entities/agent.entity';
 import { Skill } from '../entities/skill.entity';
 
+export interface AttachmentInfo {
+  name: string;
+  type: string;
+  dataUrl: string;
+  extractedText?: string;
+}
+
 export interface ProcessFileInfo {
   name: string;
   type?: string;
@@ -304,7 +311,35 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     agentId?: number,
     skills?: string[],
     threadId?: string,
+    attachments?: AttachmentInfo[],
   ): Promise<string> {
+    // ===== 0. 处理附件 =====
+    let processedMessage = message;
+    if (attachments && attachments.length > 0) {
+      const parts: string[] = [message, '\n\n--- 用户上传了以下附件 ---'];
+      for (const att of attachments) {
+        if (att.type.startsWith('image/')) {
+          // 图片：以 base64 data URL 形式传递（Qwen 可通过 OpenAI 兼容接口识别）
+          // 同时用文本描述辅助
+          parts.push(`- [图片] ${att.name} (${att.type})`);
+        } else if (att.type.startsWith('text/') || att.name.match(/\.(txt|md|json|csv|log|yaml|yml|xml|sh|py|js|ts|html|css|sql)$/i)) {
+          // 文本类文件：解码 base64 提取文字内容
+          try {
+            const base64Data = att.dataUrl.includes(',') ? att.dataUrl.split(',')[1] : att.dataUrl;
+            const text = Buffer.from(base64Data, 'base64').toString('utf-8');
+            const preview = text.length > 3000 ? text.slice(0, 3000) + '\n...(截断, 完整内容请在对话中询问)' : text;
+            parts.push(`- [文件] ${att.name}:\n\`\`\`\n${preview}\n\`\`\``);
+          } catch {
+            parts.push(`- [文件] ${att.name} (内容解析失败)`);
+          }
+        } else {
+          // 其他文件类型：仅告知文件名
+          parts.push(`- [附件] ${att.name} (${att.type}) — 暂不支持解析此格式，请告知用户文件名即可`);
+        }
+      }
+      processedMessage = parts.join('\n');
+    }
+
     // ===== 1. 构建系统提示词 =====
     let systemPrompt: string;
 
@@ -344,7 +379,9 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         systemPrompt = '你是一个智能助手，帮助用户完成各种任务。';
       }
     } else {
-      systemPrompt = `你是一个智能流程自动化助手，具备规划、分析和执行能力。`;
+      systemPrompt = `你是一个智能流程自动化助手，具备规划、分析和执行能力。
+
+当前日期：${new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}`;
     }
 
     // ===== 2. 加载对话历史 =====
@@ -355,10 +392,10 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
       ...history,
-      { role: 'user', content: message },
+      { role: 'user', content: processedMessage },
     ];
 
-    // 记录用户消息到历史
+    // 记录用户消息到历史（记录原始消息，不含附件内容，避免历史累积过大）
     history.push({ role: 'user', content: message });
 
     // ===== 4. 调用大模型 =====

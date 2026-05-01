@@ -316,7 +316,16 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
             {currentStep < 2 ? (
               <Button
                 type="primary"
-                onClick={() => setCurrentStep(currentStep + 1)}
+                onClick={async () => {
+                  // 根据当前步骤校验相关字段
+                  const stepFields = [['name', 'description', 'model'], [], []];
+                  try {
+                    await form.validateFields(stepFields[currentStep]);
+                    setCurrentStep(currentStep + 1);
+                  } catch {
+                    // 校验失败，表单自动显示错误提示
+                  }
+                }}
                 style={{ background: '#6366f1' }}
               >
                 下一步

@@ -26,6 +26,7 @@ import {
   List,
   message,
   Grid,
+  Upload,
 } from 'antd';
 import {
   SendOutlined,
@@ -42,6 +43,9 @@ import {
   PlusOutlined,
   DeleteOutlined,
   ArrowLeftOutlined,
+  UploadOutlined,
+  PictureOutlined,
+  PaperClipOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
@@ -99,6 +103,9 @@ const AgentChatCanvas: React.FC = () => {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [historyVisible, setHistoryVisible] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // 附件上传状态
+  const [attachments, setAttachments] = useState<Array<{ name: string; type: string; dataUrl: string }>>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -210,16 +217,16 @@ const AgentChatCanvas: React.FC = () => {
   };
 
   // ★ 渲染消息内容（基于 react-markdown，支持表格、Mermaid、代码块）
-  const renderMessageContent = (msg: Message) => {
-    const artifacts: JSX.Element[] = [];
+  const renderMessageContent = (content: string, artifacts?: Artifact[]) => {
+    const artifactElements: JSX.Element[] = [];
   
-    if (msg.artifacts && msg.artifacts.length > 0) {
-      msg.artifacts.forEach((artifact) => {
+    if (artifacts && artifacts.length > 0) {
+      artifacts.forEach((artifact) => {
         if (artifact.type === 'table') return;
           
         const isMermaid = artifact.type === 'code' && isMermaidCode(artifact.content);
 
-        artifacts.push(
+        artifactElements.push(
           <div
             key={artifact.id}
             className="artifact-card"
@@ -296,7 +303,7 @@ const AgentChatCanvas: React.FC = () => {
     }
 
     // 预处理：清理 <br> 标签（ReactMarkdown 自动处理其余所有 GFM 格式）
-    const preprocessed = msg.content.replace(/<br\s*\/?>/gi, '\n');
+    const preprocessed = content.replace(/<br\s*\/?>/gi, '\n');
 
     // ReactMarkdown 自定义组件：渲染表格/Mermaid/代码块
     const renderContent = (
@@ -366,54 +373,7 @@ const AgentChatCanvas: React.FC = () => {
     return (
       <div>
         {renderContent}
-        {artifacts}
-        {/* 下载 Word 按钮 */}
-        {msg.role === 'assistant' && msg.content.trim() && (
-          <div style={{ marginTop: 12, display: 'flex', gap: 6 }}>
-            <Button
-              size="small"
-              icon={<FileTextOutlined />}
-              onClick={async () => {
-                try {
-                  const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
-                  const token = useAuthStore.getState().token;
-                  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-                  if (token) headers['Authorization'] = `Bearer ${token}`;
-                  const resp = await fetch(`${API_BASE}/ai/export-docx`, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify({ content: msg.content, format: 'docx', filename: `对话回复_${Date.now()}.docx` }),
-                  });
-                  if (!resp.ok) {
-                    const errText = await resp.text().catch(() => '');
-                    throw new Error(errText ? `导出失败: ${errText}` : '导出失败');
-                  }
-                  const blob = await resp.blob();
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `回复_${Date.now()}.docx`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                } catch (e: any) {
-                  message.error('导出 Word 失败: ' + (e.message || '未知错误'));
-                }
-              }}
-            >
-              下载 Word
-            </Button>
-            <Button
-              size="small"
-              icon={<CopyOutlined />}
-              onClick={() => {
-                navigator.clipboard.writeText(msg.content);
-                message.success('已复制');
-              }}
-            >
-              复制
-            </Button>
-          </div>
-        )}
+        {artifactElements}
       </div>
     );
   };
@@ -482,6 +442,7 @@ const AgentChatCanvas: React.FC = () => {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    setAttachments([]);
     setInputValue('');
     setIsLoading(true);
 
@@ -495,6 +456,7 @@ const AgentChatCanvas: React.FC = () => {
           model: selectedModel,
           agentId: agentId ? Number(agentId) : undefined,
           stream: true,
+          attachments: attachments.length > 0 ? attachments.map(a => ({ name: a.name, type: a.type, dataUrl: a.dataUrl })) : undefined,
         }),
       });
 
@@ -572,6 +534,56 @@ const AgentChatCanvas: React.FC = () => {
     setCanvasOpen(false);
     setCurrentArtifact(null);
     setLeftWidth(100);
+  };
+
+  // ★ 导出整个对话为 Word
+  const exportChatAsWord = async () => {
+    const fullContent = messages.map(m => (m.role === 'user' ? `用户: ${m.content}` : `助手: ${m.content}`)).join('\n\n');
+    if (!fullContent.trim()) { message.warning('没有内容可导出'); return; }
+    try {
+      const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
+      const token = useAuthStore.getState().token;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const resp = await fetch(`${API_BASE}/ai/export-docx`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ content: fullContent, format: 'docx', filename: `对话记录_${Date.now()}.docx` }),
+      });
+      if (!resp.ok) { throw new Error('导出失败'); }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `对话记录_${Date.now()}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      message.error('导出失败: ' + (e.message || '未知错误'));
+    }
+  };
+
+  // ★ 复制整个对话
+  const copyAllMessages = () => {
+    const text = messages.map(m => (m.role === 'user' ? `用户: ${m.content}` : `助手: ${m.content}`)).join('\n\n---\n\n');
+    if (!text.trim()) { message.warning('没有内容可复制'); return; }
+    navigator.clipboard.writeText(text);
+    message.success('已复制全部对话');
+  };
+
+  // ★ 文件上传处理
+  const handleFileSelect = (file: File): boolean => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setAttachments(prev => [...prev, { name: file.name, type: file.type, dataUrl }]);
+    };
+    reader.readAsDataURL(file);
+    return false; // 阻止默认上传
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
   // ============ 会话管理 ============
@@ -784,20 +796,12 @@ const AgentChatCanvas: React.FC = () => {
                   onClick={() => { loadConversations(); setHistoryVisible(true); }}
                 />
               </Tooltip>
-              <Select
-                value={selectedModel}
-                onChange={setSelectedModel}
-                size="small"
-                style={{ width: 130 }}
-                options={[
-                  { value: 'qwen-turbo', label: 'Turbo' },
-                  { value: 'qwen-plus', label: 'Plus' },
-                  { value: 'qwen-max', label: 'Max' },
-                ]}
-              />
               <Button icon={<ClearOutlined />} size="small" onClick={clearChat}>
                 清空
               </Button>
+              <Tooltip title="新建对话">
+                <Button icon={<PlusOutlined />} size="small" onClick={newConversation} />
+              </Tooltip>
             </>
           )}
         </Space>
@@ -860,7 +864,7 @@ const AgentChatCanvas: React.FC = () => {
                       border: msg.role === 'user' ? 'none' : '1px solid #f0f0f0',
                     }}
                   >
-                    {renderMessageContent(msg)}
+                    {renderMessageContent(msg.content, msg.artifacts)}
                   </div>
                 </div>
               ))
@@ -876,14 +880,67 @@ const AgentChatCanvas: React.FC = () => {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* 输入区 — 始终固定在底部 */}
-          <div style={{ padding: isMobile ? '8px 12px' : '12px 20px', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
-            <Space.Compact style={{ width: '100%' }}>
+          {/* 浮动操作栏 — 整个对话的导出/复制，hover 显示 */}
+          {messages.length > 0 && (
+            <div
+              style={{
+                padding: '4px 12px',
+                display: 'flex',
+                justifyContent: 'center',
+                gap: 8,
+                opacity: 0.3,
+                transition: 'opacity 0.2s',
+                flexShrink: 0,
+              }}
+              className="chat-export-bar"
+              onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '0.3')}
+            >
+              <Button size="small" type="text" icon={<FileTextOutlined />} onClick={exportChatAsWord}>
+                导出 Word
+              </Button>
+              <Button size="small" type="text" icon={<CopyOutlined />} onClick={copyAllMessages}>
+                复制对话
+              </Button>
+            </div>
+          )}
+
+          {/* 输入区 — Qoder 风格 */}
+          <div style={{ padding: isMobile ? '6px 10px 10px' : '8px 16px 14px', borderTop: '1px solid #e8e8e8', background: '#fff', flexShrink: 0 }}>
+            {/* 附件预览 */}
+            {attachments.length > 0 && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8, padding: '4px 0' }}>
+                {attachments.map((att, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '4px 8px', background: '#f0f5ff', borderRadius: 6,
+                    border: '1px solid #d6e4ff', fontSize: 12,
+                  }}>
+                    {att.type.startsWith('image/') ? (
+                      <img src={att.dataUrl} alt={att.name} style={{ width: 20, height: 20, borderRadius: 2, objectFit: 'cover' }} />
+                    ) : (
+                      <PaperClipOutlined style={{ color: '#6366f1' }} />
+                    )}
+                    <Text style={{ fontSize: 12, maxWidth: 120 }} ellipsis>{att.name}</Text>
+                    <Button type="text" size="small" icon={<CloseOutlined />} onClick={() => removeAttachment(i)} style={{ fontSize: 10, width: 18, height: 18 }} />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 输入框容器 */}
+            <div style={{
+              borderRadius: 12,
+              border: '1px solid #e0e0e0',
+              background: '#f8f9fb',
+              overflow: 'hidden',
+              transition: 'border-color 0.2s',
+            }}>
               <TextArea
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder="输入您的消息..."
-                autoSize={{ minRows: 1, maxRows: 4 }}
+                placeholder="输入消息，@添加上下文，/使用命令"
+                autoSize={{ minRows: 2, maxRows: 6 }}
                 onPressEnter={(e) => {
                   if (!e.shiftKey) {
                     e.preventDefault();
@@ -891,33 +948,47 @@ const AgentChatCanvas: React.FC = () => {
                   }
                 }}
                 disabled={isLoading}
-                style={{ borderRadius: '8px 0 0 8px' }}
+                style={{ border: 'none', background: 'transparent', padding: '12px 14px 8px', fontSize: 14, resize: 'none', boxShadow: 'none' }}
               />
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                onClick={sendMessage}
-                loading={isLoading}
-                style={{ background: '#6366f1', borderRadius: '0 8px 8px 0', height: 'auto' }}
-              >
-                发送
-              </Button>
-            </Space.Compact>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: isMobile ? 4 : 6 }}>
-              <Text type="secondary" style={{ fontSize: isMobile ? 11 : 12 }}>
-                按 Enter 发送
-              </Text>
-              {!isMobile && (
-                <Tooltip title="新建对话">
-                  <Button
-                    type="text"
-                    icon={<PlusOutlined />}
+              {/* 工具栏 */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px 6px 12px' }}>
+                <Space size={4}>
+                  <Upload beforeUpload={handleFileSelect} showUploadList={false} accept="image/*,.pdf,.doc,.docx,.txt,.xls,.xlsx,.csv">
+                    <Tooltip title="上传附件">
+                      <Button type="text" icon={<PaperClipOutlined />} size="small" style={{ color: '#8a8a8a', fontSize: 16 }} />
+                    </Tooltip>
+                  </Upload>
+                  <Upload beforeUpload={handleFileSelect} showUploadList={false} accept="image/*">
+                    <Tooltip title="上传图片">
+                      <Button type="text" icon={<PictureOutlined />} size="small" style={{ color: '#8a8a8a', fontSize: 16 }} />
+                    </Tooltip>
+                  </Upload>
+                  <Select
+                    value={selectedModel}
+                    onChange={setSelectedModel}
                     size="small"
-                    onClick={newConversation}
-                    style={{ color: '#bbb' }}
+                    style={{ width: 110, fontSize: 12 }}
+                    bordered={false}
+                    options={[
+                      { value: 'qwen-turbo', label: 'Turbo' },
+                      { value: 'qwen-plus', label: 'Plus' },
+                      { value: 'qwen-max', label: 'Max' },
+                    ]}
                   />
-                </Tooltip>
-              )}
+                </Space>
+                <Space size={2}>
+                  <Text type="secondary" style={{ fontSize: 11, color: '#bbb' }}>↵ Enter</Text>
+                  <Button
+                    type="primary"
+                    shape="circle"
+                    icon={<SendOutlined />}
+                    onClick={sendMessage}
+                    loading={isLoading}
+                    size="small"
+                    style={{ background: '#6366f1', border: 'none', width: 28, height: 28 }}
+                  />
+                </Space>
+              </div>
             </div>
           </div>
         </div>

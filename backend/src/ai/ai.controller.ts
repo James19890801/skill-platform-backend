@@ -23,6 +23,17 @@ class PlanSkillsResponse {
   message?: string;
 }
 
+class AttachmentDto {
+  @IsString()
+  name: string;
+
+  @IsString()
+  type: string;
+
+  @IsString()
+  dataUrl: string;
+}
+
 // Chat 请求 DTO
 class ChatDto {
   @IsString()
@@ -46,6 +57,10 @@ class ChatDto {
   @IsOptional()
   @IsBoolean()
   stream?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  attachments?: AttachmentDto[];
 }
 
 // ===== Export DTO =====
@@ -93,7 +108,7 @@ export class AiController {
   }
 
   @Post('chat')
-  @ApiOperation({ summary: 'AI 对话（流式输出）', description: '与 AI 对话，支持流式 SSE 输出' })
+  @ApiOperation({ summary: 'AI 对话（流式输出）', description: '与 AI 对话，支持流式 SSE 输出和附件上传' })
   @ApiBody({ type: ChatDto })
   async chat(@Body() body: ChatDto, @Res() res: Response) {
     try {
@@ -117,6 +132,7 @@ export class AiController {
           body.agentId,
           body.skills,
           body.thread_id,
+          body.attachments,
         );
 
         res.write('data: [DONE]\n\n');
@@ -130,6 +146,7 @@ export class AiController {
           body.agentId,
           body.skills,
           body.thread_id,
+          body.attachments,
         );
         res.json({
           thread_id: body.thread_id,

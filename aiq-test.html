@@ -111,7 +111,7 @@ body {
   background: linear-gradient(90deg, var(--primary), var(--primary-light));
   transition: width .4s ease;
 }
-.quiz-body { flex: 1; padding: 16px; max-width: 520px; margin: 0 auto; width: 100%; }
+.quiz-body { flex: 1; padding: 16px 16px 80px; max-width: 520px; margin: 0 auto; width: 100%; }
 .question-card {
   background: var(--bg-card); border-radius: var(--radius);
   padding: 24px 20px; margin-bottom: 16px;
@@ -147,11 +147,14 @@ body {
 .option-text { font-size: 14px; line-height: 1.6; color: var(--text-secondary); }
 .option-item.selected .option-text { color: var(--text-primary); font-weight: 500; }
 .quiz-nav {
-  padding: 0 16px 16px; max-width: 520px; margin: 0 auto; width: 100%;
-  display: flex; gap: 10px;
+  position: sticky; bottom: 0; z-index: 10;
+  padding: 12px 16px calc(12px + var(--safe-bottom));
+  max-width: 520px; margin: 0 auto; width: 100%;
+  display: flex; gap: 12px;
+  background: var(--bg-card);
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
 }
-.quiz-nav .btn { flex: 1; }
-.quiz-nav .btn-prev { flex: 0 0 auto; padding: 14px 20px; }
+.quiz-nav .btn { flex: 1; padding: 14px 0; font-size: 15px; }
 
 /* ===== 生成中 ===== */
 #page-generating {
