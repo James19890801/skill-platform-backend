@@ -26,7 +26,39 @@ mermaid.initialize({
   sequence: {
     showSequenceNumbers: false,
   },
+  securityLevel: 'loose',
 });
+
+// 抑制 Mermaid 内部的 console.error 污染（渲染失败已有降级处理）
+const originalError = console.error;
+if (!(window as any).__MERMAID_PATCHED) {
+  (window as any).__MERMAID_PATCHED = true;
+  console.error = (...args: any[]) => {
+    const msg = args.join(' ');
+    if (msg.includes('mermaid') || msg.includes('Syntax error') || msg.includes('Parse error')) return;
+    originalError.apply(console, args);
+  };
+  mermaid.parseError = () => {};
+}
+
+// 定期清理 Mermaid 散落在 body 层的错误 DOM 元素（流式渲染时的累积问题）
+function cleanupMermaidErrors() {
+  if (typeof document === 'undefined') return;
+  try {
+    // 清理所有 Mermaid 在 body 上创建的带有 error 的内容
+    document.querySelectorAll('g.error, text.error, [class*="mermaid-error"], .error-icon, .error-text')
+      .forEach(el => el.remove());
+    // 清理 Mermaid 添加到 body 的零散错误 SVG（没有在容器内的 SVG）
+    document.querySelectorAll('body > svg.error, body > div.error, body > [data-error]')
+      .forEach(el => el.remove());
+  } catch {}
+}
+
+// 每 2 秒清理一次（轻量级）
+if (typeof window !== 'undefined' && !(window as any).__MERMAID_CLEANUP_INIT) {
+  (window as any).__MERMAID_CLEANUP_INIT = true;
+  setInterval(cleanupMermaidErrors, 2000);
+}
 
 interface Props {
   chart: string;
@@ -35,47 +67,57 @@ interface Props {
 
 const MermaidRenderer: React.FC<Props> = ({ chart, id: externalId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const renderId = useRef(externalId || `mermaid-${Math.random().toString(36).slice(2, 9)}`);
+  const renderAttempted = useRef(false);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
 
   useEffect(() => {
-    let cancelled = false;
+    // 每次 chart 变化时：清除之前的计时器和渲染标记
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    renderAttempted.current = false;
+    setStatus('loading');
 
-    const render = async () => {
+    // 防抖：300ms 内没有新变化才真正开始渲染
+    debounceTimer.current = setTimeout(() => {
       if (!containerRef.current) return;
+      if (renderAttempted.current) return;
+      renderAttempted.current = true;
 
-      setLoading(true);
-      setError(null);
+      const doRender = async () => {
+        try {
+          // 彻底清理容器内的所有内容
+          containerRef.current!.innerHTML = '';
 
-      try {
-        // 清理容器
-        containerRef.current.innerHTML = '';
+          // 预处理：给含中文的节点内容加引号，提升兼容性
+          const preprocessedChart = chart
+            .replace(/\[([^\]]*[\u4e00-\u9fff][^\]]*)\]/g, '["$1"]')
+            .replace(/\{([^}]*[\u4e00-\u9fff][^}]*)\}/g, '{"$1"}')
+            // 处理中文全角括号 -> 半角（Mermaid 对全角括号解析有问题）
+            .replace(/（/g, '(').replace(/）/g, ')')
+            // 移除 node 描述中的多余换行
+            .replace(/\[([^\]]*)\n/g, '[$1');
 
-        // 使用 mermaid 渲染
-        const { svg } = await mermaid.render(renderId.current, chart);
-        if (!cancelled && containerRef.current) {
-          containerRef.current.innerHTML = svg;
-        }
-      } catch (e: any) {
-        if (!cancelled) {
-          setError(e?.message || '流程图渲染失败');
-          // 降级显示源码
+          const { svg } = await mermaid.render(renderId.current, preprocessedChart);
           if (containerRef.current) {
-            containerRef.current.innerHTML = `<pre style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:8px;overflow:auto;font-size:12px;line-height:1.5;">${escapeHtml(chart)}</pre>`;
+            containerRef.current.innerHTML = svg;
+            setStatus('success');
           }
+        } catch (e: any) {
+          // 出错时：先清理 mermaid 可能已写入的 DOM 元素
+          if (containerRef.current) {
+            containerRef.current.innerHTML = '';
+            containerRef.current.innerHTML = `<pre style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:8px;overflow:auto;font-size:12px;line-height:1.5;margin:0">${escapeHtml(chart)}</pre>`;
+          }
+          setStatus('error');
         }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    render();
+      };
+      doRender();
+    }, 300);
 
     return () => {
-      cancelled = true;
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      if (containerRef.current) containerRef.current.innerHTML = '';
     };
   }, [chart]);
 
@@ -88,21 +130,16 @@ const MermaidRenderer: React.FC<Props> = ({ chart, id: externalId }) => {
         padding: 16,
         marginBottom: 12,
         overflow: 'auto',
-        minHeight: 100,
+        minHeight: status === 'loading' ? 100 : 'auto',
       }}
     >
-      {loading && (
+      {status === 'loading' && (
         <div style={{ textAlign: 'center', padding: 24 }}>
           <Spin size="small" />
           <div style={{ color: '#999', fontSize: 12, marginTop: 8 }}>流程图渲染中...</div>
         </div>
       )}
-      <div ref={containerRef} style={{ display: loading ? 'none' : 'block' }} />
-      {error && (
-        <div style={{ color: '#ef4444', fontSize: 12, marginTop: 8 }}>
-          ⚠️ {error}
-        </div>
-      )}
+      <div ref={containerRef} style={{ display: status === 'loading' ? 'none' : 'block' }} />
     </div>
   );
 };

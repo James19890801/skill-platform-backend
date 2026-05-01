@@ -30,3 +30,20 @@ pydantic>=2.0.0
 pydantic-settings>=2.0.0
 python-dotenv>=1.0.0
 httpx>=0.27.0
+
+# Built-in Tools - Web Search & Scraping
+duckduckgo-search>=8.0.0
+wikipedia>=1.4.0
+arxiv>=2.1.0
+beautifulsoup4>=4.12.0
+
+# Built-in Tools - Code Execution
+# (uses standard library: subprocess, io, sys)
+
+# Built-in Tools - Media & Charts
+qrcode[pil]>=7.4.0
+matplotlib>=3.8.0
+markdown>=3.6.0
+
+# Built-in Tools - System
+psutil>=6.0.0

@@ -1,6 +1,7 @@
 import { Controller, Post, Get, Delete, Body, Param, Res, HttpException, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
-import { IsString, IsOptional, IsNumber, IsBoolean, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsBoolean, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { Response } from 'express';
 import { AiService, PlanSkillsInput, PlannedSkill, ProcessFileInfo } from './ai.service';
 
@@ -60,6 +61,8 @@ class ChatDto {
 
   @IsOptional()
   @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AttachmentDto)
   attachments?: AttachmentDto[];
 }
 

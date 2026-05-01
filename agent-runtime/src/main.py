@@ -21,6 +21,7 @@ from api.chat_service import get_chat_service
 from tools.planning_tool import get_planning_tool
 from api.session_manager import get_session_manager
 from skills.loader import scan_skills_directory, load_skill_metadata, load_skill_instructions
+from tools.builtin import get_tool_registry
 
 # 创建 FastAPI 应用
 app = FastAPI(
@@ -549,6 +550,46 @@ async def list_documents():
     from tools.document_generator import list_generated_docs
     docs = list_generated_docs()
     return {"documents": docs, "total": len(docs)}
+
+
+# ============ Tools API ============
+
+class ToolExecuteRequest(BaseModel):
+    """工具执行请求"""
+    name: str
+    arguments: Dict[str, Any] = {}
+
+
+@app.get("/tools")
+async def list_tools(category: Optional[str] = None):
+    """列出所有可用内置工具"""
+    registry = get_tool_registry()
+    tools = registry.list_tools(category)
+    categories = registry.list_categories()
+    return {
+        "success": True,
+        "tools": tools,
+        "categories": categories,
+        "total": registry.total,
+    }
+
+
+@app.get("/tools/{name}")
+async def get_tool(name: str):
+    """获取单个工具详情"""
+    registry = get_tool_registry()
+    tool = registry.get(name)
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"工具不存在: {name}")
+    return {"success": True, "tool": tool.to_dict()}
+
+
+@app.post("/tools/execute")
+async def execute_tool(request: ToolExecuteRequest):
+    """执行工具"""
+    registry = get_tool_registry()
+    result = registry.execute(request.name, **request.arguments)
+    return result
 
 
 # ============ Session API ============

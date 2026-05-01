@@ -149,6 +149,25 @@ const AgentChatCanvas: React.FC = () => {
           overflow: auto;
           max-height: 400px;
         }
+        
+        .msg-bubble-wrapper .message-actions {
+          opacity: 0;
+          transition: opacity 0.2s;
+          display: flex;
+          gap: 4px;
+          align-items: center;
+          margin-top: 2px;
+        }
+        .msg-bubble-wrapper:hover .message-actions {
+          opacity: 1;
+        }
+        .message-actions .ant-btn {
+          opacity: 0.4;
+          transition: opacity 0.15s;
+        }
+        .message-actions .ant-btn:hover {
+          opacity: 1;
+        }
       `;
       document.head.appendChild(style);
     }
@@ -739,15 +758,16 @@ const AgentChatCanvas: React.FC = () => {
     <div ref={containerRef} style={{ height: isMobile ? 'calc(100vh - 56px)' : 'calc(100vh - 56px - 32px)', display: 'flex', flexDirection: 'column' }}>
       {/* 顶部工具栏 */}
       <div style={{
-        padding: isMobile ? '8px 12px' : '12px 16px',
-        borderBottom: '1px solid #f0f0f0',
+        padding: isMobile ? '6px 10px' : '8px 14px',
+        borderBottom: '1px solid #e8e8e8',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         flexShrink: 0,
+        background: '#fafafa',
       }}>
         {isMobile ? (
-          <Space>
+          <Space size="small">
             <Button
               type="text"
               icon={<ArrowLeftOutlined />}
@@ -758,16 +778,28 @@ const AgentChatCanvas: React.FC = () => {
             <Text strong style={{ fontSize: 15 }}>{agentId ? `Agent #${agentId}` : 'AI 对话'}</Text>
           </Space>
         ) : (
-          <Space>
-            <RobotOutlined style={{ color: '#6366f1', fontSize: 18 }} />
-            <Text strong style={{ fontSize: 15 }}>Agent 对话</Text>
-            {agentId && <Tag>{agentId}</Tag>}
-            <Tag color="default" style={{ fontSize: 11 }}>
-              {currentThreadId.slice(0, 16)}...
-            </Tag>
-          </Space>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 8,
+              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <RobotOutlined style={{ color: '#fff', fontSize: 15 }} />
+            </div>
+            <div style={{ lineHeight: 1.2 }}>
+              <Text strong style={{ fontSize: 14, display: 'block' }}>Agent 对话</Text>
+              <Tooltip title="点击复制 Thread ID">
+                <Text
+                  style={{ fontSize: 10, color: '#aaa', cursor: 'pointer' }}
+                  onClick={() => { navigator.clipboard.writeText(currentThreadId); message.success('Thread ID 已复制'); }}
+                >
+                  {currentThreadId.slice(0, 20)}...
+                </Text>
+              </Tooltip>
+            </div>
+          </div>
         )}
-        <Space>
+        <Space size="small">
           {isMobile ? (
             <>
               <Tooltip title="历史会话">
@@ -793,14 +825,26 @@ const AgentChatCanvas: React.FC = () => {
                 <Button
                   icon={<HistoryOutlined />}
                   size="small"
+                  type="text"
                   onClick={() => { loadConversations(); setHistoryVisible(true); }}
                 />
               </Tooltip>
-              <Button icon={<ClearOutlined />} size="small" onClick={clearChat}>
-                清空
-              </Button>
+              <Tooltip title="清空对话">
+                <Button
+                  icon={<ClearOutlined />}
+                  size="small"
+                  type="text"
+                  onClick={clearChat}
+                />
+              </Tooltip>
               <Tooltip title="新建对话">
-                <Button icon={<PlusOutlined />} size="small" onClick={newConversation} />
+                <Button
+                  icon={<PlusOutlined />}
+                  size="small"
+                  type="primary"
+                  ghost
+                  onClick={newConversation}
+                />
               </Tooltip>
             </>
           )}
@@ -836,38 +880,85 @@ const AgentChatCanvas: React.FC = () => {
                 <Text type="secondary">输入问题，Agent 将为您分析和解答</Text>
               </div>
             ) : (
-              messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  style={{
-                    display: 'flex',
-                    marginBottom: 20,
-                    flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
-                  }}
-                >
-                  <Avatar
-                    icon={msg.role === 'user' ? <UserOutlined /> : <RobotOutlined />}
-                    style={{
-                      backgroundColor: msg.role === 'user' ? '#10b981' : '#6366f1',
-                      flexShrink: 0,
-                    }}
-                  />
+              messages.map((msg, idx) => {
+                const isLastAssistant = msg.role === 'assistant' && idx === messages.length - 1;
+                const showGlobalActions = isLastAssistant && !isLoading;
+                return (
                   <div
+                    key={msg.id}
+                    className="msg-bubble-wrapper"
                     style={{
-                      maxWidth: '78%',
-                      marginLeft: msg.role === 'user' ? 0 : 12,
-                      marginRight: msg.role === 'user' ? 12 : 0,
-                      padding: '12px 16px',
-                      borderRadius: 12,
-                      background: msg.role === 'user' ? '#e8f5e9' : '#fff',
-                      boxShadow: msg.role === 'user' ? 'none' : '0 1px 3px rgba(0,0,0,0.06)',
-                      border: msg.role === 'user' ? 'none' : '1px solid #f0f0f0',
+                      display: 'flex',
+                      marginBottom: 14,
+                      flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
                     }}
                   >
-                    {renderMessageContent(msg.content, msg.artifacts)}
+                    <Avatar
+                      icon={msg.role === 'user' ? <UserOutlined /> : <RobotOutlined />}
+                      style={{
+                        backgroundColor: msg.role === 'user' ? '#10b981' : '#6366f1',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div
+                      style={{
+                        maxWidth: '78%',
+                        marginLeft: msg.role === 'user' ? 0 : 12,
+                        marginRight: msg.role === 'user' ? 12 : 0,
+                        padding: msg.role === 'user' ? '10px 14px' : '10px 14px',
+                        borderRadius: 12,
+                        background: msg.role === 'user' ? '#e8f5e9' : '#fff',
+                        boxShadow: msg.role === 'user' ? 'none' : '0 1px 3px rgba(0,0,0,0.06)',
+                        border: msg.role === 'user' ? 'none' : '1px solid #f0f0f0',
+                      }}
+                    >
+                      {renderMessageContent(msg.content, msg.artifacts)}
+                      
+                      {/* 助手回复的 hover 操作按钮 */}
+                      {msg.role === 'assistant' && (
+                        <div className="message-actions">
+                          <Tooltip title="复制此回复">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<CopyOutlined />}
+                              onClick={() => {
+                                navigator.clipboard.writeText(msg.content);
+                                message.success('已复制此回复');
+                              }}
+                              style={{ fontSize: 11, color: '#999', padding: '2px 4px' }}
+                            />
+                          </Tooltip>
+                          
+                          {showGlobalActions && (
+                            <>
+                              <span style={{ color: '#e8e8e8', fontSize: 12, margin: '0 4px' }}>|</span>
+                              <Tooltip title="复制全部对话">
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  icon={<CopyOutlined />}
+                                  onClick={copyAllMessages}
+                                  style={{ fontSize: 11, color: '#999', padding: '2px 4px' }}
+                                />
+                              </Tooltip>
+                              <Tooltip title="导出 Word">
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  icon={<FileTextOutlined />}
+                                  onClick={exportChatAsWord}
+                                  style={{ fontSize: 11, color: '#999', padding: '2px 4px' }}
+                                />
+                              </Tooltip>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
             {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
@@ -880,30 +971,7 @@ const AgentChatCanvas: React.FC = () => {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* 浮动操作栏 — 整个对话的导出/复制，hover 显示 */}
-          {messages.length > 0 && (
-            <div
-              style={{
-                padding: '4px 12px',
-                display: 'flex',
-                justifyContent: 'center',
-                gap: 8,
-                opacity: 0.3,
-                transition: 'opacity 0.2s',
-                flexShrink: 0,
-              }}
-              className="chat-export-bar"
-              onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '0.3')}
-            >
-              <Button size="small" type="text" icon={<FileTextOutlined />} onClick={exportChatAsWord}>
-                导出 Word
-              </Button>
-              <Button size="small" type="text" icon={<CopyOutlined />} onClick={copyAllMessages}>
-                复制对话
-              </Button>
-            </div>
-          )}
+
 
           {/* 输入区 — Qoder 风格 */}
           <div style={{ padding: isMobile ? '6px 10px 10px' : '8px 16px 14px', borderTop: '1px solid #e8e8e8', background: '#fff', flexShrink: 0 }}>
