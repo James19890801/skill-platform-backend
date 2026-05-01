@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import OpenAI from 'openai';
 import { Agent } from '../entities/agent.entity';
 import { Skill } from '../entities/skill.entity';
+import { ExecutionService } from './execution.service';
 
 export interface AttachmentInfo {
   name: string;
@@ -143,7 +144,7 @@ function extractJsonArray(rawContent: string): unknown[] | null {
     const parsed = JSON.parse(trimmed);
     return Array.isArray(parsed) ? parsed : null;
   } catch {
-    const jsonMatch = trimmed.match(/\[[\s\S]*\]/);
+    const jsonMatch = trimmed.match(/\[\[\s\S]*\]\);
     if (!jsonMatch) {
       return null;
     }
@@ -249,6 +250,79 @@ const TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'python_repl',
+      description: '执行 Python 代码片段（安全沙箱），适合数据分析、计算、文本处理、爬虫等任务。30秒超时限制',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: {
+            type: 'string',
+            description: '要执行的 Python 代码',
+          },
+        },
+        required: ['code'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'data_analysis',
+      description: '对 JSON 格式的数据进行统计分析（描述统计、相关性、分布、值频次）。需要 pandas 支持',
+      parameters: {
+        type: 'object',
+        properties: {
+          data: {
+            type: 'string',
+            description: 'JSON 格式的数据（数组对象或对象）',
+          },
+          analysis_type: {
+            type: 'string',
+            enum: ['summary', 'correlation', 'distribution', 'value_counts'],
+            description: '分析类型：summary=描述统计, correlation=相关性, distribution=分布, value_counts=值频次',
+          },
+        },
+        required: ['data', 'analysis_type'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_chart',
+      description: '基于数据生成可视化图表（柱状图、折线图、饼图、散点图、直方图），返回图片',
+      parameters: {
+        type: 'object',
+        properties: {
+          data: {
+            type: 'string',
+            description: 'JSON 格式的数据',
+          },
+          chart_type: {
+            type: 'string',
+            enum: ['bar', 'line', 'pie', 'scatter', 'histogram'],
+            description: '图表类型',
+          },
+          x_field: {
+            type: 'string',
+            description: 'X轴字段名',
+          },
+          y_field: {
+            type: 'string',
+            description: 'Y轴字段名',
+          },
+          title: {
+            type: 'string',
+            description: '图表标题',
+          },
+        },
+        required: ['data', 'chart_type'],
+      },
+    },
+  },
 ];
 
 @Injectable()
@@ -265,6 +339,7 @@ export class AiService {
     private agentRepository: Repository<Agent>,
     @InjectRepository(Skill)
     private skillRepository: Repository<Skill>,
+    private executionService: ExecutionService,
   ) {
     this.client = new OpenAI({
       apiKey: process.env.QWEN_API_KEY || 'sk-35e6ff25e8a149d79b54d2656c107e98',
@@ -296,11 +371,12 @@ export class AiService {
 
 请以 JSON 数组格式返回，不要包含其他文字。`;
 
+    // 构建文档内容部分
     let documentsSection = '';
     if (input.processFiles && input.processFiles.length > 0) {
       documentsSection = input.processFiles.map((f) => {
         if (typeof f === 'string') {
-          return `- ${f}`;
+          return `- ${f}`;  // 向后兼容：只有文件名
         }
         const fileContent = f.content?.trim() || '（无内容）';
         return `### ${f.name}（${f.type || '文档'}）\n${fileContent}`;
@@ -308,7 +384,12 @@ export class AiService {
     }
 
     const userPrompt = input.customPrompt || `请为以下业务流程规划所需的 AI Skill：
-\n**流程名称**: ${input.nodeName}\n${input.nodeDescription ? `**流程描述**: ${input.nodeDescription}` : ''}\n${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}\n\n请从实际业务操作角度出发，分析上述流程文档中的具体步骤、决策点和风险点，规划 5-8 个具体的、可落地的 AI Skill。`;
+
+**流程名称**: ${input.nodeName}
+${input.nodeDescription ? `**流程描述**: ${input.nodeDescription}` : ''}
+${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
+
+请从实际业务操作角度出发，分析上述流程文档中的具体步骤、决策点和风险点，规划 5-8 个具体的、可落地的 AI Skill。`;
 
     this.logger.log(`Planning skills for: ${input.nodeName}`);
 
@@ -409,8 +490,11 @@ export class AiService {
       const parts: string[] = [message, '\n\n--- 用户上传了以下附件 ---'];
       for (const att of attachments) {
         if (att.type.startsWith('image/')) {
+          // 图片：以 base64 data URL 形式传递（Qwen 可通过 OpenAI 兼容接口识别）
+          // 同时用文本描述辅助
           parts.push(`- [图片] ${att.name} (${att.type})`);
         } else if (att.type.startsWith('text/') || att.name.match(/\.(txt|md|json|csv|log|yaml|yml|xml|sh|py|js|ts|html|css|sql)$/i)) {
+          // 文本类文件：解码 base64 提取文字内容
           try {
             const base64Data = att.dataUrl.includes(',') ? att.dataUrl.split(',')[1] : att.dataUrl;
             const text = Buffer.from(base64Data, 'base64').toString('utf-8');
@@ -420,6 +504,7 @@ export class AiService {
             parts.push(`- [文件] ${att.name} (内容解析失败)`);
           }
         } else {
+          // 其他文件类型：仅告知文件名
           parts.push(`- [附件] ${att.name} (${att.type}) — 暂不支持解析此格式，请告知用户文件名即可`);
         }
       }
@@ -479,6 +564,7 @@ export class AiService {
       { role: 'user', content: processedMessage },
     ];
 
+    // 记录用户消息到历史（记录原始消息，不含附件内容，避免历史累积过大）
     history.push({ role: 'user', content: message });
 
     // ===== 4. 工具调用循环 =====
@@ -486,6 +572,7 @@ export class AiService {
     const apiBaseUrl = process.env.API_BASE_URL || 'https://skill-platform-backend-production.up.railway.app';
     let fullContent = '';
 
+    // Phase 1: 先非流式调用，检查 AI 是否需要调用工具
     const initialResponse = await this.client.chat.completions.create({
       model: modelName,
       messages,
@@ -497,7 +584,10 @@ export class AiService {
     const responseMessage = initialResponse.choices[0]?.message;
 
     if (responseMessage?.tool_calls && responseMessage.tool_calls.length > 0) {
+      // AI 请求调用工具 → 执行工具
       this.logger.log(`AI requested ${responseMessage.tool_calls.length} tool call(s)`);
+
+      // 添加 AI 的 tool_calls 消息到对话
       messages.push(responseMessage as any);
 
       for (const toolCall of responseMessage.tool_calls) {
@@ -519,6 +609,7 @@ export class AiService {
         } as any);
       }
 
+      // Phase 2: 流式输出 AI 的最终回复
       if (onChunk) {
         const stream = await this.client.chat.completions.create({
           model: modelName,
@@ -545,12 +636,15 @@ export class AiService {
         fullContent = completion.choices[0]?.message?.content || '';
       }
     } else {
+      // AI 没有调用工具，直接使用初始回复
       fullContent = responseMessage?.content || '';
 
       if (onChunk) {
+        // 如果初次响应有内容，直接流式输出
         if (fullContent) {
           onChunk(fullContent);
         } else {
+          // 重新流式获取
           const stream = await this.client.chat.completions.create({
             model: modelName,
             messages,
@@ -569,7 +663,9 @@ export class AiService {
           }
         }
       } else {
-        if (!fullContent) {
+        if (fullContent) {
+          // 已有内容，直接返回
+        } else {
           const completion = await this.client.chat.completions.create({
             model: modelName,
             messages,
@@ -585,7 +681,9 @@ export class AiService {
     history.push({ role: 'assistant', content: fullContent });
     this.conversationStore.set(threadKey, history);
 
+    // 限制历史长度：最多保留最近20轮（40条消息）
     const MAX_HISTORY_PAIRS = 20;
+    const systemMsgCount = 1;
     const totalMsgs = history.length;
     if (totalMsgs > MAX_HISTORY_PAIRS * 2) {
       const excess = totalMsgs - MAX_HISTORY_PAIRS * 2;
@@ -595,6 +693,9 @@ export class AiService {
     return fullContent;
   }
 
+  /**
+   * 获取所有对话会话列表
+   */
   getConversations(): Array<{
     threadId: string;
     messageCount: number;
@@ -620,20 +721,31 @@ export class AiService {
       });
     }
 
+    // 按最后更新时间倒序
     conversations.sort((a, b) => b.lastMessageTime.localeCompare(a.lastMessageTime));
     return conversations;
   }
 
+  /**
+   * 获取指定会话的完整历史
+   */
   getConversationHistory(threadId: string): Array<{ role: string; content: string }> {
     const history = this.conversationStore.get(threadId);
     if (!history) return [];
+    // 返回不含 system 消息的对话历史
     return history.filter(m => m.role !== 'system');
   }
 
+  /**
+   * 清除指定会话
+   */
   clearConversation(threadId: string): boolean {
     return this.conversationStore.delete(threadId);
   }
 
+  /**
+   * 执行工具调用
+   */
   private async executeToolCall(
     name: string,
     args: any,
@@ -652,6 +764,7 @@ export class AiService {
             : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
         this.fileStore.set(token, { buffer, filename, contentType });
+        // 10 分钟后自动清理
         setTimeout(() => this.fileStore.delete(token), 10 * 60 * 1000);
 
         return {
@@ -663,47 +776,56 @@ export class AiService {
       }
 
       case 'search_web': {
-        try {
-          const response = await fetch(
-            `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(args.query)}&count=5`,
-            {
-              headers: {
-                'Ocp-Apim-Subscription-Key': process.env.BING_API_KEY || '',
-              },
-            },
-          );
-          if (!response.ok) {
-            return { error: '搜索服务暂不可用，请重试' };
+        const result = await this.executionService.searchWeb(args.query, args.max_results || 5);
+        if (result.success) {
+          try {
+            const parsed = JSON.parse(result.output);
+            if (parsed.error) return { error: parsed.error };
+            return { results: parsed };
+          } catch {
+            return { output: result.output.slice(0, 3000) };
           }
-          const data = await response.json();
-          return {
-            results: (data.webPages?.value || []).map((r: any) => ({
-              title: r.name,
-              snippet: r.snippet,
-              url: r.url,
-            })),
-          };
-        } catch {
-          return { error: '搜索服务暂不可用，请稍后重试' };
         }
+        return { error: result.error || '搜索失败' };
       }
 
-      case 'execute_python': {
-        try {
-          const runtimeUrl = process.env.AGENT_RUNTIME_URL || 'http://localhost:8001';
-          const response = await fetch(`${runtimeUrl}/tools/execute`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              tool_name: 'execute_python',
-              arguments: { code: args.code },
-            }),
-          });
-          const result = await response.json();
-          return result;
-        } catch {
-          return { error: '代码执行服务暂不可用' };
+      case 'execute_python':
+      case 'python_repl': {
+        const result = await this.executionService.executePython(args.code, 30_000);
+        if (result.success) {
+          return { output: result.output.slice(0, 8000), duration_ms: result.durationMs };
         }
+        return { error: result.error };
+      }
+
+      case 'data_analysis': {
+        const result = await this.executionService.analyzeData(args.data, args.analysis_type);
+        if (result.success) {
+          try {
+            return JSON.parse(result.output);
+          } catch {
+            return { output: result.output.slice(0, 5000) };
+          }
+        }
+        return { error: result.error };
+      }
+
+      case 'generate_chart': {
+        const result = await this.executionService.generateChart(
+          args.data,
+          args.chart_type,
+          args.x_field,
+          args.y_field,
+          args.title,
+        );
+        if (result.success) {
+          try {
+            return JSON.parse(result.output);
+          } catch {
+            return { output: result.output.slice(0, 5000) };
+          }
+        }
+        return { error: result.error };
       }
 
       case 'generate_html_report': {
@@ -724,15 +846,26 @@ export class AiService {
     }
   }
 
+  /**
+   * 获取文件下载
+   */
   getFileDownload(token: string): { buffer: Buffer; filename: string; contentType: string } | null {
     return this.fileStore.get(token) || null;
   }
 
+  /**
+   * 获取 HTML 报告
+   */
   getHtmlReport(token: string): { html: string; title: string } | null {
     return this.reportStore.get(token) || null;
   }
 
+  /**
+   * 将 Markdown 文本转换为 Word 文档 (.docx)
+   * 支持表格、标题、段落等基本格式
+   */
   async generateDocx(content: string, format: 'docx' | 'xlsx' = 'docx'): Promise<Buffer> {
+    // 清洗内容：去除 HTML 标签、清理 markdown 乱码（保留 | 管道符，表格需要它们）
     const cleaned = content
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/?[a-zA-Z][^>]*>/g, '')
@@ -781,6 +914,7 @@ export class AiService {
 
       const tableRows: any[] = [];
 
+      // Header row
       if (isSeparator) {
         tableRows.push(
           new TableRow({
@@ -800,6 +934,7 @@ export class AiService {
         );
       }
 
+      // Data rows
       for (const rowStr of dataRows) {
         const cells = rowStr.split('|').filter(c => c.trim().length > 0);
         if (cells.length === 0) continue;
@@ -825,12 +960,14 @@ export class AiService {
     while (i < lines.length) {
       const line = lines[i];
 
+      // 空行
       if (line.trim() === '') {
         children.push(new Paragraph({ spacing: { after: 100 } }));
         i++;
         continue;
       }
 
+      // 表格
       if (line.trim().startsWith('|')) {
         const result = parseTable(i);
         if (result) {
@@ -841,6 +978,7 @@ export class AiService {
         }
       }
 
+      // 标题 (## 或 ###)
       const h2Match = line.match(/^##\s+(.+)/);
       const h3Match = line.match(/^###\s+(.+)/);
       if (h2Match) {
@@ -866,7 +1004,9 @@ export class AiService {
         continue;
       }
 
+      // 普通段落（支持加粗 **text**）
       const parts: any[] = [];
+      // 非表格行：清除残留管道符
       const textLine = line.replace(/\|/g, '');
       const boldPattern = /\*\*(.+?)\*\*/g;
       let lastIdx = 0;

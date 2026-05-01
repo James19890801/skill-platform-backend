@@ -118,6 +118,7 @@ export class AiController {
       const stream = body.stream !== false;
       
       if (stream) {
+        // 流式输出 SSE
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
@@ -140,6 +141,7 @@ export class AiController {
         res.write('data: [DONE]\n\n');
         res.end();
       } else {
+        // 非流式输出
         const content = await this.aiService.chatStream(
           body.message,
           null,
