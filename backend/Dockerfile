@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # 安装所有依赖（包括开发依赖，因为需要编译）
-RUN npm ci
+RUN npm install
 
 # 复制源代码
 COPY . .
@@ -30,7 +30,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # 只安装生产依赖
-RUN npm ci --only=production
+RUN npm install --only=production
 
 # 从构建阶段复制编译后的文件
 COPY --from=builder /app/dist ./dist
