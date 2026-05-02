@@ -144,7 +144,7 @@ function extractJsonArray(rawContent: string): unknown[] | null {
     const parsed = JSON.parse(trimmed);
     return Array.isArray(parsed) ? parsed : null;
   } catch {
-    const jsonMatch = trimmed.match(/\[\[\s\S]*\]\);
+    const jsonMatch = trimmed.match(/\[\[\s\S]*\]\]/);
     if (!jsonMatch) {
       return null;
     }
@@ -344,8 +344,8 @@ export class AiService {
     this.client = new OpenAI({
       apiKey: process.env.QWEN_API_KEY || 'sk-35e6ff25e8a149d79b54d2656c107e98',
       baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      timeout: 30_000,
-      maxRetries: 1,
+      timeout: 15_000,
+      maxRetries: 0,
     });
   }
 
@@ -567,85 +567,112 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     // 记录用户消息到历史（记录原始消息，不含附件内容，避免历史累积过大）
     history.push({ role: 'user', content: message });
 
-    // ===== 4. 工具调用循环 =====
+    // ===== 4. 工具调用循环（流式优先 — 毫秒级响应） =====
     const modelName = model || this.model;
     const apiBaseUrl = process.env.API_BASE_URL || 'https://skill-platform-backend-production.up.railway.app';
     let fullContent = '';
 
-    // Phase 1: 先非流式调用，检查 AI 是否需要调用工具
-    const initialResponse = await this.client.chat.completions.create({
-      model: modelName,
-      messages,
-      tools: TOOLS,
-      tool_choice: 'auto',
-      stream: false,
-    } as any);
+    if (!onChunk) {
+      // 非流式模式：直接一次调用，最快速度
+      const completion = await this.client.chat.completions.create({
+        model: modelName,
+        messages,
+        tools: TOOLS,
+        tool_choice: 'auto',
+        temperature: 0.7,
+        max_tokens: 4096,
+      } as any);
 
-    const responseMessage = initialResponse.choices[0]?.message;
-
-    if (responseMessage?.tool_calls && responseMessage.tool_calls.length > 0) {
-      // AI 请求调用工具 → 执行工具
-      this.logger.log(`AI requested ${responseMessage.tool_calls.length} tool call(s)`);
-
-      // 添加 AI 的 tool_calls 消息到对话
-      messages.push(responseMessage as any);
-
-      for (const toolCall of responseMessage.tool_calls) {
-        const { name, arguments: rawArgs } = toolCall.function;
-        this.logger.log(`Executing tool: ${name}`);
-
-        let result: any;
-        try {
-          const args = JSON.parse(rawArgs);
-          result = await this.executeToolCall(name, args, apiBaseUrl);
-        } catch (err) {
-          result = { error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` };
-        }
-
-        messages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: JSON.stringify(result),
-        } as any);
-      }
-
-      // Phase 2: 流式输出 AI 的最终回复
-      if (onChunk) {
-        const stream = await this.client.chat.completions.create({
-          model: modelName,
-          messages,
-          temperature: 0.7,
-          max_tokens: 4096,
-          stream: true,
-        } as any);
-
-        for await (const chunk of stream as any) {
-          const delta = chunk?.choices?.[0]?.delta?.content;
-          if (delta) {
-            fullContent += delta;
-            onChunk(delta);
+      const msg = completion.choices[0]?.message;
+      if (msg?.tool_calls && msg.tool_calls.length > 0) {
+        messages.push(msg as any);
+        for (const tc of msg.tool_calls) {
+          try {
+            const args = JSON.parse(tc.function.arguments);
+            const result = await this.executeToolCall(tc.function.name, args, apiBaseUrl);
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) } as any);
+          } catch (err) {
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` }) } as any);
           }
         }
+        const final = await this.client.chat.completions.create({ model: modelName, messages, temperature: 0.7, max_tokens: 4096 } as any);
+        fullContent = final.choices[0]?.message?.content || '';
       } else {
-        const completion = await this.client.chat.completions.create({
-          model: modelName,
-          messages,
-          temperature: 0.7,
-          max_tokens: 4096,
-        });
-        fullContent = completion.choices[0]?.message?.content || '';
+        fullContent = msg?.content || '';
       }
     } else {
-      // AI 没有调用工具，直接使用初始回复
-      fullContent = responseMessage?.content || '';
+      // ★ 流式模式：直接流式调用，AI 开始输出即刻推送，不走非流式预检
+      const stream = await this.client.chat.completions.create({
+        model: modelName,
+        messages,
+        tools: TOOLS,
+        tool_choice: 'auto',
+        stream: true,
+      } as any);
 
-      if (onChunk) {
-        // 如果初次响应有内容，直接流式输出
-        if (fullContent) {
-          onChunk(fullContent);
-        } else {
-          // 重新流式获取
-          const stream = await this.client.chat.completions.create({
+      let pendingToolCalls: Array<{ index: number; id: string; type: string; function: { name: string; arguments: string } }> = [];
+      let detectedToolCall = false;
+
+      for await (const chunk of stream as any) {
+        const choice = chunk?.choices?.[0];
+        if (!choice) continue;
+
+        const delta = choice.delta;
+        const finishReason = choice.finish_reason;
+
+        // 累积 tool_calls 参数（流式 mode 下 function.arguments 分片推送）
+        if (delta?.tool_calls) {
+          detectedToolCall = true;
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index;
+            if (!pendingToolCalls[idx]) {
+              pendingToolCalls[idx] = { index: idx, id: '', type: 'function', function: { name: '', arguments: '' } };
+            }
+            if (tc.id) pendingToolCalls[idx].id = tc.id;
+            if (tc.type) pendingToolCalls[idx].type = tc.type;
+            if (tc.function?.name) pendingToolCalls[idx].function.name += tc.function.name;
+            if (tc.function?.arguments) pendingToolCalls[idx].function.arguments += tc.function.arguments;
+          }
+        }
+
+        // ★ 正常文本内容 → 立即推送给用户，毫秒级响应
+        if (delta?.content) {
+          fullContent += delta.content;
+          onChunk(delta.content);
+        }
+
+        // 工具调用结束 → 执行工具并二次流式输出
+        if (finishReason === 'tool_calls') {
+          this.logger.log(`AI requested ${pendingToolCalls.length} tool call(s)`);
+
+          // 构建 tool_calls 消息追加到对话
+          const toolCallMsg: any = {
+            role: 'assistant',
+            content: null,
+            tool_calls: pendingToolCalls.map(tc => ({
+              id: tc.id,
+              type: tc.type,
+              function: { name: tc.function.name, arguments: tc.function.arguments },
+            })),
+          };
+          messages.push(toolCallMsg);
+
+          // 依次执行每个工具
+          for (const tc of pendingToolCalls) {
+            this.logger.log(`Executing tool: ${tc.function.name}`);
+            let result: any;
+            try {
+              const args = JSON.parse(tc.function.arguments);
+              result = await this.executeToolCall(tc.function.name, args, apiBaseUrl);
+            } catch (err) {
+              result = { error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` };
+            }
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) } as any);
+          }
+
+          // 二次流式：AI 基于工具结果生成最终回复
+          fullContent = '';
+          const toolStream = await this.client.chat.completions.create({
             model: modelName,
             messages,
             temperature: 0.7,
@@ -653,394 +680,15 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
             stream: true,
           } as any);
 
-          fullContent = '';
-          for await (const chunk of stream as any) {
-            const delta = chunk?.choices?.[0]?.delta?.content;
-            if (delta) {
-              fullContent += delta;
-              onChunk(delta);
+          for await (const chunk of toolStream as any) {
+            const text = chunk?.choices?.[0]?.delta?.content;
+            if (text) {
+              fullContent += text;
+              onChunk(text);
             }
           }
-        }
-      } else {
-        if (fullContent) {
-          // 已有内容，直接返回
-        } else {
-          const completion = await this.client.chat.completions.create({
-            model: modelName,
-            messages,
-            temperature: 0.7,
-            max_tokens: 4096,
-          });
-          fullContent = completion.choices[0]?.message?.content || '';
+          break;
         }
       }
+      // 正常结束（非工具调用），内容已经实时流式输出完毕
     }
-
-    // ===== 5. 保存历史 =====
-    history.push({ role: 'assistant', content: fullContent });
-    this.conversationStore.set(threadKey, history);
-
-    // 限制历史长度：最多保留最近20轮（40条消息）
-    const MAX_HISTORY_PAIRS = 20;
-    const systemMsgCount = 1;
-    const totalMsgs = history.length;
-    if (totalMsgs > MAX_HISTORY_PAIRS * 2) {
-      const excess = totalMsgs - MAX_HISTORY_PAIRS * 2;
-      history.splice(0, excess);
-    }
-
-    return fullContent;
-  }
-
-  /**
-   * 获取所有对话会话列表
-   */
-  getConversations(): Array<{
-    threadId: string;
-    messageCount: number;
-    firstMessage: string;
-    lastMessageTime: string;
-  }> {
-    const conversations: Array<{
-      threadId: string;
-      messageCount: number;
-      firstMessage: string;
-      lastMessageTime: string;
-    }> = [];
-
-    for (const [threadId, history] of this.conversationStore.entries()) {
-      const userMessages = history.filter(m => m.role === 'user');
-      const firstUserMsg = userMessages.length > 0 ? userMessages[0].content.slice(0, 80) : '(空)';
-      const lastMsg = history.length > 0 ? history[history.length - 1] : null;
-      conversations.push({
-        threadId,
-        messageCount: history.length,
-        firstMessage: firstUserMsg,
-        lastMessageTime: lastMsg ? new Date().toISOString() : '',
-      });
-    }
-
-    // 按最后更新时间倒序
-    conversations.sort((a, b) => b.lastMessageTime.localeCompare(a.lastMessageTime));
-    return conversations;
-  }
-
-  /**
-   * 获取指定会话的完整历史
-   */
-  getConversationHistory(threadId: string): Array<{ role: string; content: string }> {
-    const history = this.conversationStore.get(threadId);
-    if (!history) return [];
-    // 返回不含 system 消息的对话历史
-    return history.filter(m => m.role !== 'system');
-  }
-
-  /**
-   * 清除指定会话
-   */
-  clearConversation(threadId: string): boolean {
-    return this.conversationStore.delete(threadId);
-  }
-
-  /**
-   * 执行工具调用
-   */
-  private async executeToolCall(
-    name: string,
-    args: any,
-    apiBaseUrl: string,
-  ): Promise<any> {
-    switch (name) {
-      case 'generate_document': {
-        const format = args.format || 'docx';
-        const ext = format === 'xlsx' ? 'xlsx' : 'docx';
-        const filename = (args.filename || '文档') + '.' + ext;
-        const buffer = await this.generateDocx(args.content, format);
-        const token = `dl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const contentType =
-          format === 'xlsx'
-            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-
-        this.fileStore.set(token, { buffer, filename, contentType });
-        // 10 分钟后自动清理
-        setTimeout(() => this.fileStore.delete(token), 10 * 60 * 1000);
-
-        return {
-          success: true,
-          message: '文档已生成',
-          downloadUrl: `${apiBaseUrl}/api/ai/download/${token}`,
-          filename,
-        };
-      }
-
-      case 'search_web': {
-        const result = await this.executionService.searchWeb(args.query, args.max_results || 5);
-        if (result.success) {
-          try {
-            const parsed = JSON.parse(result.output);
-            if (parsed.error) return { error: parsed.error };
-            return { results: parsed };
-          } catch {
-            return { output: result.output.slice(0, 3000) };
-          }
-        }
-        return { error: result.error || '搜索失败' };
-      }
-
-      case 'execute_python':
-      case 'python_repl': {
-        const result = await this.executionService.executePython(args.code, 30_000);
-        if (result.success) {
-          return { output: result.output.slice(0, 8000), duration_ms: result.durationMs };
-        }
-        return { error: result.error };
-      }
-
-      case 'data_analysis': {
-        const result = await this.executionService.analyzeData(args.data, args.analysis_type);
-        if (result.success) {
-          try {
-            return JSON.parse(result.output);
-          } catch {
-            return { output: result.output.slice(0, 5000) };
-          }
-        }
-        return { error: result.error };
-      }
-
-      case 'generate_chart': {
-        const result = await this.executionService.generateChart(
-          args.data,
-          args.chart_type,
-          args.x_field,
-          args.y_field,
-          args.title,
-        );
-        if (result.success) {
-          try {
-            return JSON.parse(result.output);
-          } catch {
-            return { output: result.output.slice(0, 5000) };
-          }
-        }
-        return { error: result.error };
-      }
-
-      case 'generate_html_report': {
-        const token = `report-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        this.reportStore.set(token, { html: args.html, title: args.title || '报告' });
-        setTimeout(() => this.reportStore.delete(token), 30 * 60 * 1000);
-
-        return {
-          success: true,
-          message: 'HTML 报告已生成',
-          viewUrl: `${apiBaseUrl}/api/ai/report/${token}`,
-          title: args.title || '报告',
-        };
-      }
-
-      default:
-        return { error: `未知工具: ${name}` };
-    }
-  }
-
-  /**
-   * 获取文件下载
-   */
-  getFileDownload(token: string): { buffer: Buffer; filename: string; contentType: string } | null {
-    return this.fileStore.get(token) || null;
-  }
-
-  /**
-   * 获取 HTML 报告
-   */
-  getHtmlReport(token: string): { html: string; title: string } | null {
-    return this.reportStore.get(token) || null;
-  }
-
-  /**
-   * 将 Markdown 文本转换为 Word 文档 (.docx)
-   * 支持表格、标题、段落等基本格式
-   */
-  async generateDocx(content: string, format: 'docx' | 'xlsx' = 'docx'): Promise<Buffer> {
-    // 清洗内容：去除 HTML 标签、清理 markdown 乱码（保留 | 管道符，表格需要它们）
-    const cleaned = content
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/?[a-zA-Z][^>]*>/g, '')
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/\*(.*?)\*/g, '$1')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/^#+\s+/gm, '')
-      .replace(/^\s*[-*+]\s+/gm, '')
-      .replace(/[○●◆◇→⇒]/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .trim();
-
-    const {
-      Document,
-      Packer,
-      Paragraph,
-      TextRun,
-      Table,
-      TableRow,
-      TableCell,
-      WidthType,
-      AlignmentType,
-      HeadingLevel,
-    } = require('docx');
-
-    const children: any[] = [];
-    const lines = cleaned.split('\n');
-    let i = 0;
-
-    const parseTable = (startIdx: number): { table: any; nextIdx: number } | null => {
-      const rows: string[] = [];
-      let idx = startIdx;
-      while (idx < lines.length && lines[idx].trim().startsWith('|')) {
-        rows.push(lines[idx].trim());
-        idx++;
-      }
-      if (rows.length < 2) return null;
-
-      const headerCells = rows[0].split('|').filter(c => c.trim().length > 0);
-      const separatorRow = rows[1];
-      const isSeparator = separatorRow.includes('---') || separatorRow.includes('---');
-      const dataRows = isSeparator ? rows.slice(2) : rows.slice(1);
-
-      const tableRows: any[] = [];
-
-      // Header row
-      if (isSeparator) {
-        tableRows.push(
-          new TableRow({
-            tableHeader: true,
-            children: headerCells.map(
-              cell =>
-                new TableCell({
-                  children: [
-                    new Paragraph({
-                      children: [new TextRun({ text: cell.trim(), bold: true, size: 20 })],
-                    }),
-                  ],
-                  width: { size: 1000, type: WidthType.DXA },
-                }),
-            ),
-          }),
-        );
-      }
-
-      // Data rows
-      for (const rowStr of dataRows) {
-        const cells = rowStr.split('|').filter(c => c.trim().length > 0);
-        if (cells.length === 0) continue;
-        tableRows.push(
-          new TableRow({
-            children: cells.map(
-              cell =>
-                new TableCell({
-                  children: [
-                    new Paragraph({
-                      children: [new TextRun({ text: cell.trim(), size: 20 })],
-                    }),
-                  ],
-                }),
-            ),
-          }),
-        );
-      }
-
-      return { table: new Table({ rows: tableRows }), nextIdx: idx };
-    };
-
-    while (i < lines.length) {
-      const line = lines[i];
-
-      // 空行
-      if (line.trim() === '') {
-        children.push(new Paragraph({ spacing: { after: 100 } }));
-        i++;
-        continue;
-      }
-
-      // 表格
-      if (line.trim().startsWith('|')) {
-        const result = parseTable(i);
-        if (result) {
-          children.push(result.table);
-          children.push(new Paragraph({ spacing: { after: 200 } }));
-          i = result.nextIdx;
-          continue;
-        }
-      }
-
-      // 标题 (## 或 ###)
-      const h2Match = line.match(/^##\s+(.+)/);
-      const h3Match = line.match(/^###\s+(.+)/);
-      if (h2Match) {
-        children.push(
-          new Paragraph({
-            heading: HeadingLevel.HEADING_2,
-            children: [new TextRun({ text: h2Match[1], bold: true, size: 28 })],
-            spacing: { before: 300, after: 150 },
-          }),
-        );
-        i++;
-        continue;
-      }
-      if (h3Match) {
-        children.push(
-          new Paragraph({
-            heading: HeadingLevel.HEADING_3,
-            children: [new TextRun({ text: h3Match[1], bold: true, size: 24 })],
-            spacing: { before: 200, after: 100 },
-          }),
-        );
-        i++;
-        continue;
-      }
-
-      // 普通段落（支持加粗 **text**）
-      const parts: any[] = [];
-      // 非表格行：清除残留管道符
-      const textLine = line.replace(/\|/g, '');
-      const boldPattern = /\*\*(.+?)\*\*/g;
-      let lastIdx = 0;
-      let boldMatch: RegExpExecArray | null;
-      while ((boldMatch = boldPattern.exec(textLine)) !== null) {
-        if (boldMatch.index > lastIdx) {
-          parts.push(new TextRun({ text: textLine.slice(lastIdx, boldMatch.index), size: 20 }));
-        }
-        parts.push(new TextRun({ text: boldMatch[1], bold: true, size: 20 }));
-        lastIdx = boldMatch.index + boldMatch[0].length;
-      }
-      if (lastIdx < textLine.length) {
-        parts.push(new TextRun({ text: textLine.slice(lastIdx), size: 20 }));
-      }
-      if (parts.length === 0 && textLine.trim()) {
-        parts.push(new TextRun({ text: textLine.trim(), size: 20 }));
-      }
-      if (parts.length > 0) {
-        children.push(
-          new Paragraph({
-            children: parts,
-            spacing: { after: 120 },
-          }),
-        );
-      }
-      i++;
-    }
-
-    const doc = new Document({
-      title: '导出文档',
-      sections: [{ children }],
-    });
-
-    const buffer = await Packer.toBuffer(doc);
-    return Buffer.from(buffer);
-  }
-}
