@@ -4,6 +4,10 @@ import { Repository } from 'typeorm';
 import OpenAI from 'openai';
 import { Agent } from '../entities/agent.entity';
 import { Skill } from '../entities/skill.entity';
+import { ExecutionService } from './execution.service';
+import pdfParse from 'pdf-parse';
+import mammoth from 'mammoth';
+import * as XLSX from 'xlsx';
 
 export interface AttachmentInfo {
   name: string;
@@ -157,18 +161,188 @@ function extractJsonArray(rawContent: string): unknown[] | null {
   }
 }
 
+// ===== 工具定义 =====
+interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, any>;
+  };
+}
+
+const TOOLS: ToolDefinition[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'generate_document',
+      description: '将 Markdown 内容生成为 Word (.docx) 或 Excel (.xlsx) 文档，返回下载链接。适用于用户需要输出正式文档的场景',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: {
+            type: 'string',
+            description: '文档内容，支持 Markdown 格式（标题 ##、表格 | col1 | col2 |、列表、加粗 **text** 等）',
+          },
+          format: {
+            type: 'string',
+            enum: ['docx', 'xlsx'],
+            description: '文档格式：docx = Word 文档, xlsx = Excel 表格',
+          },
+          filename: {
+            type: 'string',
+            description: '文件名（不含扩展名），如 "项目报告"',
+          },
+        },
+        required: ['content', 'format'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'execute_python',
+      description: '运行 Python 代码生成数据分析、图表可视化等结果。适用于用户需要生成图表、执行数据分析、批量处理等场景',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: {
+            type: 'string',
+            description: '要执行的 Python 代码',
+          },
+        },
+        required: ['code'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_web',
+      description: '搜索互联网获取实时信息。适用于用户需要最新资讯、查询事实、了解市场动态等场景',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: '搜索关键词',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_html_report',
+      description: '生成包含交互式图表的 HTML 报告页面。适用于数据可视化展示、Dashboard、分析报告等场景',
+      parameters: {
+        type: 'object',
+        properties: {
+          html: {
+            type: 'string',
+            description: '完整的 HTML 页面代码（包含 ECharts 图表等）',
+          },
+          title: {
+            type: 'string',
+            description: '报告标题',
+          },
+        },
+        required: ['html', 'title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'python_repl',
+      description: '执行 Python 代码片段（安全沙箱），适合数据分析、计算、文本处理、爬虫等任务。30秒超时限制',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: {
+            type: 'string',
+            description: '要执行的 Python 代码',
+          },
+        },
+        required: ['code'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'data_analysis',
+      description: '对 JSON 格式的数据进行统计分析（描述统计、相关性、分布、值频次）。需要 pandas 支持',
+      parameters: {
+        type: 'object',
+        properties: {
+          data: {
+            type: 'string',
+            description: 'JSON 格式的数据（数组对象或对象）',
+          },
+          analysis_type: {
+            type: 'string',
+            enum: ['summary', 'correlation', 'distribution', 'value_counts'],
+            description: '分析类型：summary=描述统计, correlation=相关性, distribution=分布, value_counts=值频次',
+          },
+        },
+        required: ['data', 'analysis_type'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_chart',
+      description: '基于数据生成可视化图表（柱状图、折线图、饼图、散点图、直方图），返回图片',
+      parameters: {
+        type: 'object',
+        properties: {
+          data: {
+            type: 'string',
+            description: 'JSON 格式的数据',
+          },
+          chart_type: {
+            type: 'string',
+            enum: ['bar', 'line', 'pie', 'scatter', 'histogram'],
+            description: '图表类型',
+          },
+          x_field: {
+            type: 'string',
+            description: 'X轴字段名',
+          },
+          y_field: {
+            type: 'string',
+            description: 'Y轴字段名',
+          },
+          title: {
+            type: 'string',
+            description: '图表标题',
+          },
+        },
+        required: ['data', 'chart_type'],
+      },
+    },
+  },
+];
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private client: OpenAI;
   private readonly model = 'qwen-plus';
   private conversationStore: Map<string, Array<{ role: 'system' | 'user' | 'assistant'; content: string }>> = new Map();
+  private fileStore = new Map<string, { buffer: Buffer; filename: string; contentType: string }>();
+  private reportStore = new Map<string, { html: string; title: string }>();
 
   constructor(
     @InjectRepository(Agent)
     private agentRepository: Repository<Agent>,
     @InjectRepository(Skill)
     private skillRepository: Repository<Skill>,
+    private executionService: ExecutionService,
   ) {
     this.client = new OpenAI({
       apiKey: process.env.QWEN_API_KEY || 'sk-35e6ff25e8a149d79b54d2656c107e98',
@@ -318,23 +492,61 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     if (attachments && attachments.length > 0) {
       const parts: string[] = [message, '\n\n--- 用户上传了以下附件 ---'];
       for (const att of attachments) {
+        const base64Data = att.dataUrl.includes(',') ? att.dataUrl.split(',')[1] : att.dataUrl;
+        const buffer = Buffer.from(base64Data, 'base64');
+
+        // 图片：记录文件名
         if (att.type.startsWith('image/')) {
-          // 图片：以 base64 data URL 形式传递（Qwen 可通过 OpenAI 兼容接口识别）
-          // 同时用文本描述辅助
           parts.push(`- [图片] ${att.name} (${att.type})`);
-        } else if (att.type.startsWith('text/') || att.name.match(/\.(txt|md|json|csv|log|yaml|yml|xml|sh|py|js|ts|html|css|sql)$/i)) {
-          // 文本类文件：解码 base64 提取文字内容
+        }
+        // PDF：提取文字
+        else if (att.type === 'application/pdf' || att.name.toLowerCase().endsWith('.pdf')) {
           try {
-            const base64Data = att.dataUrl.includes(',') ? att.dataUrl.split(',')[1] : att.dataUrl;
-            const text = Buffer.from(base64Data, 'base64').toString('utf-8');
-            const preview = text.length > 3000 ? text.slice(0, 3000) + '\n...(截断, 完整内容请在对话中询问)' : text;
+            const pdfData = await pdfParse(buffer);
+            const text = pdfData.text.slice(0, 5000);
+            parts.push(`- [PDF] ${att.name}:\n${text}` + (pdfData.text.length > 5000 ? '\n...(已截断)' : ''));
+          } catch {
+            parts.push(`- [PDF] ${att.name} (内容提取失败)`);
+          }
+        }
+        // Word 文档：提取文字
+        else if (att.type.includes('wordprocessingml') || att.name.toLowerCase().match(/\.docx?$/)) {
+          try {
+            const { value } = await mammoth.extractRawText({ buffer });
+            const text = value.slice(0, 5000);
+            parts.push(`- [文档] ${att.name}:\n${text}` + (value.length > 5000 ? '\n...(已截断)' : ''));
+          } catch {
+            parts.push(`- [文档] ${att.name} (内容提取失败)`);
+          }
+        }
+        // Excel 表格：读取为 CSV 文本
+        else if (att.type.includes('spreadsheet') || att.type.includes('excel') || att.name.toLowerCase().match(/\.xlsx?$/)) {
+          try {
+            const workbook = XLSX.read(buffer, { type: 'buffer' });
+            const sheets = workbook.SheetNames.map((sheetName: string) => {
+              const sheet = workbook.Sheets[sheetName];
+              const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+              return `### ${sheetName}\n${csv}`;
+            }).join('\n\n');
+            const text = sheets.slice(0, 5000);
+            parts.push(`- [表格] ${att.name}:\n${text}` + (sheets.length > 5000 ? '\n...(已截断)' : ''));
+          } catch {
+            parts.push(`- [表格] ${att.name} (内容读取失败)`);
+          }
+        }
+        // 文本类文件：直接解码
+        else if (att.type.startsWith('text/') || att.name.toLowerCase().match(/\.(txt|md|json|csv|log|yaml|yml|xml|sh|py|js|ts|html|css|sql)$/)) {
+          try {
+            const text = buffer.toString('utf-8');
+            const preview = text.length > 3000 ? text.slice(0, 3000) + '\n...(截断)' : text;
             parts.push(`- [文件] ${att.name}:\n\`\`\`\n${preview}\n\`\`\``);
           } catch {
             parts.push(`- [文件] ${att.name} (内容解析失败)`);
           }
-        } else {
-          // 其他文件类型：仅告知文件名
-          parts.push(`- [附件] ${att.name} (${att.type}) — 暂不支持解析此格式，请告知用户文件名即可`);
+        }
+        // 其他文件：仅告知文件名
+        else {
+          parts.push(`- [附件] ${att.name} (${att.type})`);
         }
       }
       processedMessage = parts.join('\n');
@@ -398,35 +610,144 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     // 记录用户消息到历史（记录原始消息，不含附件内容，避免历史累积过大）
     history.push({ role: 'user', content: message });
 
-    // ===== 4. 调用大模型 =====
+    // ===== 4. 工具调用循环（流式优先 — 毫秒级响应） =====
     const modelName = model || this.model;
+    const apiBaseUrl = process.env.API_BASE_URL || 'https://skill-platform-backend-production.up.railway.app';
     let fullContent = '';
 
-    if (onChunk) {
-      const stream = await this.client.chat.completions.create({
-        model: modelName,
-        messages,
-        temperature: 0.7,
-        max_tokens: 4096,
-        stream: true,
-      } as any);
-
-      for await (const chunk of stream as any) {
-        const delta = chunk?.choices?.[0]?.delta?.content;
-        if (delta) {
-          fullContent += delta;
-          onChunk(delta);
-        }
-      }
-    } else {
+    if (!onChunk) {
+      // 非流式模式：直接一次调用，最快速度
       const completion = await this.client.chat.completions.create({
         model: modelName,
         messages,
+        tools: TOOLS,
+        tool_choice: 'auto',
         temperature: 0.7,
         max_tokens: 4096,
-      });
+      } as any);
 
-      fullContent = completion.choices[0]?.message?.content || '';
+      const msg = completion.choices[0]?.message;
+      if (msg?.tool_calls && msg.tool_calls.length > 0) {
+        messages.push(msg as any);
+        for (const tc of msg.tool_calls) {
+          try {
+            const args = JSON.parse(tc.function.arguments);
+            const result = await this.executeToolCall(tc.function.name, args, apiBaseUrl);
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) } as any);
+          } catch (err) {
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` }) } as any);
+          }
+        }
+        const final = await this.client.chat.completions.create({ model: modelName, messages, temperature: 0.7, max_tokens: 4096 } as any);
+        fullContent = final.choices[0]?.message?.content || '';
+      } else {
+        fullContent = msg?.content || '';
+      }
+    } else {
+      // ★ 流式模式：直接流式调用，AI 开始输出即刻推送，不走非流式预检
+      const stream = await this.client.chat.completions.create({
+        model: modelName,
+        messages,
+        tools: TOOLS,
+        tool_choice: 'auto',
+        stream: true,
+      } as any);
+
+      let pendingToolCalls: Array<{ index: number; id: string; type: string; function: { name: string; arguments: string } }> = [];
+      let detectedToolCall = false;
+
+      for await (const chunk of stream as any) {
+        const choice = chunk?.choices?.[0];
+        if (!choice) continue;
+
+        const delta = choice.delta;
+        const finishReason = choice.finish_reason;
+
+        // ★ 正常文本内容 → 立即推送给用户，毫秒级响应
+        if (delta?.content) {
+          fullContent += delta.content;
+          onChunk(delta.content);
+        }
+
+        // 累积 tool_calls 参数（流式 mode 下 function.arguments 分片推送）
+        if (delta?.tool_calls) {
+          // 首次检测到工具调用 → 告知用户 AI 正在思考
+          if (!detectedToolCall) {
+            detectedToolCall = true;
+            onChunk('\n\n🤔 AI 正在思考使用什么工具...');
+          }
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index;
+            if (!pendingToolCalls[idx]) {
+              pendingToolCalls[idx] = { index: idx, id: '', type: 'function', function: { name: '', arguments: '' } };
+            }
+            if (tc.id) pendingToolCalls[idx].id = tc.id;
+            if (tc.type) pendingToolCalls[idx].type = tc.type;
+            if (tc.function?.name) pendingToolCalls[idx].function.name += tc.function.name;
+            if (tc.function?.arguments) pendingToolCalls[idx].function.arguments += tc.function.arguments;
+          }
+        }
+
+        // 工具调用结束 → 执行工具并二次流式输出
+        if (finishReason === 'tool_calls') {
+          this.logger.log(`AI requested ${pendingToolCalls.length} tool call(s)`);
+
+          // 构建 tool_calls 消息追加到对话
+          const toolCallMsg: any = {
+            role: 'assistant',
+            content: null,
+            tool_calls: pendingToolCalls.map(tc => ({
+              id: tc.id,
+              type: tc.type,
+              function: { name: tc.function.name, arguments: tc.function.arguments },
+            })),
+          };
+          messages.push(toolCallMsg);
+
+          // 依次执行每个工具，执行前告知用户
+          for (const tc of pendingToolCalls) {
+            this.logger.log(`Executing tool: ${tc.function.name}`);
+
+            // 发送工具执行进度
+            let progressMsg = `\n\n🔧 正在执行: **${tc.function.name}**`;
+            try {
+              const args = JSON.parse(tc.function.arguments);
+              if (args.filename) progressMsg += ` (${args.filename})`;
+              if (args.query) progressMsg += ` (${args.query.slice(0, 50)})`;
+            } catch {}
+            progressMsg += '...';
+            onChunk(progressMsg);
+            let result: any;
+            try {
+              const args = JSON.parse(tc.function.arguments);
+              result = await this.executeToolCall(tc.function.name, args, apiBaseUrl);
+            } catch (err) {
+              result = { error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` };
+            }
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) } as any);
+          }
+
+          // 二次流式：AI 基于工具结果生成最终回复
+          fullContent = '';
+          const toolStream = await this.client.chat.completions.create({
+            model: modelName,
+            messages,
+            temperature: 0.7,
+            max_tokens: 4096,
+            stream: true,
+          } as any);
+
+          for await (const chunk of toolStream as any) {
+            const text = chunk?.choices?.[0]?.delta?.content;
+            if (text) {
+              fullContent += text;
+              onChunk(text);
+            }
+          }
+          break;
+        }
+      }
+      // 正常结束（非工具调用），内容已经实时流式输出完毕
     }
 
     // ===== 5. 保存历史 =====
@@ -493,6 +814,123 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
    */
   clearConversation(threadId: string): boolean {
     return this.conversationStore.delete(threadId);
+  }
+
+  /**
+   * 执行工具调用
+   */
+  private async executeToolCall(
+    name: string,
+    args: any,
+    apiBaseUrl: string,
+  ): Promise<any> {
+    switch (name) {
+      case 'generate_document': {
+        const format = args.format || 'docx';
+        const ext = format === 'xlsx' ? 'xlsx' : 'docx';
+        const filename = (args.filename || '文档') + '.' + ext;
+        const buffer = await this.generateDocx(args.content, format);
+        const token = `dl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const contentType =
+          format === 'xlsx'
+            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+        this.fileStore.set(token, { buffer, filename, contentType });
+        // 10 分钟后自动清理
+        setTimeout(() => this.fileStore.delete(token), 10 * 60 * 1000);
+
+        return {
+          success: true,
+          message: '文档已生成',
+          downloadUrl: `${apiBaseUrl}/api/ai/download/${token}`,
+          filename,
+        };
+      }
+
+      case 'search_web': {
+        const result = await this.executionService.searchWeb(args.query, args.max_results || 5);
+        if (result.success) {
+          try {
+            const parsed = JSON.parse(result.output);
+            if (parsed.error) return { error: parsed.error };
+            return { results: parsed };
+          } catch {
+            return { output: result.output.slice(0, 3000) };
+          }
+        }
+        return { error: result.error || '搜索失败' };
+      }
+
+      case 'execute_python':
+      case 'python_repl': {
+        const result = await this.executionService.executePython(args.code, 30_000);
+        if (result.success) {
+          return { output: result.output.slice(0, 8000), duration_ms: result.durationMs };
+        }
+        return { error: result.error };
+      }
+
+      case 'data_analysis': {
+        const result = await this.executionService.analyzeData(args.data, args.analysis_type);
+        if (result.success) {
+          try {
+            return JSON.parse(result.output);
+          } catch {
+            return { output: result.output.slice(0, 5000) };
+          }
+        }
+        return { error: result.error };
+      }
+
+      case 'generate_chart': {
+        const result = await this.executionService.generateChart(
+          args.data,
+          args.chart_type,
+          args.x_field,
+          args.y_field,
+          args.title,
+        );
+        if (result.success) {
+          try {
+            return JSON.parse(result.output);
+          } catch {
+            return { output: result.output.slice(0, 5000) };
+          }
+        }
+        return { error: result.error };
+      }
+
+      case 'generate_html_report': {
+        const token = `report-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        this.reportStore.set(token, { html: args.html, title: args.title || '报告' });
+        setTimeout(() => this.reportStore.delete(token), 30 * 60 * 1000);
+
+        return {
+          success: true,
+          message: 'HTML 报告已生成',
+          viewUrl: `${apiBaseUrl}/api/ai/report/${token}`,
+          title: args.title || '报告',
+        };
+      }
+
+      default:
+        return { error: `未知工具: ${name}` };
+    }
+  }
+
+  /**
+   * 获取文件下载
+   */
+  getFileDownload(token: string): { buffer: Buffer; filename: string; contentType: string } | null {
+    return this.fileStore.get(token) || null;
+  }
+
+  /**
+   * 获取 HTML 报告
+   */
+  getHtmlReport(token: string): { html: string; title: string } | null {
+    return this.reportStore.get(token) || null;
   }
 
   /**
