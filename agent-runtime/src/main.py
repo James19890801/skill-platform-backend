@@ -253,6 +253,26 @@ async def chat_v2(request: ChatRequest):
     tools_prompt = generate_tools_prompt()
     system_prompt = base_system_prompt + "\n\n" + tools_prompt
     
+    # 加载 Skill 指令（如果指定了 skills）
+    if request.skills:
+        runtime = get_runtime()
+        scanned_skills = scan_skills_directory(runtime.skills_dir)
+        skill_sections = []
+        for skill_name in request.skills:
+            skill_data = scanned_skills.get(skill_name)
+            if skill_data:
+                instructions = skill_data.get("instructions", "")
+                if instructions:
+                    skill_sections.append(f"\n### 你已加载 Skill: {skill_name}\n{instructions}")
+                else:
+                    # 尝试直接从文件加载
+                    skill_path = os.path.join(runtime.skills_dir, skill_name)
+                    instructions = load_skill_instructions(skill_path)
+                    if instructions:
+                        skill_sections.append(f"\n### 你已加载 Skill: {skill_name}\n{instructions}")
+        if skill_sections:
+            system_prompt += "\n\n" + "\n".join(skill_sections)
+    
     # 先保存用户消息
     session_manager.add_message(
         session_id=session.session_id,

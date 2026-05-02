@@ -12,7 +12,7 @@ tags:
   - SOP
 
 dependencies:
-  - python: >=3.10
+  python: ">=3.10"
 
 config:
   default_language: zh-CN
