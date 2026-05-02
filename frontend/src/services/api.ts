@@ -130,6 +130,25 @@ export const usersApi = {
 };
 
 // ============================================
+// Orgs API
+// ============================================
+export const orgsApi = {
+  getTree: (): Promise<any[]> =>
+    apiClient.get('/orgs/tree'),
+
+  list: (): Promise<any[]> =>
+    apiClient.get('/orgs'),
+};
+
+// ============================================
+// Models API
+// ============================================
+export const modelsApi = {
+  list: (): Promise<any[]> =>
+    apiClient.get('/models'),
+};
+
+// ============================================
 // Dashboard API
 // ============================================
 export const dashboardApi = {

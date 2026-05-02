@@ -85,6 +85,12 @@ class ExportDto {
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 
+  @Get('health')
+  @ApiOperation({ summary: 'AI 服务健康检查（用于前端预热）' })
+  healthCheck() {
+    return { status: 'ok', service: 'ai', timestamp: new Date().toISOString() };
+  }
+
   @Post('plan-skills')
   @ApiOperation({ summary: 'AI 规划 Skill', description: '基于业务流程信息，使用通义千问 AI 规划所需的 Skill 列表' })
   @ApiBody({ type: PlanSkillsDto })
@@ -118,11 +124,22 @@ export class AiController {
       const stream = body.stream !== false;
       
       if (stream) {
-        // 流式输出 SSE
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Accel-Buffering', 'no');
+        // 流式输出 SSE — 禁用缓存 + TCP_NODELAY 保证毫秒级首字符响应
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
+          'Transfer-Encoding': 'chunked',
+        });
+
+        // 禁用 Nagle 算法，确保每个 write() 立即发送 TCP 包
+        try {
+          const socket = (res as any).socket;
+          if (socket && typeof socket.setNoDelay === 'function') {
+            socket.setNoDelay(true);
+          }
+        } catch { /* 低版本 Node 兼容 */ }
 
         const fullContent = await this.aiService.chatStream(
           body.message,
@@ -138,6 +155,10 @@ export class AiController {
           body.attachments,
         );
 
+        // ★ 空响应检测：AI 未返回内容（上下文溢出/模型拒绝）
+        if (!fullContent?.trim()) {
+          res.write(`data: ${JSON.stringify({ type: 'error', content: 'AI 未返回有效回复，可能是上下文过长，请尝试清除对话后重试' })}\n\n`);
+        }
         res.write('data: [DONE]\n\n');
         res.end();
       } else {
@@ -212,6 +233,41 @@ export class AiController {
       );
     }
     return { success: true, message: '会话已清除' };
+  }
+
+  @Get('preview/:token')
+  @ApiOperation({ summary: '预览工具生成的文档（Word/Excel 转 HTML）' })
+  async previewFile(@Param('token') token: string, @Res() res: Response) {
+    const preview = await this.aiService.generatePreview(token);
+    if (!preview) {
+      throw new HttpException(
+        { success: false, message: '文件不存在或已过期，或预览生成失败' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${preview.filename}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px 32px; max-width: 820px; margin: 0 auto; color: #333; line-height: 1.8; }
+  h1 { font-size: 22px; border-bottom: 2px solid #6366f1; padding-bottom: 8px; }
+  h2 { font-size: 18px; margin-top: 24px; }
+  h3 { font-size: 15px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+  th { background: #f1f5f9; font-weight: 600; }
+  tr:nth-child(even) { background: #fafafa; }
+  p { margin: 8px 0; }
+  ul, ol { padding-left: 24px; }
+  img { max-width: 100%; }
+</style>
+</head>
+<body>${preview.html}</body>
+</html>`);
   }
 
   @Get('download/:token')

@@ -145,6 +145,10 @@ export interface ISkill {
   owner?: IUser;
   organization?: IOrganization;
   versions?: ISkillVersion[];
+  // 衍生字段（用于前端展示）
+  orgName?: string;
+  ownerName?: string;
+  usageCount?: number;
   // 执行配置字段
   executionType?: 'api' | 'webhook' | 'rpa' | 'agent' | 'manual';
   endpoint?: string;
@@ -156,6 +160,7 @@ export interface ISkill {
   errorHandling?: string;
   agentPrompt?: string;
   toolDefinition?: string;
+  content?: string; // ★ Skill 标准正文（Markdown）：角色定义、核心职责、输入输出、执行原则
 }
 
 export interface ISkillVersion {

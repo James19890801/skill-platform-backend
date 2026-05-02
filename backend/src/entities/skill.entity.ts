@@ -87,6 +87,9 @@ export class Skill {
   errorHandling: string; // JSON: 错误处理策略 { retryCount: 3, retryDelay: 1000, fallback: 'manual' }
 
   @Column({ nullable: true, type: 'text' })
+  content: string; // ★ Skill 标准正文（Markdown 格式）：角色定义、核心职责、输入输出、执行原则等
+
+  @Column({ nullable: true, type: 'text' })
   agentPrompt: string; // 当 executionType='agent' 时，Agent 的 prompt 模板
 
   @Column({ nullable: true, type: 'text' })

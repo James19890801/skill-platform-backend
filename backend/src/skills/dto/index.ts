@@ -46,6 +46,11 @@ export class CreateSkillDto {
   @IsString()
   @IsOptional()
   sopSource?: string;
+
+  @ApiPropertyOptional({ description: 'Skill 标准正文（Markdown）' })
+  @IsString()
+  @IsOptional()
+  content?: string;
 }
 
 export class UpdateSkillDto {
@@ -143,6 +148,11 @@ export class UpdateSkillDto {
   @IsString()
   @IsOptional()
   errorHandling?: string;
+
+  @ApiPropertyOptional({ description: 'Skill 标准正文（Markdown）' })
+  @IsString()
+  @IsOptional()
+  content?: string;
 }
 
 export class CreateSkillVersionDto {

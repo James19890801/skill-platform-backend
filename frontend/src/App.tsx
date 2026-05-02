@@ -6,6 +6,9 @@ import AgentCreate from './pages/agents/AgentCreate';
 import AgentEdit from './pages/agents/AgentEdit';
 import AgentChatCanvas from './pages/chat/AgentChatCanvas';
 import SkillHub from './pages/skills/SkillHub';
+import SkillDetail from './pages/skills/SkillDetail';
+import SkillCreate from './pages/skills/SkillCreate';
+import SkillEdit from './pages/skills/SkillEdit';
 import KnowledgeManager from './pages/knowledge/KnowledgeManager';
 import MemoryManager from './pages/memory/MemoryManager';
 import Settings from './pages/settings/Settings';
@@ -30,6 +33,9 @@ function App() {
           
           {/* 资源管理 */}
           <Route path="skills" element={<SkillHub />} />
+          <Route path="skills/:id" element={<SkillDetail />} />
+          <Route path="skills/create" element={<SkillCreate />} />
+          <Route path="skills/edit/:id" element={<SkillEdit />} />
           <Route path="knowledge" element={<KnowledgeManager />} />
           <Route path="memory" element={<MemoryManager />} />
           

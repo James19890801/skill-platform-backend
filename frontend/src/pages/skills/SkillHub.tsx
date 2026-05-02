@@ -3,6 +3,7 @@
  * 展示可用的 Skills，支持安装/卸载/查看详情
  */
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Card,
   Row,
@@ -18,14 +19,10 @@ import {
   Avatar,
   Tooltip,
   message,
-  Modal,
-  Descriptions,
   Statistic,
-  Form,
 } from 'antd';
 import {
   SearchOutlined,
-  DownloadOutlined,
   EyeOutlined,
   EditOutlined,
   FilterOutlined,
@@ -70,12 +67,7 @@ const SkillHub: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [selectedDomain, setSelectedDomain] = useState('all');
-  const [detailModalVisible, setDetailModalVisible] = useState(false);
-  const [selectedSkill, setSelectedSkill] = useState<SkillItem | null>(null);
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [editingSkill, setEditingSkill] = useState<SkillItem | null>(null);
-  const [editLoading, setEditLoading] = useState(false);
-  const [form] = Form.useForm();
+  const navigate = useNavigate();
 
   // 从后端获取 Skills
   const loadSkills = async () => {
@@ -116,54 +108,12 @@ const SkillHub: React.FC = () => {
 
   // 查看详情
   const viewDetail = (skill: SkillItem) => {
-    setSelectedSkill(skill);
-    setDetailModalVisible(true);
+    navigate(`/skills/${skill.id}`);
   };
 
-  // 打开编辑弹窗
+  // 打开编辑
   const openEdit = (skill: SkillItem) => {
-    setEditingSkill(skill);
-    form.setFieldsValue({
-      name: skill.name,
-      description: skill.description,
-      domain: skill.domain,
-      subDomain: skill.subDomain || '',
-      abilityName: skill.abilityName || '',
-      namespace: skill.namespace || '',
-      scope: skill.scope || 'business',
-      type: skill.type || 'light-tech',
-      sopSource: skill.sopSource || '',
-      executionType: skill.executionType || 'manual',
-      endpoint: skill.endpoint || '',
-      httpMethod: skill.httpMethod || 'POST',
-      agentPrompt: skill.agentPrompt || '',
-      toolDefinition: typeof skill.toolDefinition === 'object' ? JSON.stringify(skill.toolDefinition, null, 2) : skill.toolDefinition || '',
-    });
-    setEditModalVisible(true);
-  };
-
-  // 提交编辑
-  const handleEditSave = async () => {
-    if (!editingSkill) return;
-    try {
-      setEditLoading(true);
-      const values = await form.validateFields();
-      const payload: Record<string, any> = {};
-      for (const key of Object.keys(values)) {
-        if (values[key] !== undefined && values[key] !== '') {
-          payload[key] = values[key];
-        }
-      }
-      await apiClient.put(`/skills/${editingSkill.id}`, payload);
-      message.success('Skill 已更新');
-      setEditModalVisible(false);
-      loadSkills();
-    } catch (error) {
-      if (error && typeof error === 'object' && 'errorFields' in error) return;
-      message.error('更新失败');
-    } finally {
-      setEditLoading(false);
-    }
+    navigate(`/skills/edit/${skill.id}`);
   };
 
   // 渲染 Skill 卡片
@@ -220,6 +170,14 @@ const SkillHub: React.FC = () => {
 
   return (
     <div>
+      {/* 顶部操作栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1e293b' }}>Skill 市场</h2>
+        <Button type="primary" onClick={() => navigate('/skills/create')}>
+          + 新建 Skill
+        </Button>
+      </div>
+
       {/* 搜索与筛选 */}
       <Card style={{ marginBottom: 16 }}>
         <Space size="large" wrap>
@@ -286,120 +244,6 @@ const SkillHub: React.FC = () => {
         </Row>
       )}
 
-      {/* 详情 Modal */}
-      <Modal
-        title={selectedSkill?.name}
-        open={detailModalVisible}
-        onCancel={() => setDetailModalVisible(false)}
-        footer={<Button onClick={() => setDetailModalVisible(false)}>关闭</Button>}
-        width={600}
-      >
-        {selectedSkill && (
-          <Descriptions column={2}>
-            <Descriptions.Item label="版本">{selectedSkill.version}</Descriptions.Item>
-            <Descriptions.Item label="所属组织">{selectedSkill.orgName}</Descriptions.Item>
-            <Descriptions.Item label="领域">
-              {domainLabelMap[selectedSkill.domain] || selectedSkill.domain}
-            </Descriptions.Item>
-            <Descriptions.Item label="子领域">{selectedSkill.subDomain || '-'}</Descriptions.Item>
-            <Descriptions.Item label="状态">
-              <Tag color={(statusLabelMap[selectedSkill.status] || { color: 'default' }).color}>
-                {(statusLabelMap[selectedSkill.status] || { label: selectedSkill.status }).label}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="负责人">{selectedSkill.ownerName}</Descriptions.Item>
-            <Descriptions.Item label="描述" span={2}>
-              {selectedSkill.description}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Modal>
-
-      {/* 编辑 Modal - 全字段编辑 */}
-      <Modal
-        title={`编辑 Skill: ${editingSkill?.name}`}
-        open={editModalVisible}
-        onCancel={() => setEditModalVisible(false)}
-        onOk={handleEditSave}
-        confirmLoading={editLoading}
-        okText="保存"
-        cancelText="取消"
-        width={720}
-        style={{ top: 20 }}
-      >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid #e2e8f0' }}>基本信息</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-            <Form.Item label="名称" name="name" rules={[{ required: true, message: '请输入名称' }]}>
-              <Input placeholder="名称" />
-            </Form.Item>
-            <Form.Item label="命名空间" name="namespace">
-              <Input placeholder="如 legal.contract.risk-check" />
-            </Form.Item>
-            <Form.Item label="领域" name="domain">
-              <Input placeholder="legal/finance/procurement/hr/tech/platform" />
-            </Form.Item>
-            <Form.Item label="子领域" name="subDomain">
-              <Input placeholder="如 contract/litigation" />
-            </Form.Item>
-            <Form.Item label="能力名称" name="abilityName">
-              <Input placeholder="能力名称" />
-            </Form.Item>
-            <Form.Item label="SOP来源" name="sopSource">
-              <Input placeholder="SOP文档链接" />
-            </Form.Item>
-            <Form.Item label="范围" name="scope">
-              <Select>
-                <Select.Option value="personal">个人</Select.Option>
-                <Select.Option value="business">业务</Select.Option>
-                <Select.Option value="platform">平台</Select.Option>
-              </Select>
-            </Form.Item>
-            <Form.Item label="类型" name="type">
-              <Select>
-                <Select.Option value="pure-business">纯业务型</Select.Option>
-                <Select.Option value="light-tech">轻技术型</Select.Option>
-                <Select.Option value="heavy-tech">重技术型</Select.Option>
-              </Select>
-            </Form.Item>
-          </div>
-          <Form.Item label="描述" name="description">
-            <Input.TextArea rows={3} placeholder="描述" />
-          </Form.Item>
-
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', margin: '24px 0 12px', paddingBottom: 8, borderBottom: '1px solid #e2e8f0' }}>执行配置</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-            <Form.Item label="执行类型" name="executionType">
-              <Select>
-                <Select.Option value="manual">手动执行</Select.Option>
-                <Select.Option value="api">API 调用</Select.Option>
-                <Select.Option value="webhook">Webhook</Select.Option>
-                <Select.Option value="agent">AI Agent</Select.Option>
-                <Select.Option value="rpa">RPA 脚本</Select.Option>
-              </Select>
-            </Form.Item>
-            <Form.Item label="API端点" name="endpoint">
-              <Input placeholder="https://..." />
-            </Form.Item>
-            <Form.Item label="HTTP方法" name="httpMethod">
-              <Select>
-                <Select.Option value="GET">GET</Select.Option>
-                <Select.Option value="POST">POST</Select.Option>
-                <Select.Option value="PUT">PUT</Select.Option>
-                <Select.Option value="DELETE">DELETE</Select.Option>
-              </Select>
-            </Form.Item>
-          </div>
-
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', margin: '24px 0 12px', paddingBottom: 8, borderBottom: '1px solid #e2e8f0' }}>Agent 定义</div>
-          <Form.Item label="Agent Prompt" name="agentPrompt">
-            <Input.TextArea rows={4} placeholder="Agent 系统提示词" />
-          </Form.Item>
-          <Form.Item label="工具定义 (JSON)" name="toolDefinition">
-            <Input.TextArea rows={4} placeholder='[{"name":"functionName","description":"..."}]' />
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   );
 };

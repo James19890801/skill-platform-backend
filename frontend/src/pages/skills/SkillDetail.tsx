@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Descriptions, Tag, Button, Space, Tabs, Timeline, Table, Spin, Empty, message, Typography } from 'antd';
-import { EditOutlined, SendOutlined, HistoryOutlined, ApartmentOutlined, ApiOutlined, CodeOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons';
+import { EditOutlined, SendOutlined, HistoryOutlined, ApartmentOutlined, ApiOutlined, CodeOutlined, RobotOutlined, SettingOutlined, FileTextOutlined, ProfileOutlined } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { SkillStatus, SkillScope, SkillType, SkillDomain, DomainLabels } from '../../types';
 import { skillsApi } from '../../services/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const { Text } = Typography;
 
@@ -146,6 +148,12 @@ const SkillDetail: React.FC = () => {
     { title: '要求掌握度', dataIndex: 'level', key: 'level', render: (l: number) => <span style={{ color: l >= 80 ? colors.green : l >= 60 ? colors.amber : colors.textSecondary }}>{l}%</span> },
   ];
 
+  // ★ 安全解析 JSON
+  const safeJson = (str: string | undefined, fallback: unknown = {}) => {
+    if (!str) return fallback;
+    try { return JSON.parse(str); } catch { return fallback; }
+  };
+
   const tabItems = [
     {
       key: 'info',
@@ -219,6 +227,32 @@ const SkillDetail: React.FC = () => {
       label: '岗位绑定',
       children: (
         <Table columns={modelColumns} dataSource={boundModels} rowKey="id" pagination={false} />
+      ),
+    },
+    {
+      key: 'skill-content',
+      label: 'Skill 内容',
+      children: (
+        <div>
+          {skill.content ? (
+            <div style={{
+              padding: 24,
+              background: '#fff',
+              borderRadius: 12,
+              border: `1px solid ${colors.border}`,
+              lineHeight: 1.8,
+              fontSize: 14,
+            }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {skill.content}
+              </ReactMarkdown>
+            </div>
+          ) : (
+            <Empty description="该 Skill 尚未编写标准正文">
+              <Text type="secondary">点击右上角「编辑」按钮，在「Skill 内容」Tab 中编写 Markdown 格式的 Skill 正文</Text>
+            </Empty>
+          )}
+        </div>
       ),
     },
     {
@@ -403,7 +437,7 @@ curl -X POST "${skill.endpoint || 'https://api.skill-platform.com/v1/skills/' + 
           </div>
           <Space>
             <Button icon={<HistoryOutlined />} style={{ borderRadius: 8 }}>版本历史</Button>
-            <Button icon={<EditOutlined />} style={{ borderRadius: 8 }}>编辑</Button>
+            <Button icon={<EditOutlined />} style={{ borderRadius: 8 }} onClick={() => navigate(`/skills/edit/${id}`)}>编辑</Button>
             {skill.status === SkillStatus.DRAFT && (
               <Button type="primary" icon={<SendOutlined />} style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', border: 'none', borderRadius: 8 }}>
                 提交审核

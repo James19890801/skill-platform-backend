@@ -140,3 +140,63 @@ Use this path for the most stable walkthrough:
 - Prefer small, low-risk fixes over broad refactors.
 - When changing behavior, preserve seeded demo accounts and demo content.
 - If a feature is unstable but nonessential, add a fallback or document it clearly instead of overengineering it.
+
+## Agent Skills (addyosmani/agent-skills + google/skills)
+
+The following production-grade engineering skills have been installed from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) and [google/skills](https://github.com/google/skills). They are stored in `.qoder/skills/` and are globally accessible.
+
+### Define
+| Skill | When to Use |
+|-------|-------------|
+| [idea-refine](.qoder/skills/idea-refine/SKILL.md) | Refine vague ideas into concrete proposals through structured thinking |
+| [spec-driven-development](.qoder/skills/spec-driven-development/SKILL.md) | Write a PRD before any code — new project, feature, or significant change |
+
+### Plan
+| Skill | When to Use |
+|-------|-------------|
+| [planning-and-task-breakdown](.qoder/skills/planning-and-task-breakdown/SKILL.md) | Decompose specs into small, verifiable tasks |
+
+### Build
+| Skill | When to Use |
+|-------|-------------|
+| [incremental-implementation](.qoder/skills/incremental-implementation/SKILL.md) | One vertical slice at a time, test and verify before expanding |
+| [test-driven-development](.qoder/skills/test-driven-development/SKILL.md) | Red-Green-Refactor — write failing test first |
+| [context-engineering](.qoder/skills/context-engineering/SKILL.md) | Feed agents right context at the right time |
+| [source-driven-development](.qoder/skills/source-driven-development/SKILL.md) | Verify every framework decision against official docs |
+| [frontend-ui-engineering](.qoder/skills/frontend-ui-engineering/SKILL.md) | Accessible, performant, production-quality UIs |
+| [api-and-interface-design](.qoder/skills/api-and-interface-design/SKILL.md) | Contract-first, stable interfaces with clear contracts |
+
+### Verify
+| Skill | When to Use |
+|-------|-------------|
+| [browser-testing-with-devtools](.qoder/skills/browser-testing-with-devtools/SKILL.md) | Chrome DevTools MCP for live runtime verification |
+| [debugging-and-error-recovery](.qoder/skills/debugging-and-error-recovery/SKILL.md) | Systematic triage: reproduce → localize → fix → guard |
+
+### Review
+| Skill | When to Use |
+|-------|-------------|
+| [code-review-and-quality](.qoder/skills/code-review-and-quality/SKILL.md) | Five-axis review before merge |
+| [code-simplification](.qoder/skills/code-simplification/SKILL.md) | Reduce complexity while preserving exact behavior |
+| [security-and-hardening](.qoder/skills/security-and-hardening/SKILL.md) | OWASP Top 10 prevention, input validation, least privilege |
+| [performance-optimization](.qoder/skills/performance-optimization/SKILL.md) | Measure-first, Core Web Vitals, bundle analysis |
+
+### Ship
+| Skill | When to Use |
+|-------|-------------|
+| [git-workflow-and-versioning](.qoder/skills/git-workflow-and-versioning/SKILL.md) | Atomic commits, clean history, trunk-based dev |
+| [ci-cd-and-automation](.qoder/skills/ci-cd-and-automation/SKILL.md) | Quality gate pipelines, deployment strategies |
+| [deprecation-and-migration](.qoder/skills/deprecation-and-migration/SKILL.md) | Safe removal of old systems, Strangler pattern |
+| [documentation-and-adrs](.qoder/skills/documentation-and-adrs/SKILL.md) | ADRs, API docs, document the *why* |
+| [shipping-and-launch](.qoder/skills/shipping-and-launch/SKILL.md) | Pre-launch checklists, staged rollouts, rollback plans |
+
+### Google Cloud
+| Skill | When to Use |
+|-------|-------------|
+| [google-cloud-engineering](.qoder/skills/google-cloud-engineering/SKILL.md) | Cloud Run, Cloud SQL, BigQuery, GKE, Firebase, WAF |
+
+### Agent Personas
+| Persona | File | When to Use |
+|---------|------|-------------|
+| [code-reviewer](.qoder/agents/code-reviewer.md) | Five-axis code review with staff engineer standard |
+| [test-engineer](.qoder/agents/test-engineer.md) | Test strategy, coverage analysis, Prove-It pattern |
+| [security-auditor](.qoder/agents/security-auditor.md) | Vulnerability detection, OWASP assessment |

@@ -59,6 +59,16 @@ async function bootstrap() {
   await app.listen(port, '0.0.0.0');
   console.log(`🚀 Application is running on: http://0.0.0.0:${port}`);
   console.log(`📚 Swagger documentation: http://0.0.0.0:${port}/api/docs`);
+
+  // 启动后自预热（防止 Railway 冷启动 + 预热 AI 连接）
+  setTimeout(async () => {
+    try {
+      const http = await import('http');
+      const req = http.get(`http://0.0.0.0:${port}/api/ai/health`);
+      req.on('error', () => {});
+      req.end();
+    } catch { /* ignore */ }
+  }, 1000);
 }
 
 bootstrap();
