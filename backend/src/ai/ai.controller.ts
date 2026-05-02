@@ -213,4 +213,33 @@ export class AiController {
     }
     return { success: true, message: '会话已清除' };
   }
+
+  @Get('download/:token')
+  @ApiOperation({ summary: '下载工具生成的文件（Word/Excel）' })
+  async downloadFile(@Param('token') token: string, @Res() res: Response) {
+    const file = this.aiService.getFileDownload(token);
+    if (!file) {
+      throw new HttpException(
+        { success: false, message: '文件不存在或已过期' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.filename)}"`);
+    res.send(file.buffer);
+  }
+
+  @Get('report/:token')
+  @ApiOperation({ summary: '查看工具生成的 HTML 报告' })
+  async viewReport(@Param('token') token: string, @Res() res: Response) {
+    const report = this.aiService.getHtmlReport(token);
+    if (!report) {
+      throw new HttpException(
+        { success: false, message: '报告不存在或已过期' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(report.html);
+  }
 }

@@ -168,6 +168,21 @@ const AgentChatCanvas: React.FC = () => {
         .message-actions .ant-btn:hover {
           opacity: 1;
         }
+        
+        @keyframes blink-cursor {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+        .placeholder-cursor {
+          animation: blink-cursor 1s ease-in-out infinite;
+          color: #6366f1;
+          font-weight: bold;
+        }
+        
+        /* 智能体头像：裁掉 logo 外圈白边 */
+        .agent-avatar-logo .ant-avatar-img img {
+          clip-path: circle(46% at 50% 50%);
+        }
       `;
       document.head.appendChild(style);
     }
@@ -465,6 +480,15 @@ const AgentChatCanvas: React.FC = () => {
     setInputValue('');
     setIsLoading(true);
 
+    // ★ 乐观渲染：立即显示占位消息，不等后端返回
+    const placeholderId = `msg-assistant-opt-${Date.now()}`;
+    setMessages((prev) => [...prev, {
+      id: placeholderId,
+      role: 'assistant',
+      content: '▍',
+      timestamp: new Date(),
+    }]);
+
     try {
       const response = await fetch(`${API_BASE}/ai/chat`, {
         method: 'POST',
@@ -537,12 +561,23 @@ const AgentChatCanvas: React.FC = () => {
       });
 
     } catch (error: any) {
-      setMessages((prev) => [...prev, {
-        id: `msg-fallback-${Date.now()}`,
-        role: 'assistant',
-        content: `⚠️ API 连接失败，请检查配置。\n\n错误信息: ${error.message}`,
-        timestamp: new Date(),
-      }]);
+      // 更新占位消息为错误信息
+      setMessages((prev) => {
+        const lastMsg = prev[prev.length - 1];
+        if (lastMsg?.role === 'assistant' && lastMsg.id.startsWith('msg-assistant')) {
+          return [...prev.slice(0, -1), {
+            ...lastMsg,
+            content: `⚠️ API 连接失败，请检查配置。\n\n错误信息: ${error.message}`,
+            timestamp: new Date(),
+          }];
+        }
+        return [...prev, {
+          id: `msg-fallback-${Date.now()}`,
+          role: 'assistant',
+          content: `⚠️ API 连接失败，请检查配置。\n\n错误信息: ${error.message}`,
+          timestamp: new Date(),
+        }];
+      });
     }
 
     setIsLoading(false);
@@ -590,8 +625,14 @@ const AgentChatCanvas: React.FC = () => {
     message.success('已复制全部对话');
   };
 
-  // ★ 文件上传处理
-  const handleFileSelect = (file: File): boolean => {
+  // ★ 文件上传处理（限制 10MB）
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+  const handleFileSelect = (file: File) => {
+    if (file.size > MAX_FILE_SIZE) {
+      message.warning(`文件「${file.name}」超过 10MB 大小限制，请压缩后重试`);
+      return Upload.LIST_IGNORE;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string;
@@ -614,7 +655,9 @@ const AgentChatCanvas: React.FC = () => {
       const resp = await fetch(`${API_BASE}/ai/conversations`);
       if (resp.ok) {
         const data = await resp.json();
-        setConversations(data || []);
+        // 兼容全局拦截器包装格式 {success, data, timestamp}
+        const list = Array.isArray(data) ? data : (data?.data || []);
+        setConversations(list);
       }
     } catch {
       // 静默失败，可能是服务未启动
@@ -635,7 +678,9 @@ const AgentChatCanvas: React.FC = () => {
       const resp = await fetch(`${API_BASE}/ai/conversations/${encodeURIComponent(threadId)}`);
       if (resp.ok) {
         const data = await resp.json();
-        const historyMessages: Message[] = (data.messages || []).map(
+        // 兼容全局拦截器包装格式 {success, data, timestamp}
+        const raw = data?.data || data;
+        const historyMessages: Message[] = (raw.messages || []).map(
           (m: { role: string; content: string }, i: number) => ({
             id: `msg-history-${i}-${Date.now()}`,
             role: m.role as 'user' | 'assistant',
@@ -894,9 +939,11 @@ const AgentChatCanvas: React.FC = () => {
                     }}
                   >
                     <Avatar
-                      icon={msg.role === 'user' ? <UserOutlined /> : <RobotOutlined />}
+                      src={msg.role === 'user' ? undefined : "/logo.png"}
+                      icon={msg.role === 'user' ? <UserOutlined /> : undefined}
+                      className={msg.role !== 'user' ? 'agent-avatar-logo' : undefined}
                       style={{
-                        backgroundColor: msg.role === 'user' ? '#10b981' : '#6366f1',
+                        backgroundColor: msg.role === 'user' ? '#10b981' : '#1a237e',
                         flexShrink: 0,
                       }}
                     />
@@ -912,7 +959,11 @@ const AgentChatCanvas: React.FC = () => {
                         border: msg.role === 'user' ? 'none' : '1px solid #f0f0f0',
                       }}
                     >
-                      {renderMessageContent(msg.content, msg.artifacts)}
+                      {msg.content === '▍' ? (
+                        <span className="placeholder-cursor">▍ 正在生成...</span>
+                      ) : (
+                        renderMessageContent(msg.content, msg.artifacts)
+                      )}
                       
                       {/* 助手回复的 hover 操作按钮 */}
                       {msg.role === 'assistant' && (
@@ -962,7 +1013,11 @@ const AgentChatCanvas: React.FC = () => {
             )}
             {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <Avatar icon={<RobotOutlined />} style={{ backgroundColor: '#6366f1', flexShrink: 0 }} />
+                <Avatar
+                  src="/logo.png"
+                  className="agent-avatar-logo"
+                  style={{ backgroundColor: '#1a237e', flexShrink: 0 }}
+                />
                 <Card size="small" style={{ background: '#f5f5f5', border: 'none' }}>
                   <Spin size="small" tip="Agent 思考中..." />
                 </Card>

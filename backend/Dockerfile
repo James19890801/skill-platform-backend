@@ -20,8 +20,9 @@ RUN npm run build
 # 生产阶段
 FROM node:20-alpine
 
-# 安装运行时依赖
-RUN apk add --no-cache python3
+# 安装 Python 运行时环境（用于 AI 工具执行代码/搜索/数据分析）
+RUN apk add --no-cache python3 py3-pip && \
+    pip3 install --no-cache-dir duckduckgo-search 2>/dev/null || true
 
 WORKDIR /app
 
