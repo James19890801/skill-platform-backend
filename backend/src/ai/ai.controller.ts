@@ -85,6 +85,12 @@ class ExportDto {
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 
+  @Get('health')
+  @ApiOperation({ summary: 'AI 服务健康检查（用于前端预热）' })
+  healthCheck() {
+    return { status: 'ok', service: 'ai', timestamp: new Date().toISOString() };
+  }
+
   @Post('plan-skills')
   @ApiOperation({ summary: 'AI 规划 Skill', description: '基于业务流程信息，使用通义千问 AI 规划所需的 Skill 列表' })
   @ApiBody({ type: PlanSkillsDto })
@@ -118,11 +124,22 @@ export class AiController {
       const stream = body.stream !== false;
       
       if (stream) {
-        // 流式输出 SSE
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Accel-Buffering', 'no');
+        // 流式输出 SSE — 禁用缓存 + TCP_NODELAY 保证毫秒级首字符响应
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
+          'Transfer-Encoding': 'chunked',
+        });
+
+        // 禁用 Nagle 算法，确保每个 write() 立即发送 TCP 包
+        try {
+          const socket = (res as any).socket;
+          if (socket && typeof socket.setNoDelay === 'function') {
+            socket.setNoDelay(true);
+          }
+        } catch { /* 低版本 Node 兼容 */ }
 
         const fullContent = await this.aiService.chatStream(
           body.message,
