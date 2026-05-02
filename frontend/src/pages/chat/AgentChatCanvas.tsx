@@ -199,7 +199,7 @@ const AgentChatCanvas: React.FC = () => {
     }
 
     // 匹配表格 | col1 | col2 |
-    const tablePattern = '\\|[^\\n]+\\|\\n\\|[-:\\s|]+\\|\\n(?:\\|[^\\n]+\\|\\n?)+';
+    const tablePattern = '\\|[^\\\\n]+\\|\\n\\|[-:\\s|]+\\|\\n(?:\\|[^\\\\n]+\\|\\n?)++';
     const tableRegex = new RegExp(tablePattern, 'g');
     idx = 0;
     while ((match = tableRegex.exec(content)) !== null) {
@@ -217,20 +217,20 @@ const AgentChatCanvas: React.FC = () => {
   // ★ 检测 Mermaid 代码块
   const isMermaidCode = (code: string): boolean => {
     const firstLine = code.trim().split('\n')[0].trim();
-    return /^(graph\s+(TD|LR|BT|RL)|sequenceDiagram|classDiagram|stateDiagram(-v2)?|erDiagram|gantt|pie|flowchart\s+(TD|LR|BT|RL)|journey|gitgraph|timeline|mindmap|xychart|block|packet|quadrantChart|requirementDiagram)/i.test(firstLine);
+    return /^(graph\\s+(TD|LR|BT|RL)|sequenceDiagram|classDiagram|stateDiagram(-v2)?|erDiagram|gantt|pie|flowchart\\s+(TD|LR|BT|RL)|journey|gitgraph|timeline|mindmap|xychart|block|packet|quadrantChart|requirementDiagram)/i.test(firstLine);
   };
 
   // ★ 清理 HTML 标签和 markdown 乱码
   const cleanText = (text: string): string => {
     return text
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/?[a-zA-Z][^>]*>/g, '')
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/<br\\s*\\/?>/gi, '\\n')
+      .replace(/<\\/?[a-zA-Z][^>]*>/g, '')
+      .replace(/\\*\\*(.*?)\\*\\*/g, '$1')
+      .replace(/\\*(.*?)\\*/g, '$1')
       .replace(/`([^`]+)`/g, '$1')
-      .replace(/^#+\s+/gm, '')
-      .replace(/^\s*[-*+]\s+/gm, '')
-      .replace(/^\s*\d+\.\s+/gm, (m) => m.replace(/^\s*\d+\.\s+/, ''))
+      .replace(/^#+\\s+/gm, '')
+      .replace(/^\\s*[-*+]\\s+/gm, '')
+      .replace(/^\\s*\\d+\\.\\s+/gm, (m) => m.replace(/^\\s*\\d+\\.\\s+/, ''))
       .replace(/[○●◆◇]/g, '')
       .trim();
   };
@@ -322,7 +322,7 @@ const AgentChatCanvas: React.FC = () => {
     }
 
     // 预处理：清理 <br> 标签（ReactMarkdown 自动处理其余所有 GFM 格式）
-    const preprocessed = content.replace(/<br\s*\/?>/gi, '\n');
+    const preprocessed = content.replace(/<br\\s*\\/?>/gi, '\\n');
 
     // ReactMarkdown 自定义组件：渲染表格/Mermaid/代码块
     const renderContent = (
@@ -614,7 +614,9 @@ const AgentChatCanvas: React.FC = () => {
       const resp = await fetch(`${API_BASE}/ai/conversations`);
       if (resp.ok) {
         const data = await resp.json();
-        setConversations(data || []);
+        // 兼容全局拦截器包装格式 {success, data, timestamp}
+        const list = Array.isArray(data) ? data : (data?.data || []);
+        setConversations(list);
       }
     } catch {
       // 静默失败，可能是服务未启动
@@ -635,7 +637,9 @@ const AgentChatCanvas: React.FC = () => {
       const resp = await fetch(`${API_BASE}/ai/conversations/${encodeURIComponent(threadId)}`);
       if (resp.ok) {
         const data = await resp.json();
-        const historyMessages: Message[] = (data.messages || []).map(
+        // 兼容全局拦截器包装格式 {success, data, timestamp}
+        const raw = data?.data || data;
+        const historyMessages: Message[] = (raw.messages || []).map(
           (m: { role: string; content: string }, i: number) => ({
             id: `msg-history-${i}-${Date.now()}`,
             role: m.role as 'user' | 'assistant',
