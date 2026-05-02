@@ -246,28 +246,7 @@ export class AiController {
       );
     }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(`<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${preview.filename}</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px 32px; max-width: 820px; margin: 0 auto; color: #333; line-height: 1.8; }
-  h1 { font-size: 22px; border-bottom: 2px solid #6366f1; padding-bottom: 8px; }
-  h2 { font-size: 18px; margin-top: 24px; }
-  h3 { font-size: 15px; }
-  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-  th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
-  th { background: #f1f5f9; font-weight: 600; }
-  tr:nth-child(even) { background: #fafafa; }
-  p { margin: 8px 0; }
-  ul, ol { padding-left: 24px; }
-  img { max-width: 100%; }
-</style>
-</head>
-<body>${preview.html}</body>
-</html>`);
+    res.send('<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>' + preview.filename + '</title>\n<style>\n  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px 32px; max-width: 820px; margin: 0 auto; color: #333; line-height: 1.8; }\n  h1 { font-size: 22px; border-bottom: 2px solid #6366f1; padding-bottom: 8px; }\n  h2 { font-size: 18px; margin-top: 24px; }\n  h3 { font-size: 15px; }\n  table { border-collapse: collapse; width: 100%; margin: 12px 0; }\n  th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }\n  th { background: #f1f5f9; font-weight: 600; }\n  tr:nth-child(even) { background: #fafafa; }\n  p { margin: 8px 0; }\n  ul, ol { padding-left: 24px; }\n  img { max-width: 100%; }\n</style>\n</head>\n<body>' + preview.html + '</body>\n</html>');
   }
 
   @Get('download/:token')

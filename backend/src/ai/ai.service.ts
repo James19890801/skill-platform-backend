@@ -25,7 +25,7 @@ export interface ProcessFileInfo {
 export interface PlanSkillsInput {
   nodeName: string;
   nodeDescription?: string;
-  processFiles?: (string | ProcessFileInfo)[];  // 支持字符串或对象
+  processFiles?: (string | ProcessFileInfo)[];
   customPrompt?: string;
 }
 
@@ -35,7 +35,6 @@ export interface PlannedSkill {
   scenario: string;
   priority: 'high' | 'medium' | 'low';
   type?: 'professional' | 'general' | 'management';
-  // 执行配置推断字段
   executionType?: 'api' | 'webhook' | 'rpa' | 'agent' | 'manual';
   endpoint?: string;
   httpMethod?: string;
@@ -365,9 +364,8 @@ export class AiService {
         messages: [{ role: 'user', content: 'Hello' }],
         max_tokens: 1,
       } as any);
-      this.logger.log('✅ AI service warmed up successfully');
+      this.logger.log('AI service warmed up successfully');
     } catch (err) {
-      // 预热失败不影响主功能
       this.logger.warn(`AI warmup skipped (non-critical): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
@@ -394,12 +392,11 @@ export class AiService {
 
 请以 JSON 数组格式返回，不要包含其他文字。`;
 
-    // 构建文档内容部分
     let documentsSection = '';
     if (input.processFiles && input.processFiles.length > 0) {
       documentsSection = input.processFiles.map((f) => {
         if (typeof f === 'string') {
-          return `- ${f}`;  // 向后兼容：只有文件名
+          return `- ${f}`;
         }
         const fileContent = f.content?.trim() || '（无内容）';
         return `### ${f.name}（${f.type || '文档'}）\n${fileContent}`;
@@ -637,17 +634,16 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
 
     // ★ 上下文溢出预警：估算 token 数，接近窗口上限时主动修剪
     const estimatedTokens = messages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
-    const CONTEXT_WARN_TOKENS = 6000; // qwen-turbo 上下文 1M，但实际有效窗口约 8K-32K
+    const CONTEXT_WARN_TOKENS = 6000;
     const CONTEXT_MAX_TOKENS = 8000;
     if (estimatedTokens > CONTEXT_MAX_TOKENS) {
-      // 紧急修剪：只保留 system + 最近 3 轮
       const systemMsg = messages[0];
-      const recentMsgs = messages.slice(-6); // 最近 3 轮 = 6 条消息
+      const recentMsgs = messages.slice(-6);
       messages.length = 0;
       messages.push(systemMsg, ...recentMsgs);
-      this.logger.warn(`⚠️ Context overflow detected (est. ${estimatedTokens} tokens), trimmed to ${messages.length} messages`);
+      this.logger.warn(`Context overflow detected (est. ${estimatedTokens} tokens), trimmed to ${messages.length} messages`);
       if (onChunk) {
-        onChunk('\n\n⚠️ 对话上下文过长，已自动清理早期记录，继续回答...\n\n');
+        onChunk('\n\n对话上下文过长，已自动清理早期记录，继续回答...\n\n');
       }
     }
 
@@ -710,7 +706,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
           // 首次检测到工具调用 → 告知用户 AI 正在思考
           if (!detectedToolCall) {
             detectedToolCall = true;
-            onChunk('\n\n🤔 AI 正在思考使用什么工具...');
+            onChunk('\n\nAI 正在思考使用什么工具...');
           }
           for (const tc of delta.tool_calls) {
             const idx = tc.index;
@@ -745,7 +741,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
             this.logger.log(`Executing tool: ${tc.function.name}`);
 
             // 发送工具执行进度
-            let progressMsg = `\n\n🔧 正在执行: **${tc.function.name}**`;
+            let progressMsg = `\n\n正在执行: **${tc.function.name}**`;
             try {
               const args = JSON.parse(tc.function.arguments);
               if (args.filename) progressMsg += ` (${args.filename})`;
@@ -833,7 +829,6 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       });
     }
 
-    // 按最后更新时间倒序
     conversations.sort((a, b) => b.lastMessageTime.localeCompare(a.lastMessageTime));
     return conversations;
   }
@@ -844,7 +839,6 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
   getConversationHistory(threadId: string): Array<{ role: string; content: string }> {
     const history = this.conversationStore.get(threadId);
     if (!history) return [];
-    // 返回不含 system 消息的对话历史
     return history.filter(m => m.role !== 'system');
   }
 
