@@ -71,6 +71,9 @@ interface Artifact {
   title: string;
   content: string;
   language?: string;
+  downloadUrl?: string;  // 文档下载链接
+  filename?: string;      // 文档文件名
+  token?: string;         // 文档预览/下载 token
 }
 
 interface ConversationSummary {
@@ -193,7 +196,7 @@ const AgentChatCanvas: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // ★ 解析产物：从 AI 内容中提取代码块和表格
+  // ★ 解析产物：从 AI 内容中提取代码块、表格、文档下载链接
   const parseArtifacts = useCallback((content: string): Artifact[] => {
     const artifacts: Artifact[] = [];
 
@@ -214,7 +217,7 @@ const AgentChatCanvas: React.FC = () => {
     }
 
     // 匹配表格 | col1 | col2 |
-    const tablePattern = '\\|[^\\n]+\\|\\n\\|[-:\\s|]+\\|\\n(?:\\|[^\\n]+\\|\\n?)++';
+    const tablePattern = '\\|[^\\n]+\\|\\n\\|[-:\\s|]+\\|\\n(?:\\|[^\\n]+\\|\\n?)+';
     const tableRegex = new RegExp(tablePattern, 'g');
     idx = 0;
     while ((match = tableRegex.exec(content)) !== null) {
@@ -223,6 +226,24 @@ const AgentChatCanvas: React.FC = () => {
         type: 'table',
         title: `表格产物`,
         content: match[0],
+      });
+    }
+
+    // ★ 匹配文档下载链接: [filename.docx](url/download/token)
+    const docRegex = /\[([^\]]+\.(?:docx|xlsx))\]\(([^)]*(?:download|api\/ai\/download)\/([^/\s)]+))\)/gi;
+    idx = 0;
+    while ((match = docRegex.exec(content)) !== null) {
+      const filename = match[1];
+      const downloadUrl = match[2];
+      const token = match[3];
+      artifacts.push({
+        id: `artifact-doc-${idx++}`,
+        type: 'document',
+        title: filename,
+        content: '',
+        downloadUrl,
+        filename,
+        token,
       });
     }
 
@@ -257,6 +278,51 @@ const AgentChatCanvas: React.FC = () => {
     if (artifacts && artifacts.length > 0) {
       artifacts.forEach((artifact) => {
         if (artifact.type === 'table') return;
+
+        // ★ 文档类型：独立渲染卡片
+        if (artifact.type === 'document') {
+          artifactElements.push(
+            <div
+              key={artifact.id}
+              className="artifact-card"
+              style={{
+                marginTop: 12,
+                padding: '10px 14px',
+                background: 'linear-gradient(135deg, #f0fdf4, #ecfdf5)',
+                border: '1px solid #86efac',
+                borderRadius: 8,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                position: 'relative',
+              }}
+              onClick={() => openCanvas(artifact)}
+            >
+              <Space>
+                <Tag color="green" style={{ margin: 0, fontSize: 13 }}>
+                  📑 {artifact.filename}
+                </Tag>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  点击预览文档内容
+                </Text>
+                <Button
+                  size="small"
+                  type="link"
+                  icon={<FileTextOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (artifact.downloadUrl) {
+                      window.open(artifact.downloadUrl, '_blank');
+                    }
+                  }}
+                  style={{ fontSize: 11, padding: 0 }}
+                >
+                  直接下载
+                </Button>
+              </Space>
+            </div>
+          );
+          return;
+        }
           
         const isMermaid = artifact.type === 'code' && isMermaidCode(artifact.content);
 
@@ -730,6 +796,29 @@ const AgentChatCanvas: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // ★ 文档预览状态
+  const [docPreviewHtml, setDocPreviewHtml] = useState<string>('');
+  const [docPreviewLoading, setDocPreviewLoading] = useState(false);
+
+  // 当文档 artifact 打开时，获取预览 HTML
+  useEffect(() => {
+    if (currentArtifact?.type === 'document' && currentArtifact.token) {
+      setDocPreviewLoading(true);
+      setDocPreviewHtml('');
+      const previewUrl = `${API_BASE}/ai/preview/${currentArtifact.token}`;
+      fetch(previewUrl)
+        .then(res => res.text())
+        .then(html => {
+          setDocPreviewHtml(html);
+          setDocPreviewLoading(false);
+        })
+        .catch(() => {
+          setDocPreviewHtml('<p style="color:red;text-align:center;padding:40px;">预览加载失败，请尝试直接下载</p>');
+          setDocPreviewLoading(false);
+        });
+    }
+  }, [currentArtifact?.id, currentArtifact?.type, currentArtifact?.token]);
+
   // Canvas 内容渲染
   const renderCanvasContent = () => {
     if (!currentArtifact) {
@@ -741,6 +830,29 @@ const AgentChatCanvas: React.FC = () => {
     }
 
     const { content, type, language } = currentArtifact;
+
+    // ★ 文档预览：内嵌 iframe 展示 HTML（由后端 mammoth 转换）
+    if (type === 'document') {
+      if (docPreviewLoading) {
+        return (
+          <div style={{ textAlign: 'center', padding: 60 }}>
+            <Spin size="large" />
+            <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>正在加载文档预览...</Text>
+          </div>
+        );
+      }
+      if (!docPreviewHtml) {
+        return <Text type="secondary">正在准备预览...</Text>;
+      }
+      return (
+        <iframe
+          srcDoc={docPreviewHtml}
+          style={{ width: '100%', height: '100%', border: 'none', borderRadius: 8 }}
+          title="文档预览"
+          sandbox="allow-same-origin"
+        />
+      );
+    }
 
     if (canvasViewMode === 'code') {
       return (
@@ -1171,23 +1283,27 @@ const AgentChatCanvas: React.FC = () => {
                 )}
               </Space>
               <Space>
-                <Button
-                  size="small"
-                  icon={<EyeOutlined />}
-                  type={canvasViewMode === 'preview' ? 'primary' : 'default'}
-                  onClick={() => setCanvasViewMode('preview')}
-                >
-                  预览
-                </Button>
-                <Button
-                  size="small"
-                  icon={<CodeOutlined />}
-                  type={canvasViewMode === 'code' ? 'primary' : 'default'}
-                  onClick={() => setCanvasViewMode('code')}
-                >
-                  源码
-                </Button>
-                {currentArtifact && (
+                {currentArtifact?.type !== 'document' && (
+                  <>
+                    <Button
+                      size="small"
+                      icon={<EyeOutlined />}
+                      type={canvasViewMode === 'preview' ? 'primary' : 'default'}
+                      onClick={() => setCanvasViewMode('preview')}
+                    >
+                      预览
+                    </Button>
+                    <Button
+                      size="small"
+                      icon={<CodeOutlined />}
+                      type={canvasViewMode === 'code' ? 'primary' : 'default'}
+                      onClick={() => setCanvasViewMode('code')}
+                    >
+                      源码
+                    </Button>
+                  </>
+                )}
+                {currentArtifact && currentArtifact.type !== 'document' && (
                   <Button
                     size="small"
                     icon={<CopyOutlined />}
@@ -1196,6 +1312,18 @@ const AgentChatCanvas: React.FC = () => {
                     }}
                   >
                     复制
+                  </Button>
+                )}
+                {currentArtifact?.type === 'document' && currentArtifact.downloadUrl && (
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<FileTextOutlined />}
+                    onClick={() => {
+                      window.open(currentArtifact.downloadUrl, '_blank');
+                    }}
+                  >
+                    下载文件
                   </Button>
                 )}
                 <Button size="small" icon={<CloseOutlined />} onClick={closeCanvas} />
