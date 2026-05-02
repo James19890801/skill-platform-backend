@@ -633,6 +633,22 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     const apiBaseUrl = process.env.API_BASE_URL || 'https://skill-platform-backend-production.up.railway.app';
     let fullContent = '';
 
+    // ★ 上下文溢出预警：估算 token 数，接近窗口上限时主动修剪
+    const estimatedTokens = messages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
+    const CONTEXT_WARN_TOKENS = 6000; // qwen-turbo 上下文 1M，但实际有效窗口约 8K-32K
+    const CONTEXT_MAX_TOKENS = 8000;
+    if (estimatedTokens > CONTEXT_MAX_TOKENS) {
+      // 紧急修剪：只保留 system + 最近 3 轮
+      const systemMsg = messages[0];
+      const recentMsgs = messages.slice(-6); // 最近 3 轮 = 6 条消息
+      messages.length = 0;
+      messages.push(systemMsg, ...recentMsgs);
+      this.logger.warn(`⚠️ Context overflow detected (est. ${estimatedTokens} tokens), trimmed to ${messages.length} messages`);
+      if (onChunk) {
+        onChunk('\n\n⚠️ 对话上下文过长，已自动清理早期记录，继续回答...\n\n');
+      }
+    }
+
     if (!onChunk) {
       // 非流式模式：直接一次调用，最快速度
       const completion = await this.client.chat.completions.create({
@@ -768,13 +784,16 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       // 正常结束（非工具调用），内容已经实时流式输出完毕
     }
 
-    // ===== 5. 保存历史 =====
-    history.push({ role: 'assistant', content: fullContent });
+    // ===== 5. 保存历史（空响应不入库，避免上下文污染） =====
+    if (fullContent.trim()) {
+      history.push({ role: 'assistant', content: fullContent });
+    } else {
+      this.logger.warn(`Empty AI response for thread ${threadKey}, not saved to history`);
+    }
     this.conversationStore.set(threadKey, history);
 
     // 限制历史长度：最多保留最近20轮（40条消息）
     const MAX_HISTORY_PAIRS = 20;
-    const systemMsgCount = 1;
     const totalMsgs = history.length;
     if (totalMsgs > MAX_HISTORY_PAIRS * 2) {
       const excess = totalMsgs - MAX_HISTORY_PAIRS * 2;
