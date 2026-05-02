@@ -11,7 +11,6 @@
  */
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
-  Card,
   Input,
   Button,
   Typography,
@@ -40,10 +39,8 @@ import {
   CopyOutlined,
   EyeOutlined,
   HistoryOutlined,
-  PlusOutlined,
   DeleteOutlined,
   ArrowLeftOutlined,
-  UploadOutlined,
   PictureOutlined,
   PaperClipOutlined,
 } from '@ant-design/icons';
@@ -109,6 +106,9 @@ const AgentChatCanvas: React.FC = () => {
 
   // 附件上传状态
   const [attachments, setAttachments] = useState<Array<{ name: string; type: string; dataUrl: string }>>([]);
+
+  // Agent 名称
+  const [agentName, setAgentName] = useState<string>('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -286,39 +286,45 @@ const AgentChatCanvas: React.FC = () => {
               key={artifact.id}
               className="artifact-card"
               style={{
-                marginTop: 12,
-                padding: '10px 14px',
-                background: 'linear-gradient(135deg, #f0fdf4, #ecfdf5)',
-                border: '1px solid #86efac',
+                marginTop: 10,
+                padding: '8px 12px',
+                background: '#fff',
+                border: '1px solid #e8e8e8',
                 borderRadius: 8,
                 cursor: 'pointer',
-                transition: 'all 0.15s',
-                position: 'relative',
+                transition: 'border-color 0.15s, box-shadow 0.15s',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#6366f1';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.08)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#e8e8e8';
+                e.currentTarget.style.boxShadow = 'none';
               }}
               onClick={() => openCanvas(artifact)}
             >
-              <Space>
-                <Tag color="green" style={{ margin: 0, fontSize: 13 }}>
-                  📑 {artifact.filename}
-                </Tag>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  点击预览文档内容
-                </Text>
-                <Button
-                  size="small"
-                  type="link"
-                  icon={<FileTextOutlined />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (artifact.downloadUrl) {
-                      window.open(artifact.downloadUrl, '_blank');
-                    }
-                  }}
-                  style={{ fontSize: 11, padding: 0 }}
-                >
-                  直接下载
-                </Button>
+              <Space size={8}>
+                <FileTextOutlined style={{ color: '#6366f1', fontSize: 15 }} />
+                <Text style={{ fontSize: 13, fontWeight: 500 }}>{artifact.filename}</Text>
+                <Text type="secondary" style={{ fontSize: 11 }}>点击预览</Text>
               </Space>
+              <Button
+                size="small"
+                type="link"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (artifact.downloadUrl) {
+                    window.open(artifact.downloadUrl, '_blank');
+                  }
+                }}
+                style={{ fontSize: 11, color: '#6366f1', padding: '0 4px' }}
+              >
+                下载
+              </Button>
             </div>
           );
           return;
@@ -331,25 +337,38 @@ const AgentChatCanvas: React.FC = () => {
             key={artifact.id}
             className="artifact-card"
             style={{
-              marginTop: 12,
+              marginTop: 10,
               padding: '8px 12px',
-              background: '#f0f5ff',
-              border: '1px dashed #b7c8f0',
+              background: '#fafbfc',
+              border: '1px solid #e8e8e8',
               borderRadius: 8,
               cursor: 'pointer',
-              transition: 'all 0.15s',
+              transition: 'border-color 0.15s, box-shadow 0.15s',
               position: 'relative',
+            }}
+            onMouseEnter={(e) => {
+              if (isMermaid) return;
+              e.currentTarget.style.borderColor = '#6366f1';
+              e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.08)';
+            }}
+            onMouseLeave={(e) => {
+              if (isMermaid) return;
+              e.currentTarget.style.borderColor = '#e8e8e8';
+              e.currentTarget.style.boxShadow = 'none';
             }}
             onClick={() => !isMermaid && openCanvas(artifact)}
           >
-            <Space>
-              <Tag color={isMermaid ? 'green' : 'blue'} style={{ margin: 0 }}>
-                {isMermaid ? '📊 流程图' : `📄 ${artifact.title}`}
-              </Tag>
-              {!isMermaid && (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  点击在 Canvas 中查看
-                </Text>
+            <Space size={8}>
+              {isMermaid ? (
+                <Tag color="purple" style={{ margin: 0, fontSize: 12 }}>
+                  流程图
+                </Tag>
+              ) : (
+                <>
+                  <CodeOutlined style={{ color: '#6366f1', fontSize: 14 }} />
+                  <Text style={{ fontSize: 13, fontWeight: 500 }}>{artifact.title}</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>点击查看</Text>
+                </>
               )}
             </Space>
             {isMermaid ? (
@@ -357,13 +376,13 @@ const AgentChatCanvas: React.FC = () => {
             ) : artifact.type === 'code' && (
               <pre
                 style={{
-                  margin: '8px 0 0',
+                  margin: '6px 0 0',
                   padding: 8,
                   background: '#1e1e1e',
                   color: '#d4d4d4',
                   borderRadius: 6,
                   fontSize: 11,
-                  maxHeight: 80,
+                  maxHeight: 60,
                   overflow: 'hidden',
                   lineHeight: 1.4,
                 }}
@@ -371,32 +390,31 @@ const AgentChatCanvas: React.FC = () => {
                 <code>{artifact.content.slice(0, 200)}{artifact.content.length > 200 ? '...' : ''}</code>
               </pre>
             )}
-            <div
-              style={{
-                position: 'absolute',
-                top: 8,
-                right: 8,
-                opacity: 0,
-                transition: 'opacity 0.2s',
-                background: 'rgba(255, 255, 255, 0.9)',
-                borderRadius: 4,
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-              }}
-              className="artifact-actions"
-            >
-              <Tooltip title="复制内容">
-                <Button
-                  size="small"
-                  icon={<CopyOutlined />}
-                  type="text"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigator.clipboard.writeText(artifact.content);
-                  }}
-                  style={{ padding: '2px 4px' }}
-                />
-              </Tooltip>
-            </div>
+            {!isMermaid && (
+              <div
+                className="artifact-actions"
+                style={{
+                  position: 'absolute',
+                  top: 6,
+                  right: 8,
+                  opacity: 0,
+                  transition: 'opacity 0.15s',
+                }}
+              >
+                <Tooltip title="复制">
+                  <Button
+                    size="small"
+                    icon={<CopyOutlined />}
+                    type="text"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigator.clipboard.writeText(artifact.content);
+                    }}
+                    style={{ fontSize: 11, color: '#999', padding: '0 4px', height: 24 }}
+                  />
+                </Tooltip>
+              </div>
+            )}
           </div>
         );
       });
@@ -785,6 +803,21 @@ const AgentChatCanvas: React.FC = () => {
     }
   }, [messages.length]);
 
+  // ★ 获取 Agent 名称
+  useEffect(() => {
+    if (!agentId) return;
+    const token = useAuthStore.getState().token;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    fetch(`${API_BASE}/agents/${agentId}`, { headers })
+      .then(res => res.json())
+      .then(data => {
+        const agent = data?.data || data;
+        if (agent?.name) setAgentName(agent.name);
+      })
+      .catch(() => {});
+  }, [agentId]);
+
   // ★ 前端预热：唤醒 Railway 冷启动 + 每4分钟心跳保活
   useEffect(() => {
     const warmup = () => {
@@ -923,16 +956,16 @@ const AgentChatCanvas: React.FC = () => {
   };
 
   return (
-    <div ref={containerRef} style={{ height: isMobile ? 'calc(100vh - 56px)' : 'calc(100vh - 56px - 32px)', display: 'flex', flexDirection: 'column' }}>
+    <div ref={containerRef} style={{ height: isMobile ? '100vh' : 'calc(100vh - 56px - 32px)', display: 'flex', flexDirection: 'column' }}>
       {/* 顶部工具栏 */}
       <div style={{
-        padding: isMobile ? '6px 10px' : '8px 14px',
-        borderBottom: '1px solid #e8e8e8',
+        padding: isMobile ? '6px 10px' : '8px 16px',
+        borderBottom: '1px solid #f0f0f0',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         flexShrink: 0,
-        background: '#fafafa',
+        background: '#fff',
       }}>
         {isMobile ? (
           <Space size="small">
@@ -943,28 +976,31 @@ const AgentChatCanvas: React.FC = () => {
               style={{ fontSize: 16, color: '#333' }}
             />
             <RobotOutlined style={{ color: '#6366f1', fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15 }}>{agentId ? `Agent #${agentId}` : 'AI 对话'}</Text>
+            <Text strong style={{ fontSize: 15 }}>{agentName || (agentId ? `Agent #${agentId}` : 'AI 对话')}</Text>
           </Space>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{
-              width: 30, height: 30, borderRadius: 8,
+              width: 26, height: 26, borderRadius: 7,
               background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
             }}>
-              <RobotOutlined style={{ color: '#fff', fontSize: 15 }} />
+              <RobotOutlined style={{ color: '#fff', fontSize: 13 }} />
             </div>
-            <div style={{ lineHeight: 1.2 }}>
-              <Text strong style={{ fontSize: 14, display: 'block' }}>Agent 对话</Text>
-              <Tooltip title="点击复制 Thread ID">
-                <Text
-                  style={{ fontSize: 10, color: '#aaa', cursor: 'pointer' }}
-                  onClick={() => { navigator.clipboard.writeText(currentThreadId); message.success('Thread ID 已复制'); }}
-                >
-                  {currentThreadId.slice(0, 20)}...
-                </Text>
-              </Tooltip>
+            <div>
+              <Text strong style={{ fontSize: 14, display: 'block', lineHeight: 1.3 }}>
+                {agentName || 'Agent 对话'}
+              </Text>
             </div>
+            <Tooltip title="点击复制 Thread ID">
+              <Text
+                style={{ fontSize: 10, color: '#ccc', cursor: 'pointer', marginLeft: 2 }}
+                onClick={() => { navigator.clipboard.writeText(currentThreadId); message.success('Thread ID 已复制'); }}
+              >
+                #{currentThreadId.slice(-6)}
+              </Text>
+            </Tooltip>
           </div>
         )}
         <Space size="small">
@@ -978,14 +1014,14 @@ const AgentChatCanvas: React.FC = () => {
                   onClick={() => { loadConversations(); setHistoryVisible(true); }}
                 />
               </Tooltip>
-              <Tooltip title="新建对话">
-                <Button
-                  type="text"
-                  icon={<PlusOutlined />}
-                  size="small"
-                  onClick={newConversation}
-                />
-              </Tooltip>
+              <Button
+                type="text"
+                size="small"
+                onClick={newConversation}
+                style={{ fontSize: 13, color: '#6366f1', fontWeight: 500 }}
+              >
+                新建
+              </Button>
             </>
           ) : (
             <>
@@ -1005,15 +1041,14 @@ const AgentChatCanvas: React.FC = () => {
                   onClick={clearChat}
                 />
               </Tooltip>
-              <Tooltip title="新建对话">
-                <Button
-                  icon={<PlusOutlined />}
-                  size="small"
-                  type="primary"
-                  ghost
-                  onClick={newConversation}
-                />
-              </Tooltip>
+              <Button
+                type="text"
+                size="small"
+                onClick={newConversation}
+                style={{ fontSize: 13, color: '#6366f1', fontWeight: 500 }}
+              >
+                新建
+              </Button>
             </>
           )}
         </Space>
@@ -1038,14 +1073,31 @@ const AgentChatCanvas: React.FC = () => {
               flex: 1,
               overflow: 'auto',
               padding: isMobile ? '8px 12px' : '16px 20px',
-              background: '#fafafa',
+              background: '#f8f9fb',
             }}
           >
             {messages.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 80 }}>
-                <RobotOutlined style={{ fontSize: 56, color: '#6366f1', marginBottom: 16 }} />
-                <Title level={4}>开始对话</Title>
-                <Text type="secondary">输入问题，Agent 将为您分析和解答</Text>
+              <div style={{
+                textAlign: 'center',
+                paddingTop: isMobile ? '25vh' : '18vh',
+                maxWidth: 400,
+                margin: '0 auto',
+              }}>
+                <div style={{
+                  width: 56, height: 56, borderRadius: 14,
+                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 20px',
+                  boxShadow: '0 4px 20px rgba(99,102,241,0.15)',
+                }}>
+                  <RobotOutlined style={{ color: '#fff', fontSize: 26 }} />
+                </div>
+                <Title level={4} style={{ marginBottom: 6, fontWeight: 600, fontSize: 18 }}>
+                  {agentName || 'AI 对话'}
+                </Title>
+                <Text type="secondary" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                  输入问题，Agent 将为您分析解答
+                </Text>
               </div>
             ) : (
               messages.map((msg, idx) => {
@@ -1057,14 +1109,16 @@ const AgentChatCanvas: React.FC = () => {
                     className="msg-bubble-wrapper"
                     style={{
                       display: 'flex',
-                      marginBottom: 14,
+                      marginBottom: 10,
                       flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
+                      alignItems: 'flex-start',
                     }}
                   >
                     <Avatar
                       src={msg.role === 'user' ? undefined : "/logo.png"}
                       icon={msg.role === 'user' ? <UserOutlined /> : undefined}
                       className={msg.role !== 'user' ? 'agent-avatar-logo' : undefined}
+                      size={32}
                       style={{
                         backgroundColor: msg.role === 'user' ? '#10b981' : '#1a237e',
                         flexShrink: 0,
@@ -1072,14 +1126,15 @@ const AgentChatCanvas: React.FC = () => {
                     />
                     <div
                       style={{
-                        maxWidth: '78%',
-                        marginLeft: msg.role === 'user' ? 0 : 12,
-                        marginRight: msg.role === 'user' ? 12 : 0,
-                        padding: msg.role === 'user' ? '10px 14px' : '10px 14px',
-                        borderRadius: 12,
+                        maxWidth: '82%',
+                        marginLeft: msg.role === 'user' ? 0 : 8,
+                        marginRight: msg.role === 'user' ? 8 : 0,
+                        padding: msg.role === 'user' ? '6px 12px' : '8px 12px',
+                        borderRadius: 10,
                         background: msg.role === 'user' ? '#e8f5e9' : '#fff',
-                        boxShadow: msg.role === 'user' ? 'none' : '0 1px 3px rgba(0,0,0,0.06)',
+                        boxShadow: msg.role === 'user' ? 'none' : '0 1px 2px rgba(0,0,0,0.04)',
                         border: msg.role === 'user' ? 'none' : '1px solid #f0f0f0',
+                        lineHeight: 1.55,
                       }}
                     >
                       {msg.content === '▍' ? (
@@ -1135,15 +1190,24 @@ const AgentChatCanvas: React.FC = () => {
               })
             )}
             {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
-              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '4px 0' }}>
                 <Avatar
                   src="/logo.png"
                   className="agent-avatar-logo"
+                  size={32}
                   style={{ backgroundColor: '#1a237e', flexShrink: 0 }}
                 />
-                <Card size="small" style={{ background: '#f5f5f5', border: 'none' }}>
-                  <Spin size="small" tip="Agent 思考中..." />
-                </Card>
+                <div style={{
+                  padding: '6px 12px',
+                  background: '#f8f9fb',
+                  borderRadius: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}>
+                  <Spin size="small" />
+                  <Text type="secondary" style={{ fontSize: 12 }}>思考中...</Text>
+                </div>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -1151,8 +1215,8 @@ const AgentChatCanvas: React.FC = () => {
 
 
 
-          {/* 输入区 — Qoder 风格 */}
-          <div style={{ padding: isMobile ? '6px 10px 10px' : '8px 16px 14px', borderTop: '1px solid #e8e8e8', background: '#fff', flexShrink: 0 }}>
+          {/* 输入区 */}
+          <div style={{ padding: isMobile ? '6px 8px 8px' : '8px 16px 14px', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
             {/* 附件预览 */}
             {attachments.length > 0 && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8, padding: '4px 0' }}>
@@ -1186,7 +1250,7 @@ const AgentChatCanvas: React.FC = () => {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 placeholder="输入消息，@添加上下文，/使用命令"
-                autoSize={{ minRows: 2, maxRows: 6 }}
+                autoSize={{ minRows: isMobile ? 1 : 2, maxRows: 6 }}
                 onPressEnter={(e) => {
                   if (!e.shiftKey) {
                     e.preventDefault();
@@ -1274,7 +1338,7 @@ const AgentChatCanvas: React.FC = () => {
             }}
           >
             {/* Canvas 头部 */}
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, background: '#fafafa' }}>
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, background: '#fff' }}>
               <Space>
                 <AppstoreOutlined style={{ color: '#6366f1' }} />
                 <Text strong>🎨 Canvas</Text>
@@ -1344,7 +1408,8 @@ const AgentChatCanvas: React.FC = () => {
         placement="left"
         open={historyVisible}
         onClose={() => setHistoryVisible(false)}
-        width={340}
+        width={isMobile ? '100%' : 340}
+        styles={{ body: { padding: isMobile ? 8 : 16 } }}
       >
         <List
           loading={loadingHistory}
