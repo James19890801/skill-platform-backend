@@ -72,12 +72,30 @@ const AgentChat: React.FC<AgentChatProps> = ({
     { value: 'deepseek-v3', label: 'DeepSeek V3' },
   ];
   
-  // 可用 Skills
-  const availableSkills = [
-    { value: 'process-analysis', label: '流程分析' },
-    { value: 'document-generation', label: '文档生成' },
-    { value: 'risk-assessment', label: '风险评估' },
-  ];
+  
+  const [availableSkills, setAvailableSkills] = useState<{ value: string; label: string }[]>([]);
+  
+  // 从后端加载 Skills 列表
+  useEffect(() => {
+    const loadSkills = async () => {
+      try {
+        const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
+        const res = await fetch(`${API_BASE}/skills?limit=200`);
+        const json = await res.json();
+        if (json.success && json.data?.items) {
+          setAvailableSkills(
+            json.data.items.map((s: any) => ({
+              value: s.namespace || `skill-${s.id}`,
+              label: s.name,
+            }))
+          );
+        }
+      } catch (e) {
+        console.warn('Failed to load skills:', e);
+      }
+    };
+    loadSkills();
+  }, []);
   
   // 自动滚动到底部
   useEffect(() => {

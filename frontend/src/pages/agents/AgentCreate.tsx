@@ -55,13 +55,8 @@ const availableModels = [
   { value: 'deepseek-chat', label: 'DeepSeek Chat' },
 ];
 
-// 可用 Skills
-const availableSkills = [
-  { id: 'process-analysis', name: '流程分析', description: '分析业务流程并识别关键节点' },
-  { id: 'data-analysis', name: '数据分析', description: '执行数据分析和可视化' },
-  { id: 'risk-identification', name: '风险识别', description: '识别流程中的潜在风险' },
-  { id: 'report-generation', name: '报告生成', description: '生成专业的分析报告' },
-];
+// 可用 Skills（从后端动态加载）
+const [availableSkills, setAvailableSkills] = useState<{ id: string; name: string; description: string }[]>([]);
 
 // 可用知识库
 const availableKnowledgeBases = [
@@ -75,6 +70,30 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
   const [form] = Form.useForm();
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  // 从后端加载 Skills 列表
+  useEffect(() => {
+    const loadSkills = async () => {
+      try {
+        const apiBaseUrl = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
+        const res = await fetch(`${apiBaseUrl}/skills?limit=200`);
+        const json = await res.json();
+        if (json.success && json.data?.items) {
+          setAvailableSkills(
+            json.data.items.map((s: any) => ({
+              id: s.namespace || `skill-${s.id}`,
+              name: s.name,
+              description: s.description || '',
+            }))
+          );
+        }
+      } catch (e) {
+        // 加载失败时使用空列表
+        console.warn('Failed to load skills:', e);
+      }
+    };
+    loadSkills();
+  }, []);
 
   // 编辑模式：回填已有数据
   useEffect(() => {
