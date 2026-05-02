@@ -24,7 +24,7 @@ const EXECUTION_CONFIG_FIELDS = [
 
 // 业务信息字段（member 可以编辑自己的 Skill）
 const BUSINESS_INFO_FIELDS = [
-  'name', 'domain', 'subDomain', 'abilityName', 'description', 'scope', 'type', 'content',
+  'name', 'domain', 'subDomain', 'abilityName', 'description', 'scope', 'type', 'content', 'files',
 ];
 
 @Injectable()

@@ -55,9 +55,6 @@ const availableModels = [
   { value: 'deepseek-chat', label: 'DeepSeek Chat' },
 ];
 
-// 可用 Skills（从后端动态加载）
-const [availableSkills, setAvailableSkills] = useState<{ id: string; name: string; description: string }[]>([]);
-
 // 可用知识库
 const availableKnowledgeBases = [
   { id: 'kb-1', name: '流程知识库', documents: 120 },
@@ -70,6 +67,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
   const [form] = Form.useForm();
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [availableSkills, setAvailableSkills] = useState<{ id: string; name: string; description: string }[]>([]);
 
   // 从后端加载 Skills 列表
   useEffect(() => {

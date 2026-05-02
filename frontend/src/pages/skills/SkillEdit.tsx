@@ -235,15 +235,31 @@ const SkillEdit: React.FC = () => {
       label: 'Skill 内容',
       children: (
         <div style={{ maxWidth: 900 }}>
-          <div style={{ marginBottom: 16, padding: 12, background: '#f0f9ff', borderRadius: 8, border: '1px solid #bae6fd' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              请使用 Markdown 格式编写 Skill 标准正文。建议包含：角色定义、核心职责、输入格式、输出格式、执行原则等章节。
+          <div style={{ marginBottom: 16, padding: 16, background: '#f0f9ff', borderRadius: 8, border: '1px solid #bae6fd' }}>
+            <Text type="secondary" style={{ fontSize: 13, lineHeight: 1.8 }}>
+              请使用 Markdown 格式编写 Skill 标准正文（SKILL.md）。建议按以下结构组织：
+              <br />
+              1. <strong>角色定义</strong> — 你是谁，扮演什么角色
+              <br />
+              2. <strong>交付物定义</strong> — 这个 Skill 最终产出什么（至少 3 项）
+              <br />
+              3. <strong>实施步骤</strong> — 分步骤说明执行流程（每步一个标题 + 说明）
+              <br />
+              4. <strong>工具调用说明</strong> — 需要调用哪些工具、何时调用
+              <br />
+              5. <strong>输入格式</strong> — 用户应提供什么信息
+              <br />
+              6. <strong>输出格式</strong> — 最终产出的格式规范
+              <br />
+              7. <strong>约束条件</strong> — 限制条件、注意事项
+              <br />
+              8. <strong>示例</strong> — 输入输出示例
             </Text>
           </div>
           <Form.Item name="content" noStyle>
             <TextArea
               rows={24}
-              placeholder={`# 角色定义\n你是专业的...领域专家\n\n## 核心职责\n1. **职责一**：描述...\n2. **职责二**：描述...\n\n## 输入格式\n用户将提供：\n- 输入项1\n- 输入项2\n\n## 输出格式\n返回结构化结果...\n\n## 执行原则\n- 原则1\n- 原则2`}
+              placeholder={`# 角色定义\n你是专业的...领域专家\n\n## 交付物定义\n1. **交付物A**：说明\n2. **交付物B**：说明\n3. **交付物C**：说明\n\n## 实施步骤\n### 第1步：步骤名称\n详细说明\n\n### 第2步：步骤名称\n详细说明\n\n## 工具调用说明\n- **工具A**：何时调用\n- **工具B**：何时调用\n\n## 输入格式\n- 输入项1\n- 输入项2\n\n## 输出格式\n请描述最终产出的格式\n\n## 约束条件\n- 条件1\n- 条件2\n\n## 示例\n### 示例1\n**输入：** ...\n**输出：** ...`}
               style={{
                 fontFamily: 'SFMono-Regular, Consolas, "Liberation Mono", Menlo, Courier, monospace',
                 fontSize: 13, lineHeight: 1.7, borderRadius: 8, background: '#f8fafc',
@@ -339,6 +355,49 @@ const SkillEdit: React.FC = () => {
                 </Descriptions>
               </Space>
             </Card>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'files',
+      label: '附件文件',
+      children: (
+        <div style={{ maxWidth: 800 }}>
+          <div style={{ marginBottom: 16, padding: 16, background: '#f0f9ff', borderRadius: 8, border: '1px solid #bae6fd' }}>
+            <Text type="secondary" style={{ fontSize: 13, lineHeight: 1.8 }}>
+              一个 Skill 可以捆绑以下类型的附件文件（类似于 zip 包中的资源）：
+              <br />
+              • <strong>scripts/</strong> — Python/Shell 等可执行脚本，用于确定性/重复性任务
+              <br />
+              • <strong>templates/</strong> — 输出模板文件（如 Word/Excel 模板）
+              <br />
+              • <strong>references/</strong> — 引用文档、规范说明等参考资源
+              <br />
+              • <strong>assets/</strong> — 图标、字体、图片等静态资源
+            </Text>
+          </div>
+          {(!skill.files || skill.files.length === 0) ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                <span>
+                  暂无附件文件。"files"字段将在后端部署后启用。
+                </span>
+              }
+            />
+          ) : (
+            <Table
+              dataSource={skill.files}
+              rowKey="path"
+              columns={[
+                { title: '文件名', dataIndex: 'name', key: 'name' },
+                { title: '路径', dataIndex: 'path', key: 'path' },
+                { title: '类型', dataIndex: 'type', key: 'type', render: (t: string) => <Tag>{t}</Tag> },
+                { title: '说明', dataIndex: 'description', key: 'description' },
+              ]}
+              pagination={false}
+            />
           )}
         </div>
       ),

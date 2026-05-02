@@ -93,6 +93,9 @@ export class Skill {
   agentPrompt: string; // 当 executionType='agent' 时，Agent 的 prompt 模板
 
   @Column({ nullable: true, type: 'text' })
+  files: string; // JSON: 捆绑文件列表 [{name, path, type: 'script'|'template'|'reference'|'asset', content}]
+
+  @Column({ nullable: true, type: 'text' })
   toolDefinition: string; // JSON: OpenAI function calling 格式的工具定义，供 Agent 框架直接消费
 
   @CreateDateColumn()

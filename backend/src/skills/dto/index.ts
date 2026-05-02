@@ -153,6 +153,10 @@ export class UpdateSkillDto {
   @IsString()
   @IsOptional()
   content?: string;
+
+  @ApiPropertyOptional({ description: '捆绑文件列表（JSON）' })
+  @IsOptional()
+  files?: string;
 }
 
 export class CreateSkillVersionDto {

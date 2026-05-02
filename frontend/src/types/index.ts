@@ -161,6 +161,16 @@ export interface ISkill {
   agentPrompt?: string;
   toolDefinition?: string;
   content?: string; // ★ Skill 标准正文（Markdown）：角色定义、核心职责、输入输出、执行原则
+  files?: ISkillFile[]; // 捆绑文件列表
+}
+
+// Skill 捆绑文件
+export interface ISkillFile {
+  name: string;
+  path: string;
+  type: 'script' | 'template' | 'reference' | 'asset';
+  content: string;
+  description?: string;
 }
 
 export interface ISkillVersion {
