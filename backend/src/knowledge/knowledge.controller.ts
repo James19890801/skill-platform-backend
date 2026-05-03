@@ -51,4 +51,10 @@ export class KnowledgeController {
   async remove(@Param('id', ParseIntPipe) id: number) {
     return this.knowledgeService.remove(id, 1);
   }
+
+  @Post('sync')
+  @ApiOperation({ summary: '同步百炼知识库' })
+  async sync(@Body() body: { apiKey: string; kbId: string }) {
+    return this.knowledgeService.sync(body.apiKey, body.kbId);
+  }
 }

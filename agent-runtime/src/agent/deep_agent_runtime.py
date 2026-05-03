@@ -305,7 +305,7 @@ class DeepAgentRuntime:
     def get_memory(self, thread_id: str) -> List[Dict]:
         """获取会话记忆"""
         # TODO: 实现跨会话记忆存储
-        pass
+        return []
     
     def clear_memory(self, thread_id: str) -> None:
         """清除会话记忆"""

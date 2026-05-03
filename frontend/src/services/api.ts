@@ -244,6 +244,9 @@ export const knowledgeApi = {
 
   delete: (id: number): Promise<void> =>
     apiClient.delete(`/knowledge-bases/${id}`),
+
+  sync: (data: { apiKey: string; kbId: string }): Promise<any> =>
+    apiClient.post('/knowledge-bases/sync', data),
 };
 
 // ============================================

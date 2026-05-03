@@ -46,7 +46,7 @@ export class SkillsService {
     if (status) where.status = status;
     if (scope) where.scope = scope;
     if (search) {
-      where.name = Like(`%${search}%`);
+      where.name = Like(`%${search.replace(/[%_]/g, '\\$&')}%`);
     }
 
     const [items, total] = await this.skillRepository.findAndCount({

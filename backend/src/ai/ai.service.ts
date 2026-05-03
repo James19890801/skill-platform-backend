@@ -183,8 +183,13 @@ export class AiService {
     private skillExecutor: SkillExecutorService,
     private workspaceService: WorkspaceService,
   ) {
+    const apiKey = process.env.QWEN_API_KEY;
+    if (!apiKey) {
+      this.logger.error('QWEN_API_KEY 环境变量未设置，AI 功能将不可用');
+    }
+
     this.client = new OpenAI({
-      apiKey: process.env.QWEN_API_KEY || 'sk-35e6ff25e8a149d79b54d2656c107e98',
+      apiKey: apiKey || '',
       baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       timeout: 30_000,
       maxRetries: 1,
@@ -687,6 +692,17 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     if (totalMsgs > MAX_HISTORY_PAIRS * 2) {
       const excess = totalMsgs - MAX_HISTORY_PAIRS * 2;
       history.splice(0, excess);
+    }
+
+    // 限制总线程数：最多 1000 个，超出时清理最早的闲置线程
+    const MAX_THREADS = 1000;
+    if (this.conversationStore.size > MAX_THREADS) {
+      const keys = [...this.conversationStore.keys()];
+      const toRemove = keys.slice(0, this.conversationStore.size - MAX_THREADS);
+      for (const key of toRemove) {
+        this.conversationStore.delete(key);
+      }
+      this.logger.warn(`Conversation store exceeded ${MAX_THREADS} threads, cleaned up ${toRemove.length} oldest threads`);
     }
 
     return fullContent;

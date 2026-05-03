@@ -39,6 +39,7 @@ const KnowledgeManager: React.FC = () => {
   const [syncModalVisible, setSyncModalVisible] = useState(false);
   const [editingKnowledgeBase, setEditingKnowledgeBase] = useState<KnowledgeBase | null>(null);
   const [form] = Form.useForm();
+  const [syncForm] = Form.useForm();
 
   // 获取知识库列表
   const fetchKnowledgeBases = async () => {
@@ -59,8 +60,22 @@ const KnowledgeManager: React.FC = () => {
   }, []);
 
   const handleSync = async () => {
-    message.success('开始同步知识库...');
-    setSyncModalVisible(false);
+    try {
+      const values = await syncForm.validateFields();
+      // 调用知识库同步 API
+      await knowledgeApi.sync({
+        apiKey: values.apiKey,
+        kbId: values.kbId,
+      });
+      message.success('知识库同步任务已提交');
+      setSyncModalVisible(false);
+      syncForm.resetFields();
+      fetchKnowledgeBases();
+    } catch (error: any) {
+      if (error.errorFields) return; // 表单校验失败
+      message.error('提交同步任务失败');
+      console.error('Sync error:', error);
+    }
   };
 
   const handleCreate = async (values: CreateKnowledgeBaseRequest) => {
@@ -382,7 +397,7 @@ const KnowledgeManager: React.FC = () => {
         onCancel={() => setSyncModalVisible(false)}
         onOk={handleSync}
       >
-        <Form layout="vertical">
+        <Form form={syncForm} layout="vertical">
           <Form.Item label="百炼 API Key" name="apiKey">
             <Input.Password placeholder="输入百炼 API Key" />
           </Form.Item>

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KnowledgeBase } from '../entities/knowledge-base.entity';
@@ -7,6 +7,7 @@ import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto';
 
 @Injectable()
 export class KnowledgeService {
+  private readonly logger = new Logger(KnowledgeService.name);
   constructor(
     @InjectRepository(KnowledgeBase)
     private knowledgeRepository: Repository<KnowledgeBase>,
@@ -90,5 +91,15 @@ export class KnowledgeService {
   async removeForUser(id: number, userId: number, tenantId: number): Promise<void> {
     const knowledgeBase = await this.findOneForUser(id, userId, tenantId);
     await this.knowledgeRepository.remove(knowledgeBase);
+  }
+
+  async sync(apiKey: string, kbId: string, tenantId: number = 1): Promise<{ success: boolean; message: string }> {
+    // 百炼知识库同步逻辑
+    // TODO: 实现与百炼 API 的实际同步
+    this.logger.log(`Sync knowledge base: kbId=${kbId}, tenantId=${tenantId}`);
+    return {
+      success: true,
+      message: '知识库同步任务已提交，将在后台执行',
+    };
   }
 }

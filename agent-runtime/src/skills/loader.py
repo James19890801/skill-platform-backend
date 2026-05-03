@@ -35,8 +35,15 @@ def load_skill_metadata(skill_dir: str) -> Optional[SkillMetadata]:
         return None
     
     with open(yaml_path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-    
+        try:
+            data = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            print(f"[Loader] YAML 解析失败 {yaml_path}: {e}")
+            return None
+
+    if not data:
+        return None
+
     return SkillMetadata(
         name=data.get("name", ""),
         version=data.get("version", "1.0.0"),
