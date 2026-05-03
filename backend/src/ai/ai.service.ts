@@ -5,6 +5,7 @@ import OpenAI from 'openai';
 import { Agent } from '../entities/agent.entity';
 import { Skill } from '../entities/skill.entity';
 import { ExecutionService } from './execution.service';
+import { ToolBridgeService } from './tool-bridge.service';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -160,172 +161,6 @@ function extractJsonArray(rawContent: string): unknown[] | null {
   }
 }
 
-// ===== 工具定义 =====
-interface ToolDefinition {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: Record<string, any>;
-  };
-}
-
-const TOOLS: ToolDefinition[] = [
-  {
-    type: 'function',
-    function: {
-      name: 'generate_document',
-      description: '将 Markdown 内容生成为 Word (.docx) 或 Excel (.xlsx) 文档，返回下载链接。适用于用户需要输出正式文档的场景',
-      parameters: {
-        type: 'object',
-        properties: {
-          content: {
-            type: 'string',
-            description: '文档内容，支持 Markdown 格式（标题 ##、表格 | col1 | col2 |、列表、加粗 **text** 等）',
-          },
-          format: {
-            type: 'string',
-            enum: ['docx', 'xlsx'],
-            description: '文档格式：docx = Word 文档, xlsx = Excel 表格',
-          },
-          filename: {
-            type: 'string',
-            description: '文件名（不含扩展名），如 "项目报告"',
-          },
-        },
-        required: ['content', 'format'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'execute_python',
-      description: '运行 Python 代码生成数据分析、图表可视化等结果。适用于用户需要生成图表、执行数据分析、批量处理等场景',
-      parameters: {
-        type: 'object',
-        properties: {
-          code: {
-            type: 'string',
-            description: '要执行的 Python 代码',
-          },
-        },
-        required: ['code'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_web',
-      description: '搜索互联网获取实时信息。适用于用户需要最新资讯、查询事实、了解市场动态等场景',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: '搜索关键词',
-          },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'generate_html_report',
-      description: '生成包含交互式图表的 HTML 报告页面。适用于数据可视化展示、Dashboard、分析报告等场景',
-      parameters: {
-        type: 'object',
-        properties: {
-          html: {
-            type: 'string',
-            description: '完整的 HTML 页面代码（包含 ECharts 图表等）',
-          },
-          title: {
-            type: 'string',
-            description: '报告标题',
-          },
-        },
-        required: ['html', 'title'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'python_repl',
-      description: '执行 Python 代码片段（安全沙箱），适合数据分析、计算、文本处理、爬虫等任务。30秒超时限制',
-      parameters: {
-        type: 'object',
-        properties: {
-          code: {
-            type: 'string',
-            description: '要执行的 Python 代码',
-          },
-        },
-        required: ['code'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'data_analysis',
-      description: '对 JSON 格式的数据进行统计分析（描述统计、相关性、分布、值频次）。需要 pandas 支持',
-      parameters: {
-        type: 'object',
-        properties: {
-          data: {
-            type: 'string',
-            description: 'JSON 格式的数据（数组对象或对象）',
-          },
-          analysis_type: {
-            type: 'string',
-            enum: ['summary', 'correlation', 'distribution', 'value_counts'],
-            description: '分析类型：summary=描述统计, correlation=相关性, distribution=分布, value_counts=值频次',
-          },
-        },
-        required: ['data', 'analysis_type'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'generate_chart',
-      description: '基于数据生成可视化图表（柱状图、折线图、饼图、散点图、直方图），返回图片',
-      parameters: {
-        type: 'object',
-        properties: {
-          data: {
-            type: 'string',
-            description: 'JSON 格式的数据',
-          },
-          chart_type: {
-            type: 'string',
-            enum: ['bar', 'line', 'pie', 'scatter', 'histogram'],
-            description: '图表类型',
-          },
-          x_field: {
-            type: 'string',
-            description: 'X轴字段名',
-          },
-          y_field: {
-            type: 'string',
-            description: 'Y轴字段名',
-          },
-          title: {
-            type: 'string',
-            description: '图表标题',
-          },
-        },
-        required: ['data', 'chart_type'],
-      },
-    },
-  },
-];
 
 @Injectable()
 export class AiService {
@@ -342,6 +177,7 @@ export class AiService {
     @InjectRepository(Skill)
     private skillRepository: Repository<Skill>,
     private executionService: ExecutionService,
+    private toolBridge: ToolBridgeService,
   ) {
     this.client = new OpenAI({
       apiKey: process.env.QWEN_API_KEY || 'sk-35e6ff25e8a149d79b54d2656c107e98',
@@ -652,7 +488,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       const completion = await this.client.chat.completions.create({
         model: modelName,
         messages,
-        tools: TOOLS,
+        tools: await this.toolBridge.getTools(),
         tool_choice: 'auto',
         temperature: 0.7,
         max_tokens: 4096,
@@ -680,7 +516,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       const stream = await this.client.chat.completions.create({
         model: modelName,
         messages,
-        tools: TOOLS,
+        tools: await this.toolBridge.getTools(),
         tool_choice: 'auto',
         stream: true,
       } as any);
@@ -857,6 +693,34 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     args: any,
     apiBaseUrl: string,
   ): Promise<any> {
+    // 1. 本地工具（依赖 NestJS fileStore / reportStore）→ 本地执行
+    if (this.toolBridge.isLocalTool(name)) {
+      return await this.executeLocalTool(name, args, apiBaseUrl);
+    }
+
+    // 2. 远程工具 → 转发到 Agent Runtime
+    const remoteResult = await this.toolBridge.executeRemote(name, args);
+    if (remoteResult.success) {
+      if (remoteResult.result?._local) {
+        // Agent Runtime 返回本地标记 → 回退到本地执行
+        return await this.executeLocalTool(name, args, apiBaseUrl);
+      }
+      return remoteResult.result;
+    }
+
+    // 3. Agent Runtime 不可达 → 降级到本地执行
+    this.logger.warn(`Agent Runtime 执行失败 (${name}), 尝试本地降级`);
+    return await this.executeLocalFallback(name, args, apiBaseUrl);
+  }
+
+  /**
+   * 本地工具执行（不依赖 Agent Runtime）
+   */
+  private async executeLocalTool(
+    name: string,
+    args: any,
+    apiBaseUrl: string,
+  ): Promise<any> {
     switch (name) {
       case 'generate_document': {
         const format = args.format || 'docx';
@@ -870,7 +734,6 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
             : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
         this.fileStore.set(token, { buffer, filename, contentType });
-        // 10 分钟后自动清理
         setTimeout(() => this.fileStore.delete(token), 10 * 60 * 1000);
 
         return {
@@ -880,6 +743,37 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
           filename,
         };
       }
+
+      case 'generate_html_report': {
+        const token = `report-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        this.reportStore.set(token, { html: args.html, title: args.title || '报告' });
+        setTimeout(() => this.reportStore.delete(token), 30 * 60 * 1000);
+
+        return {
+          success: true,
+          message: 'HTML 报告已生成',
+          viewUrl: `${apiBaseUrl}/api/ai/report/${token}`,
+          title: args.title || '报告',
+        };
+      }
+
+      default:
+        return { error: `本地未知工具: ${name}` };
+    }
+  }
+
+  /**
+   * Agent Runtime 不可达时的降级执行
+   */
+  private async executeLocalFallback(
+    name: string,
+    args: any,
+    apiBaseUrl: string,
+  ): Promise<any> {
+    switch (name) {
+      case 'generate_document':
+      case 'generate_html_report':
+        return await this.executeLocalTool(name, args, apiBaseUrl);
 
       case 'search_web': {
         const result = await this.executionService.searchWeb(args.query, args.max_results || 5);
@@ -934,21 +828,8 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         return { error: result.error };
       }
 
-      case 'generate_html_report': {
-        const token = `report-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        this.reportStore.set(token, { html: args.html, title: args.title || '报告' });
-        setTimeout(() => this.reportStore.delete(token), 30 * 60 * 1000);
-
-        return {
-          success: true,
-          message: 'HTML 报告已生成',
-          viewUrl: `${apiBaseUrl}/api/ai/report/${token}`,
-          title: args.title || '报告',
-        };
-      }
-
       default:
-        return { error: `未知工具: ${name}` };
+        return { error: `工具执行失败 (Agent Runtime 不可达): ${name}` };
     }
   }
 
