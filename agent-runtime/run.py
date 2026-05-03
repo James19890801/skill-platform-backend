@@ -20,5 +20,5 @@ if __name__ == "__main__":
         "src.main:app",
         host=settings.agent_runtime_host,
         port=settings.agent_runtime_port,
-        reload=True,
+        reload=False,
     )
