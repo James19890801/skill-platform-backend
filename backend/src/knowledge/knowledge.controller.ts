@@ -39,10 +39,7 @@ export class KnowledgeController {
 
   @Put(':id')
   @ApiOperation({ summary: '更新知识库' })
-  async update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateKnowledgeBaseDto,
-  ) {
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateKnowledgeBaseDto) {
     return this.knowledgeService.update(id, dto, 1);
   }
 
@@ -50,5 +47,11 @@ export class KnowledgeController {
   @ApiOperation({ summary: '删除知识库' })
   async remove(@Param('id', ParseIntPipe) id: number) {
     return this.knowledgeService.remove(id, 1);
+  }
+
+  @Post('sync')
+  @ApiOperation({ summary: '同步百炼知识库' })
+  async sync(@Body() body: { apiKey: string; kbId: string }) {
+    return this.knowledgeService.sync(body.apiKey, body.kbId);
   }
 }
