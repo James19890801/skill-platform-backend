@@ -5,6 +5,7 @@ import { Type } from 'class-transformer';
 import { Response } from 'express';
 import { AiService, PlanSkillsInput, PlannedSkill, ProcessFileInfo } from './ai.service';
 import { SkillExecutorService } from './skill-executor.service';
+import { ToolBridgeService } from './tool-bridge.service';
 
 class ProcessFileDto {
   name: string;
@@ -88,12 +89,26 @@ export class AiController {
   constructor(
     private readonly aiService: AiService,
     private readonly skillExecutor: SkillExecutorService,
+    private readonly toolBridge: ToolBridgeService,
   ) {}
 
   @Get('health')
   @ApiOperation({ summary: 'AI 服务健康检查（用于前端预热）' })
   healthCheck() {
     return { status: 'ok', service: 'ai', timestamp: new Date().toISOString() };
+  }
+
+  @Get('agent-status')
+  @ApiOperation({ summary: 'Agent Runtime 连通性诊断' })
+  async agentStatus() {
+    const tools = await this.toolBridge.getTools();
+    const toolNames = tools.map(t => t.function.name);
+    return {
+      agentRuntimeUrl: process.env.AGENT_RUNTIME_URL || 'http://localhost:8001',
+      toolsCount: tools.length,
+      toolNames,
+      agentRuntimeConnected: tools.length > 4, // >4 说明成功连上了 Agent Runtime
+    };
   }
 
   @Post('plan-skills')
