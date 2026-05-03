@@ -68,7 +68,15 @@ export class ToolBridgeService {
   ]);
 
   constructor() {
-    this.agentRuntimeUrl = process.env.AGENT_RUNTIME_URL || 'http://localhost:8001';
+    // 优先使用环境变量，但如果指向非本地服务（如独立 agent-runtime 服务），
+    // 在组合部署场景下回退到 localhost:8001
+    const envUrl = process.env.AGENT_RUNTIME_URL?.trim();
+    if (envUrl && !envUrl.includes('agent-runtime') && !envUrl.includes('localhost')) {
+      this.agentRuntimeUrl = envUrl;
+    } else {
+      this.agentRuntimeUrl = 'http://localhost:8001';
+    }
+    this.logger.log(`Agent Runtime URL: ${this.agentRuntimeUrl}`);
     // 启动时延迟拉取工具列表
     setTimeout(() => this.fetchTools(), 2000);
   }
