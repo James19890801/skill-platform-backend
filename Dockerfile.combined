@@ -35,11 +35,12 @@ COPY agent-runtime/ .
 # 最终阶段
 FROM node:20-slim
 
-# 安装 Python 和 supervisor
+# 安装 Python、supervisor 和编译原生模块所需的构建工具
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     supervisor \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -48,8 +49,8 @@ WORKDIR /app
 COPY --from=backend-builder /app/backend/dist ./backend/dist
 COPY --from=backend-builder /app/backend/package*.json ./backend/
 
-# 安装后端生产依赖
-RUN cd backend && npm ci --only=production
+# 安装后端生产依赖（用 install 而非 ci，避免 lockfile 校验问题）
+RUN cd backend && npm install --only=production
 
 # 复制 Agent Runtime
 COPY --from=agent-runtime /app/agent-runtime ./agent-runtime
