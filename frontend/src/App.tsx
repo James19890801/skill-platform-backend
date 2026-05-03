@@ -12,6 +12,7 @@ import SkillEdit from './pages/skills/SkillEdit';
 import KnowledgeManager from './pages/knowledge/KnowledgeManager';
 import MemoryManager from './pages/memory/MemoryManager';
 import Settings from './pages/settings/Settings';
+import LoginPage from './pages/LoginPage';
 
 function App() {
   return (
@@ -43,6 +44,7 @@ function App() {
           <Route path="settings" element={<Settings />} />
         </Route>
         
+        <Route path="login" element={<LoginPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

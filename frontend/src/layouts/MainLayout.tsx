@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Typography, Breadcrumb, Button, Space, Drawer, Grid } from 'antd';
+import { Layout, Menu, Typography, Breadcrumb, Button, Space, Drawer, Grid, Dropdown, message } from 'antd';
 import {
   DashboardOutlined, RobotOutlined, PlusOutlined, MessageOutlined,
   ShopOutlined, DatabaseOutlined, CloudOutlined, SettingOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, LogoutOutlined, LoginOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useAuthStore } from '../stores/useAuthStore';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -23,8 +24,6 @@ const breadcrumbMap: Record<string, string> = {
   '/chat': '对话 Canvas', '/skills': 'Skill 市场', '/knowledge': '知识库', '/memory': '记忆管理', '/settings': '设置',
 };
 
-const defaultUser = { name: '访客', role: 'guest' };
-
 const MainLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -32,6 +31,24 @@ const MainLayout: React.FC = () => {
   const location = useLocation();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
+
+  const { user, isAuthenticated, logout } = useAuthStore();
+  const displayName = isAuthenticated() ? (user?.name || '用户') : '访客';
+
+  const handleLogout = () => {
+    logout();
+    message.success('已退出登录');
+    navigate('/dashboard');
+  };
+
+  const userMenuItems = [
+    {
+      key: 'logout',
+      icon: <LogoutOutlined />,
+      label: '退出登录',
+      onClick: handleLogout,
+    },
+  ];
 
   const flatMenuItems = menuConfig.flatMap((group) => group.items);
 
@@ -75,7 +92,19 @@ const MainLayout: React.FC = () => {
             <Button type="text" icon={<MenuFoldOutlined />} onClick={() => setMobileNavOpen(true)} style={{ fontSize: 18, color: '#333' }} />
             <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '1px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>E2E AI</span>
           </Space>
-          <Text style={{ fontSize: 13, color: '#94a3b8' }}>{defaultUser.name}</Text>
+          <Space size={4}>
+            {isAuthenticated() ? (
+              <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
+                <Button type="text" size="small" icon={<UserOutlined />} style={{ fontSize: 13, color: '#94a3b8' }}>
+                  {displayName}
+                </Button>
+              </Dropdown>
+            ) : (
+              <Button type="text" size="small" icon={<LoginOutlined />} style={{ fontSize: 13, color: '#94a3b8' }} onClick={() => navigate('/login')}>
+                访客
+              </Button>
+            )}
+          </Space>
         </Header>
         <Drawer title={<span style={{ fontWeight: 700, fontSize: 16, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>E2E AI</span>} placement="left" open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} width={280}>
           <Menu mode="inline" selectedKeys={[getSelectedKey()]} items={buildMenuItems()} onClick={handleMenuClick} style={{ borderRight: 'none', marginTop: 8 }} />
@@ -101,7 +130,17 @@ const MainLayout: React.FC = () => {
             <Button type="text" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} style={{ fontSize: 16 }} />
             <Breadcrumb items={getBreadcrumbItems()} />
           </Space>
-          <Text>{defaultUser.name}</Text>
+          {isAuthenticated() ? (
+            <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
+              <Button type="text" icon={<UserOutlined />} style={{ fontSize: 14, color: '#64748b' }}>
+                {displayName}
+              </Button>
+            </Dropdown>
+          ) : (
+            <Button type="text" icon={<LoginOutlined />} style={{ fontSize: 14, color: '#64748b' }} onClick={() => navigate('/login')}>
+              访客
+            </Button>
+          )}
         </Header>
         <Content style={{ margin: 16, padding: 20, background: '#f5f5f5', borderRadius: 12, minHeight: 'calc(100vh - 56px - 32px)' }}><Outlet /></Content>
       </Layout>
