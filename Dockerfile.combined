@@ -1,8 +1,10 @@
-# 组合部署：后端 + Agent Runtime
-FROM node:20-alpine AS backend-builder
+# 组合部署：后端 (Node.js) + Agent Runtime (Python)
+# 修复版：使用 node:20-slim 替代 Alpine，解决 better-sqlite3 编译问题
+
+FROM node:20-slim AS backend-builder
 
 # 安装编译依赖
-RUN apk add --no-cache python3 make g++
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/backend
 
@@ -10,7 +12,7 @@ WORKDIR /app/backend
 COPY backend/package*.json ./
 
 # 安装后端依赖
-RUN npm ci
+RUN npm install
 
 # 复制后端源代码
 COPY backend/ .
@@ -19,7 +21,7 @@ COPY backend/ .
 RUN npm run build
 
 # Python Agent Runtime 阶段
-FROM python:3.11-slim AS agent-runtime
+FROM python:3.11-slim AS agent-builder
 
 WORKDIR /app/agent-runtime
 
@@ -32,15 +34,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制 Agent Runtime 源代码
 COPY agent-runtime/ .
 
-# 最终阶段
+# 最终运行阶段
 FROM node:20-slim
 
-# 安装 Python、supervisor 和编译原生模块所需的构建工具
+# 安装 Python、supervisor
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     supervisor \
-    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -49,21 +50,21 @@ WORKDIR /app
 COPY --from=backend-builder /app/backend/dist ./backend/dist
 COPY --from=backend-builder /app/backend/package*.json ./backend/
 
-# 安装后端生产依赖（用 install 而非 ci，避免 lockfile 校验问题）
+# 安装后端生产依赖
 RUN cd backend && npm install --only=production
 
-# 复制 Agent Runtime
-COPY --from=agent-runtime /app/agent-runtime ./agent-runtime
+# 复制 Agent Runtime 代码
+COPY --from=agent-builder /app/agent-runtime ./agent-runtime
 
-# 复制 Python 依赖（从 agent-runtime 阶段）
-COPY --from=agent-runtime /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=agent-runtime /usr/local/bin /usr/local/bin
+# 复制 Python 依赖
+COPY --from=agent-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=agent-builder /usr/local/bin /usr/local/bin
 
 # 创建数据目录
 RUN mkdir -p /app/data
 
 # 配置 supervisor
-RUN echo '[supervisord]\nnodaemon=true\n\n[program:backend]\ncommand=node /app/backend/dist/main.js\ndirectory=/app/backend\nautostart=true\nautorestart=true\nstdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\nstderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0\n\n[program:agent-runtime]\ncommand=python3 -m uvicorn main:app --host 0.0.0.0 --port 8001 --app-dir /app/agent-runtime/src\ndirectory=/app/agent-runtime\nautostart=true\nautorestart=true\nstdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\nstderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0' > /etc/supervisor/conf.d/supervisord.conf
+RUN echo '[supervisord]\nnodaemon=true\n\n[program:backend]\ncommand=node /app/backend/dist/main.js\ndirectory=/app/backend\nautostart=true\nautorestart=true\nstdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\nstderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0\n\n[program:agent-runtime]\ncommand=python3 run.py\ndirectory=/app/agent-runtime\nautostart=true\nautorestart=true\nstdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\nstderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0\n' > /etc/supervisor/conf.d/supervisord.conf
 
 # 暴露端口
 EXPOSE 3000 8001
@@ -74,6 +75,7 @@ ENV PORT=3000
 ENV DATABASE_PATH=/app/data/database.sqlite
 ENV AGENT_RUNTIME_PORT=8001
 ENV AGENT_RUNTIME_HOST=0.0.0.0
+ENV AGENT_RUNTIME_URL=http://localhost:8001
 
 # 启动 supervisor
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
