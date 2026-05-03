@@ -35,24 +35,46 @@ export enum SkillPriority {
   OPTIONAL = 'optional',
 }
 
-// 命名空间域
+// 命名空间域 - 华为 L1 流程架构体系（16 业务域 + 其他）
 export enum SkillDomain {
-  LEGAL = 'legal',
-  FINANCE = 'finance',
-  PROCUREMENT = 'procurement',
-  HR = 'hr',
-  TECH = 'tech',
-  PLATFORM = 'platform',
+  MTL_MARKET = 'mtl_market',           // 市场管理
+  LTC_SALES = 'ltc_sales',             // 销售管理
+  ITR_SERVICE = 'itr_service',         // 客户服务
+  IPD_RD = 'ipd_rd',                   // 产品研发
+  SCM = 'scm',                         // 供应链
+  PROCUREMENT = 'procurement',         // 采购
+  MANUFACTURING = 'manufacturing',     // 制造
+  DELIVERY = 'delivery',               // 交付
+  FINANCE = 'finance',                 // 财务
+  HR = 'hr',                           // 人力资源
+  IT = 'it',                           // 信息技术
+  LEGAL = 'legal',                     // 法务合规
+  STRATEGY = 'strategy',               // 战略管理
+  QUALITY = 'quality',                 // 质量管理
+  RISK = 'risk',                       // 风险管理
+  ADMIN = 'admin',                     // 行政管理
+  OTHER = 'other',                     // 其他
 }
 
 // 子域映射
 export const SubDomainMap: Record<SkillDomain, string[]> = {
-  [SkillDomain.LEGAL]: ['contract', 'litigation', 'patent', 'compliance'],
-  [SkillDomain.FINANCE]: ['accounting', 'tax', 'budget', 'audit'],
+  [SkillDomain.MTL_MARKET]: ['brand', 'marketing', 'customer_insight', 'product_marketing'],
+  [SkillDomain.LTC_SALES]: ['lead', 'opportunity', 'contract', 'billing'],
+  [SkillDomain.ITR_SERVICE]: ['ticket', 'troubleshooting', 'rma', 'customer_feedback'],
+  [SkillDomain.IPD_RD]: ['planning', 'design', 'testing', 'release'],
+  [SkillDomain.SCM]: ['planning', 'sourcing', 'logistics', 'inventory'],
   [SkillDomain.PROCUREMENT]: ['sourcing', 'evaluation', 'contract', 'supplier'],
+  [SkillDomain.MANUFACTURING]: ['production', 'quality_control', 'maintenance', 'scheduling'],
+  [SkillDomain.DELIVERY]: ['project', 'installation', 'acceptance', 'handover'],
+  [SkillDomain.FINANCE]: ['accounting', 'tax', 'budget', 'audit'],
   [SkillDomain.HR]: ['recruitment', 'onboarding', 'performance', 'training'],
-  [SkillDomain.TECH]: ['development', 'testing', 'deployment', 'security'],
-  [SkillDomain.PLATFORM]: ['document', 'communication', 'data', 'integration'],
+  [SkillDomain.IT]: ['development', 'testing', 'deployment', 'security'],
+  [SkillDomain.LEGAL]: ['contract', 'litigation', 'patent', 'compliance'],
+  [SkillDomain.STRATEGY]: ['planning', 'investment', 'partnership', 'transformation'],
+  [SkillDomain.QUALITY]: ['inspection', 'audit', 'improvement', 'certification'],
+  [SkillDomain.RISK]: ['identification', 'assessment', 'mitigation', 'monitoring'],
+  [SkillDomain.ADMIN]: ['facility', 'travel', 'document', 'meeting'],
+  [SkillDomain.OTHER]: ['miscellaneous'],
 };
 
 // ============================================

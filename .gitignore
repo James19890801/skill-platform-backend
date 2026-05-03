@@ -26,3 +26,5 @@ build/
 
 # Local runtime files
 coverage/
+data/
+agent-runtime/src/data/sessions/

@@ -20,12 +20,14 @@ import { TenantModule } from './tenant/tenant.module';
 import { AgentsModule } from './agents/agents.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { MemoryModule } from './memory/memory.module';
+import { WorkspaceModule } from './workspace/workspace.module';
 import {
   Tenant,
   Organization,
   User,
   Skill,
   SkillVersion,
+  SkillExecution,
   JobModel,
   JobModelSkill,
   SkillReview,
@@ -82,6 +84,7 @@ if (!existsSync(databaseDir)) {
         Agent,
         KnowledgeBase,
         Memory,
+        SkillExecution,
       ],
     }),
     AuthModule,
@@ -100,6 +103,7 @@ if (!existsSync(databaseDir)) {
     AgentsModule,
     KnowledgeModule,
     MemoryModule,
+    WorkspaceModule,
   ],
   controllers: [AppController],
   providers: [],

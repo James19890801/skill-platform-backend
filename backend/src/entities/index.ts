@@ -4,6 +4,7 @@ export { Organization } from './organization.entity';
 export { User } from './user.entity';
 export { Skill } from './skill.entity';
 export { SkillVersion } from './skill-version.entity';
+export { SkillExecution } from './skill-execution.entity';
 export { JobModel } from './job-model.entity';
 export { JobModelSkill } from './job-model-skill.entity';
 export { SkillReview } from './skill-review.entity';

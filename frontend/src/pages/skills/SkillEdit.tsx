@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
   Card, Form, Input, Select, Button, Tabs, message, Spin, Row, Col,
-  Descriptions, Tag, InputNumber, Space, Typography, Empty,
+  Descriptions, Tag, InputNumber, Space, Typography, Empty, Upload,
 } from 'antd';
 import {
   SaveOutlined, ArrowLeftOutlined, RobotOutlined, CodeOutlined,
   ApiOutlined, SettingOutlined, FileTextOutlined, ProfileOutlined,
-  EditOutlined,
+  EditOutlined, UploadOutlined, DeleteOutlined, InboxOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { SkillStatus, SkillScope, SkillType, SkillDomain, DomainLabels } from '../../types';
@@ -71,6 +71,48 @@ const SkillEdit: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
   const [skill, setSkill] = useState<any>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; path: string; type: string; description: string; size: number }>>([]);
+  const [uploading, setUploading] = useState(false);
+
+  // 文件上传处理 — 读取为 Base64 并加入列表
+  const handleFileUpload = (file: File): false => {
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64 = (e.target?.result as string) || '';
+      let fileType = 'assets';
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      if (['py', 'sh', 'js', 'ts'].includes(ext)) fileType = 'scripts';
+      else if (['docx', 'xlsx', 'pptx', 'doc', 'xls'].includes(ext)) fileType = 'templates';
+      else if (['pdf', 'md', 'txt', 'json', 'yaml', 'yml'].includes(ext)) fileType = 'references';
+      setUploadedFiles(prev => [...prev, {
+        name: file.name,
+        path: `${fileType}/${file.name}`,
+        type: fileType,
+        description: base64,
+        size: file.size,
+      }]);
+      message.success(`已添加: ${file.name}`);
+      setUploading(false);
+    };
+    reader.onerror = () => { message.error('文件读取失败'); setUploading(false); };
+    reader.readAsDataURL(file);
+    return false;
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // 加载 skill 时同步已有 files
+  useEffect(() => {
+    if (skill?.files && Array.isArray(skill.files)) {
+      setUploadedFiles(skill.files.map((f: any) => ({
+        name: f.name || '', path: f.path || '', type: f.type || 'assets',
+        description: f.description || '', size: f.size || 0,
+      })));
+    }
+  }, [skill?.id]);
 
   const user = useAuthStore(state => state.user);
   const canEditExecution = user?.role === 'admin' || user?.role === 'manager';
@@ -117,7 +159,12 @@ const SkillEdit: React.FC = () => {
     try {
       const values = await form.validateFields();
       setSaving(true);
-      await skillsApi.update(Number(id), values);
+      // 将上传文件列表转为 JSON 字符串（后端期望）
+      const payload = { ...values };
+      if (uploadedFiles.length > 0) {
+        payload.files = JSON.stringify(uploadedFiles);
+      }
+      await skillsApi.update(Number(id), payload);
       message.success('Skill 已更新');
       navigate(`/skills/${id}`);
     } catch (error: any) {
@@ -377,27 +424,69 @@ const SkillEdit: React.FC = () => {
               • <strong>assets/</strong> — 图标、字体、图片等静态资源
             </Text>
           </div>
-          {(!skill.files || skill.files.length === 0) ? (
+
+          {/* 上传区域 */}
+          <div style={{ marginBottom: 16 }}>
+            <Upload.Dragger
+              multiple
+              beforeUpload={handleFileUpload}
+              showUploadList={false}
+              accept="*"
+              disabled={uploading}
+            >
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
+              <p className="ant-upload-hint">
+                支持单个或批量上传。文件将以 base64 编码存储在 Skill 中。
+              </p>
+            </Upload.Dragger>
+          </div>
+
+          {/* 已上传文件列表 */}
+          {uploadedFiles.length === 0 ? (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={
-                <span>
-                  暂无附件文件。"files"字段将在后端部署后启用。
-                </span>
-              }
+              description="暂无附件文件，请通过上方上传区域添加"
             />
           ) : (
-            <Table
-              dataSource={skill.files}
-              rowKey="path"
-              columns={[
-                { title: '文件名', dataIndex: 'name', key: 'name' },
-                { title: '路径', dataIndex: 'path', key: 'path' },
-                { title: '类型', dataIndex: 'type', key: 'type', render: (t: string) => <Tag>{t}</Tag> },
-                { title: '说明', dataIndex: 'description', key: 'description' },
-              ]}
-              pagination={false}
-            />
+            <div>
+              <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text strong>已添加 {uploadedFiles.length} 个文件</Text>
+              </div>
+              {uploadedFiles.map((file, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 12px',
+                    marginBottom: 4,
+                    background: '#fafafa',
+                    borderRadius: 6,
+                    border: '1px solid #f0f0f0',
+                  }}
+                >
+                  <Space size={8}>
+                    <FileTextOutlined style={{ color: '#6366f1' }} />
+                    <Text style={{ fontSize: 13 }}>{file.name}</Text>
+                    <Tag color="blue" style={{ fontSize: 11 }}>{file.type}/</Tag>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {(file.size / 1024).toFixed(1)} KB
+                    </Text>
+                  </Space>
+                  <Button
+                    type="text"
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() => handleRemoveFile(idx)}
+                  />
+                </div>
+              ))}
+            </div>
           )}
         </div>
       ),

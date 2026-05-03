@@ -43,6 +43,11 @@ import {
   ArrowLeftOutlined,
   PictureOutlined,
   PaperClipOutlined,
+  FolderOpenOutlined,
+  DownloadOutlined,
+  FolderOutlined,
+  FileOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
@@ -64,19 +69,56 @@ interface Message {
 
 interface Artifact {
   id: string;
-  type: 'code' | 'table' | 'document';
+  type: 'code' | 'table' | 'document' | 'html' | 'image' | 'json';
   title: string;
   content: string;
   language?: string;
   downloadUrl?: string;  // 文档下载链接
   filename?: string;      // 文档文件名
   token?: string;         // 文档预览/下载 token
+  src?: string;           // 图片/HTML 加载地址
+}
+
+// Skill 执行状态管理
+interface ExecutionLogEntry {
+  type: 'round_start' | 'tool_call' | 'tool_result' | 'artifact' | 'round_end' | 'error' | 'done';
+  data: {
+    round: number;
+    action: string;
+    toolName?: string;
+    status: 'pending' | 'success' | 'error';
+    durationMs?: number;
+    message: string;
+  };
+  artifacts?: Array<{ name: string; path: string; type: string; size: number }>;
+}
+
+interface ExecutionState {
+  skillName: string;
+  skillId: number;
+  logs: ExecutionLogEntry[];
+  artifacts: Array<{ name: string; path: string; type: string; size: number }>;
+  status: 'running' | 'completed' | 'failed';
+  startTime: number;
+  output?: string;
+  totalRounds?: number;
+  totalDurationMs?: number;
 }
 
 interface ConversationSummary {
   threadId: string;
   messageCount: number;
   firstMessage: string;
+}
+
+interface WorkspaceFile {
+  name: string;
+  path: string;
+  size: number;
+  type: 'file' | 'dir' | 'directory';
+  mimeType?: string;
+  modifiedAt: string;
+  children?: WorkspaceFile[];
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
@@ -104,8 +146,16 @@ const AgentChatCanvas: React.FC = () => {
   const [historyVisible, setHistoryVisible] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // Workspace 文件管理
+  const [workspaceVisible, setWorkspaceVisible] = useState(false);
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
+  const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+
   // 附件上传状态
   const [attachments, setAttachments] = useState<Array<{ name: string; type: string; dataUrl: string }>>([]);
+
+  // Skill 执行状态
+  const [executionState, setExecutionState] = useState<ExecutionState | null>(null);
 
   // Agent 名称
   const [agentName, setAgentName] = useState<string>('');
@@ -196,17 +246,100 @@ const AgentChatCanvas: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // ★ 解析产物：从 AI 内容中提取代码块、表格、文档下载链接
+  // ★ 解析产物：从 AI 内容中提取代码块、表格、文档下载链接、HTML、图片
   const parseArtifacts = useCallback((content: string): Artifact[] => {
     const artifacts: Artifact[] = [];
-
-    // 匹配代码块 ```lang\ncode\n```
-    const codeRegex = /```(\w*)\n?([\s\S]*?)```/g;
-    let match;
+    const seen = new Set<string>();
     let idx = 0;
+    let match: RegExpExecArray | null;
+
+    // 匹配文档下载链接: [filename.docx](url/download/token)
+    const docRegex = /\[([^\]]+\.(?:docx|xlsx|html|htm|pdf))\]\(([^)]*(?:download|api\/ai\/download)\/([^/\s)]+))\)/gi;
+    while ((match = docRegex.exec(content)) !== null) {
+      const key = `doc-${match[1]}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      artifacts.push({
+        id: `artifact-doc-${idx++}`,
+        type: 'document',
+        title: match[1],
+        content: '',
+        downloadUrl: match[2],
+        filename: match[1],
+        token: match[3],
+      });
+    }
+
+    // 匹配 HTML 代码块
+    const htmlCodeRegex = /```html\n?([\s\S]*?)```/g;
+    while ((match = htmlCodeRegex.exec(content)) !== null) {
+      const html = match[1].trim();
+      if (html.length < 50 || seen.has(`html-${html.slice(0, 40)}`)) continue;
+      seen.add(`html-${html.slice(0, 40)}`);
+      artifacts.push({
+        id: `artifact-html-${idx++}`,
+        type: 'html',
+        title: 'HTML 产物',
+        content: html,
+      });
+    }
+
+    // 匹配完整的 HTML 文档（非代码块内）
+    const fullHtmlRegex = /(?:^|\n)((?:<!DOCTYPE html>|<html)[\s\S]*?<\/html>)/i;
+    while ((match = fullHtmlRegex.exec(content)) !== null) {
+      const html = match[1].trim();
+      if (html.length < 100 || seen.has(`doc-${html.slice(0, 40)}`)) continue;
+      seen.add(`doc-${html.slice(0, 40)}`);
+      artifacts.push({
+        id: `artifact-doc-${idx++}`,
+        type: 'html',
+        title: 'HTML 文档',
+        content: html,
+      });
+    }
+
+    // 匹配 JSON 代码块
+    const jsonCodeRegex = /```json\n?([\s\S]*?)```/g;
+    while ((match = jsonCodeRegex.exec(content)) !== null) {
+      const json = match[1].trim();
+      if (json.length < 50 || seen.has(`json-${json.slice(0, 40)}`)) continue;
+      seen.add(`json-${json.slice(0, 40)}`);
+      try {
+        JSON.parse(json); // 验证是合法 JSON
+        artifacts.push({
+          id: `artifact-json-${idx++}`,
+          type: 'json',
+          title: 'JSON 数据',
+          content: json,
+        });
+      } catch { /* ignore invalid JSON */ }
+    }
+
+    // 匹配图片引用: ![alt](url) 且 url 以图片扩展名结尾
+    const imgRegex = /!\[([^\]]*)\]\(([^)]+\.(?:png|jpg|jpeg|gif|svg|webp)(?:\?[^)]*)?)\)/gi;
+    while ((match = imgRegex.exec(content)) !== null) {
+      if (seen.has(`img-${match[2]}`)) continue;
+      seen.add(`img-${match[2]}`);
+      artifacts.push({
+        id: `artifact-img-${idx++}`,
+        type: 'image',
+        title: match[1] || '图片',
+        content: '',
+        src: match[2],
+        filename: match[2].split('/').pop(),
+      });
+    }
+
+    // 匹配代码块 ```lang\ncode\n```（排除已匹配的 html/json）
+    const codeRegex = /```(\w*)\n?([\s\S]*?)```/g;
     while ((match = codeRegex.exec(content)) !== null) {
       const lang = match[1] || 'text';
       const code = match[2].trim();
+      if (['html', 'json'].includes(lang)) continue; // 已处理
+      if (code.length < 20) continue;
+      const key = `code-${lang}-${code.slice(0, 40)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       artifacts.push({
         id: `artifact-code-${idx++}`,
         type: 'code',
@@ -219,31 +352,15 @@ const AgentChatCanvas: React.FC = () => {
     // 匹配表格 | col1 | col2 |
     const tablePattern = '\\|[^\\n]+\\|\\n\\|[-:\\s|]+\\|\\n(?:\\|[^\\n]+\\|\\n?)+';
     const tableRegex = new RegExp(tablePattern, 'g');
-    idx = 0;
     while ((match = tableRegex.exec(content)) !== null) {
+      const key = `table-${match[0].slice(0, 40)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       artifacts.push({
         id: `artifact-table-${idx++}`,
         type: 'table',
         title: `表格产物`,
         content: match[0],
-      });
-    }
-
-    // ★ 匹配文档下载链接: [filename.docx](url/download/token)
-    const docRegex = /\[([^\]]+\.(?:docx|xlsx))\]\(([^)]*(?:download|api\/ai\/download)\/([^/\s)]+))\)/gi;
-    idx = 0;
-    while ((match = docRegex.exec(content)) !== null) {
-      const filename = match[1];
-      const downloadUrl = match[2];
-      const token = match[3];
-      artifacts.push({
-        id: `artifact-doc-${idx++}`,
-        type: 'document',
-        title: filename,
-        content: '',
-        downloadUrl,
-        filename,
-        token,
       });
     }
 
@@ -271,13 +388,100 @@ const AgentChatCanvas: React.FC = () => {
       .trim();
   };
 
-  // ★ 渲染消息内容（基于 react-markdown，支持表格、Mermaid、代码块）
-  const renderMessageContent = (content: string, artifacts?: Artifact[]) => {
+  // ★ 渲染消息内容（基于 react-markdown，支持表格、Mermaid、代码块、HTML/图片/JSON 内联预览）
+  const renderMessageContent = (content: string, artifacts?: Artifact[], execution?: ExecutionState | null) => {
     const artifactElements: JSX.Element[] = [];
   
     if (artifacts && artifacts.length > 0) {
       artifacts.forEach((artifact) => {
         if (artifact.type === 'table') return;
+
+        // ★ HTML 类型：内联 iframe 预览
+        if (artifact.type === 'html') {
+          artifactElements.push(
+            <div key={artifact.id} style={{ marginTop: 10, border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{
+                padding: '4px 10px', background: '#f8f9fb', borderBottom: '1px solid #e8e8e8',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12,
+              }}>
+                <span style={{ fontWeight: 500, color: '#6366f1' }}>🌐 HTML 预览</span>
+                <Button size="small" type="link" onClick={() => openCanvas(artifact)} style={{ fontSize: 11, padding: 0 }}>
+                  在 Canvas 中打开
+                </Button>
+              </div>
+              <iframe
+                srcDoc={artifact.content}
+                style={{ width: '100%', height: 300, border: 'none' }}
+                title={artifact.title}
+                sandbox="allow-same-origin allow-scripts"
+              />
+            </div>
+          );
+          return;
+        }
+
+        // ★ 图片类型：内联图片预览
+        if (artifact.type === 'image') {
+          const imgSrc = artifact.src || artifact.content;
+          artifactElements.push(
+            <div key={artifact.id} style={{ marginTop: 10 }}>
+              <div style={{
+                padding: '4px 0', fontSize: 12, color: '#666', fontWeight: 500,
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <PictureOutlined style={{ color: '#6366f1' }} />
+                <span>{artifact.filename || artifact.title}</span>
+                <Button size="small" type="link" onClick={() => openCanvas(artifact)} style={{ fontSize: 11, padding: 0 }}>
+                  查看原图
+                </Button>
+              </div>
+              <img
+                src={imgSrc}
+                alt={artifact.title}
+                style={{ maxWidth: '100%', maxHeight: 400, borderRadius: 8, border: '1px solid #e8e8e8', cursor: 'pointer' }}
+                onClick={() => openCanvas(artifact)}
+                loading="lazy"
+              />
+            </div>
+          );
+          return;
+        }
+
+        // ★ JSON 类型：格式化显示
+        if (artifact.type === 'json') {
+          let formatted = '';
+          try {
+            formatted = JSON.stringify(JSON.parse(artifact.content), null, 2);
+          } catch {
+            formatted = artifact.content;
+          }
+          artifactElements.push(
+            <div key={artifact.id} style={{ marginTop: 10, borderRadius: 8, overflow: 'hidden', border: '1px solid #e8e8e8' }}>
+              <div style={{
+                padding: '4px 10px', background: '#f8f9fb', borderBottom: '1px solid #e8e8e8',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12,
+              }}>
+                <span style={{ fontWeight: 500, color: '#6366f1' }}>📋 JSON 数据</span>
+                <Space size={4}>
+                  <Button size="small" type="link" onClick={() => openCanvas(artifact)} style={{ fontSize: 11, padding: 0 }}>
+                    展开
+                  </Button>
+                  <Button
+                    size="small" type="link"
+                    onClick={() => { navigator.clipboard.writeText(artifact.content); }}
+                    style={{ fontSize: 11, padding: 0 }}
+                  >
+                    复制
+                  </Button>
+                </Space>
+              </div>
+              <pre style={{ margin: 0, padding: 10, background: '#1e1e1e', color: '#d4d4d4', fontSize: 11, maxHeight: 200, overflow: 'auto', lineHeight: 1.5 }}>
+                <code>{formatted}</code>
+              </pre>
+            </div>
+          );
+          return;
+        }
 
         // ★ 文档类型：独立渲染卡片
         if (artifact.type === 'document') {
@@ -492,6 +696,148 @@ const AgentChatCanvas: React.FC = () => {
       <div>
         {renderContent}
         {artifactElements}
+        {execution && renderExecutionBox(execution)}
+      </div>
+    );
+  };
+
+  /**
+   * 渲染 Skill 执行进度 Box（固定高度、可滚动）
+   */
+  const renderExecutionBox = (exec: ExecutionState): JSX.Element => {
+    const isRunning = exec.status === 'running';
+    const totalMs = exec.totalDurationMs || (Date.now() - exec.startTime);
+    
+    // 状态颜色
+    const statusColor = isRunning ? '#6366f1' : exec.status === 'completed' ? '#10b981' : '#ef4444';
+    const statusBg = isRunning ? '#eef2ff' : exec.status === 'completed' ? '#ecfdf5' : '#fef2f2';
+    const statusText = isRunning ? '执行中...' : exec.status === 'completed' ? '执行完成' : '执行失败';
+
+    // 工具调用统计
+    const totalCalls = exec.logs.filter(l => l.type === 'tool_call').length;
+    const successCalls = exec.logs.filter(l => l.type === 'tool_result' && l.data.status === 'success').length;
+    const errorCalls = exec.logs.filter(l => l.type === 'tool_result' && l.data.status === 'error').length;
+
+    return (
+      <div style={{
+        marginTop: 12,
+        border: `1px solid ${isRunning ? '#c7d2fe' : '#d1d5db'}`,
+        borderRadius: 10,
+        overflow: 'hidden',
+        background: '#fff',
+      }}>
+        {/* 头部 */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '8px 12px',
+          background: statusBg,
+          borderBottom: `1px solid ${isRunning ? '#c7d2fe' : '#e5e7eb'}`,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: statusColor,
+              display: 'inline-block',
+              animation: isRunning ? 'blink-cursor 1s ease-in-out infinite' : 'none',
+            }} />
+            <Text strong style={{ fontSize: 13 }}>{exec.skillName}</Text>
+            <Tag color={isRunning ? 'processing' : exec.status === 'completed' ? 'success' : 'error'} style={{ fontSize: 11, margin: 0 }}>
+              {statusText}
+            </Tag>
+          </div>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            {exec.logs.length} 步 · {(totalMs / 1000).toFixed(1)}s
+          </Text>
+        </div>
+
+        {/* 日志列表 — 固定高度可滚动 */}
+        <div style={{
+          maxHeight: 280,
+          overflow: 'auto',
+          padding: '4px 0',
+        }}>
+          {exec.logs.length === 0 ? (
+            <div style={{ padding: '20px 16px', textAlign: 'center' }}>
+              <Spin size="small" />
+              <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>正在初始化...</Text>
+            </div>
+          ) : (
+            exec.logs.map((log, i) => {
+              const d = log.data;
+              const isError = d.status === 'error';
+              const isPending = d.status === 'pending';
+              
+              // 图标
+              let icon = '🔄';
+              if (log.type === 'tool_call') icon = '⚡';
+              else if (log.type === 'tool_result') icon = isError ? '❌' : '✅';
+              else if (log.type === 'round_start') icon = '📋';
+              else if (log.type === 'round_end') icon = '📦';
+              else if (log.type === 'artifact') icon = '📄';
+              else if (log.type === 'error') icon = '🚨';
+              else if (log.type === 'done') icon = '🎉';
+
+              return (
+                <div key={i} style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 8,
+                  padding: '5px 12px',
+                  borderLeft: `3px solid ${isError ? '#ef4444' : isPending ? '#6366f1' : 'transparent'}`,
+                  background: isError ? '#fef2f2' : isPending ? '#f8f9fb' : 'transparent',
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                }}>
+                  <span style={{ flexShrink: 0, fontSize: 13 }}>{icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{
+                        fontSize: 12,
+                        color: isError ? '#dc2626' : isPending ? '#6366f1' : '#374151',
+                        fontWeight: isPending ? 500 : 400,
+                      }}>
+                        {d.message}
+                      </Text>
+                      {d.durationMs && (
+                        <Text type="secondary" style={{ fontSize: 10, flexShrink: 0, marginLeft: 8 }}>
+                          {d.durationMs}ms
+                        </Text>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+          {isRunning && (
+            <div style={{ padding: '6px 12px', textAlign: 'center' }}>
+              <Spin size="small" />
+              <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>AI 正在决策下一步...</Text>
+            </div>
+          )}
+        </div>
+
+        {/* 底部：产物统计 */}
+        {exec.artifacts.length > 0 && (
+          <div style={{
+            padding: '8px 12px',
+            borderTop: '1px solid #f0f0f0',
+            background: '#fafafa',
+          }}>
+            <Text style={{ fontSize: 11, fontWeight: 600, color: '#6366f1' }}>
+              📦 交付物 ({exec.artifacts.length})
+            </Text>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+              {exec.artifacts.map((a, i) => (
+                <Tag key={i} color="blue" style={{ fontSize: 10, margin: 0 }}>
+                  {a.name}
+                </Tag>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -563,6 +909,7 @@ const AgentChatCanvas: React.FC = () => {
     setAttachments([]);
     setInputValue('');
     setIsLoading(true);
+    setExecutionState(null);
 
     // ★ 乐观渲染：立即显示占位消息，不等后端返回
     const placeholderId = `msg-assistant-opt-${Date.now()}`;
@@ -610,6 +957,58 @@ const AgentChatCanvas: React.FC = () => {
 
               try {
                 const data = JSON.parse(dataStr);
+
+                // ★ 处理 Skill 执行事件
+                if (data.type === 'execution_start') {
+                  setExecutionState({
+                    skillName: data.data.skillName,
+                    skillId: data.data.skillId,
+                    logs: [],
+                    artifacts: [],
+                    status: 'running',
+                    startTime: Date.now(),
+                  });
+                  // 在对话中插入一个标记
+                  assistantContent += `\n\n> **Skill 执行中**: ${data.data.skillName}\n`;
+                  continue;
+                }
+
+                if (data.type === 'execution_progress' && data.data) {
+                  const progress = data.data;
+                  setExecutionState((prev) => {
+                    if (!prev) return null;
+                    const newLogs = [...prev.logs, {
+                      type: progress.type,
+                      data: progress.data,
+                      artifacts: progress.artifacts,
+                    }];
+                    return {
+                      ...prev,
+                      logs: newLogs,
+                      artifacts: progress.artifacts || prev.artifacts,
+                    };
+                  });
+                  continue;
+                }
+
+                if (data.type === 'execution_done' && data.data) {
+                  const doneData = data.data;
+                  setExecutionState((prev) => {
+                    if (!prev) return null;
+                    return {
+                      ...prev,
+                      status: 'completed',
+                      artifacts: doneData.artifacts || prev.artifacts,
+                      totalRounds: doneData.totalRounds,
+                      totalDurationMs: doneData.totalDurationMs,
+                      output: doneData.output,
+                    };
+                  });
+                  // 在对话中追加完成信息
+                  assistantContent += `\n✅ **${doneData.skillName}** 执行完成！共 ${doneData.totalRounds} 轮，耗时 ${(doneData.totalDurationMs / 1000).toFixed(1)} 秒，产出 ${doneData.artifacts?.length || 0} 个交付物。`;
+                  continue;
+                }
+
                 if (data.type === 'content' && data.content) {
                   assistantContent += data.content;
 
@@ -672,6 +1071,7 @@ const AgentChatCanvas: React.FC = () => {
     setCanvasOpen(false);
     setCurrentArtifact(null);
     setLeftWidth(100);
+    setExecutionState(null);
   };
 
   // ★ 导出整个对话为 Word
@@ -829,6 +1229,197 @@ const AgentChatCanvas: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // ============ Workspace 文件管理 ============
+
+  const loadWorkspaceFiles = useCallback(async () => {
+    if (!currentThreadId) return;
+    setLoadingWorkspace(true);
+    try {
+      const resp = await fetch(`${API_BASE}/workspace/${encodeURIComponent(currentThreadId)}/tree`);
+      if (resp.ok) {
+        const data = await resp.json();
+        // 兼容全局拦截器双层包装 {success,data:{success,data:{tree}}} 和单层 {success,data:{tree}}
+        const tree = data?.data?.data?.tree || data?.data?.tree || data?.tree || [];
+        setWorkspaceFiles(tree);
+      }
+    } catch {
+      message.error('加载工作区文件失败');
+    } finally {
+      setLoadingWorkspace(false);
+    }
+  }, [currentThreadId]);
+
+  // 打开 workspace 面板时自动加载
+  useEffect(() => {
+    if (workspaceVisible) {
+      loadWorkspaceFiles();
+    }
+  }, [workspaceVisible, loadWorkspaceFiles]);
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleWorkspaceFileClick = async (file: WorkspaceFile) => {
+    if (file.type === 'directory' || file.type === 'dir') return;
+    const downloadUrl = `${API_BASE}/workspace/${encodeURIComponent(currentThreadId)}/files?download=${encodeURIComponent(file.path)}`;
+
+    // HTML 文件：直接内联预览
+    if (file.mimeType === 'text/html' || file.name.endsWith('.html') || file.name.endsWith('.htm')) {
+      try {
+        const resp = await fetch(downloadUrl);
+        const html = await resp.text();
+        openCanvas({
+          id: `workspace-html-${Date.now()}`,
+          type: 'html',
+          title: file.name,
+          content: html,
+          filename: file.name,
+        });
+      } catch {
+        window.open(downloadUrl, '_blank');
+      }
+      return;
+    }
+
+    // 图片文件：Canvas 预览
+    if (file.mimeType?.startsWith('image/')) {
+      openCanvas({
+        id: `workspace-img-${Date.now()}`,
+        type: 'image',
+        title: file.name,
+        content: '',
+        src: downloadUrl,
+        filename: file.name,
+        downloadUrl,
+      });
+      return;
+    }
+
+    // JSON 文件
+    if (file.mimeType === 'application/json' || file.name.endsWith('.json')) {
+      try {
+        const resp = await fetch(downloadUrl);
+        const text = await resp.text();
+        openCanvas({
+          id: `workspace-json-${Date.now()}`,
+          type: 'json',
+          title: file.name,
+          content: text,
+          filename: file.name,
+        });
+      } catch {
+        window.open(downloadUrl, '_blank');
+      }
+      return;
+    }
+
+    const previewTypes = ['text/plain', 'text/markdown', 'text/csv',
+      'application/json', 'image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp'];
+    const canPreview = file.mimeType && previewTypes.includes(file.mimeType);
+
+    if (canPreview) {
+      window.open(downloadUrl, '_blank');
+    } else {
+      window.open(downloadUrl, '_blank');
+    }
+  };
+
+  const handleDeleteWorkspaceFile = async (file: WorkspaceFile, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const resp = await fetch(
+        `${API_BASE}/workspace/${encodeURIComponent(currentThreadId)}/files?delete=${encodeURIComponent(file.path)}`,
+        { method: 'DELETE' },
+      );
+      if (resp.ok) {
+        message.success(`已删除: ${file.name}`);
+        loadWorkspaceFiles();
+      } else {
+        message.error('删除失败');
+      }
+    } catch {
+      message.error('删除失败');
+    }
+  };
+
+  const renderFileTree = (files: WorkspaceFile[], depth: number = 0): JSX.Element[] => {
+    return files.map((file) => {
+      const isDir = file.type === 'directory' || file.type === 'dir';
+      const icon = isDir ? (
+        <FolderOutlined style={{ color: '#faad14', fontSize: 15 }} />
+      ) : (
+        <FileOutlined style={{ color: '#6366f1', fontSize: 15 }} />
+      );
+
+      return (
+        <div key={file.path}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '6px 8px',
+              paddingLeft: 16 + depth * 20,
+              borderRadius: 6,
+              cursor: isDir ? 'default' : 'pointer',
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f5'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            onClick={() => handleWorkspaceFileClick(file)}
+          >
+            <Space size={8} style={{ flex: 1, minWidth: 0 }}>
+              {icon}
+              <Text
+                style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={file.name}
+              >
+                {file.name}
+              </Text>
+              {!isDir && (
+                <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
+                  {formatFileSize(file.size)}
+                </Text>
+              )}
+            </Space>
+            {!isDir && (
+              <Space size={2}>
+                <Tooltip title="下载">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<DownloadOutlined />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleWorkspaceFileClick(file);
+                    }}
+                    style={{ fontSize: 12, color: '#999' }}
+                  />
+                </Tooltip>
+                <Tooltip title="删除">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    onClick={(e) => handleDeleteWorkspaceFile(file, e)}
+                    style={{ fontSize: 12, color: '#999' }}
+                    danger
+                  />
+                </Tooltip>
+              </Space>
+            )}
+          </div>
+          {isDir && file.children && file.children.length > 0 && (
+            <div>{renderFileTree(file.children, depth + 1)}</div>
+          )}
+        </div>
+      );
+    });
+  };
+
   // ★ 文档预览状态
   const [docPreviewHtml, setDocPreviewHtml] = useState<string>('');
   const [docPreviewLoading, setDocPreviewLoading] = useState(false);
@@ -862,7 +1453,56 @@ const AgentChatCanvas: React.FC = () => {
       );
     }
 
-    const { content, type, language } = currentArtifact;
+    const { content, type, language, src, filename } = currentArtifact;
+
+    // ★ HTML 预览：内嵌完整 iframe
+    if (type === 'html') {
+      return (
+        <iframe
+          srcDoc={content}
+          style={{ width: '100%', height: '100%', border: 'none', borderRadius: 8 }}
+          title="HTML 预览"
+          sandbox="allow-same-origin allow-scripts"
+        />
+      );
+    }
+
+    // ★ 图片预览
+    if (type === 'image') {
+      const imgSrc = src || content;
+      return (
+        <div style={{ textAlign: 'center', padding: 20 }}>
+          <img
+            src={imgSrc}
+            alt={filename || '图片'}
+            style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 200px)', borderRadius: 8, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}
+          />
+          <div style={{ marginTop: 8 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>{filename}</Text>
+          </div>
+        </div>
+      );
+    }
+
+    // ★ JSON 预览：格式化展示
+    if (type === 'json') {
+      let formatted = '';
+      try {
+        formatted = JSON.stringify(JSON.parse(content), null, 2);
+      } catch {
+        formatted = content;
+      }
+      return (
+        <div>
+          <div style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0', marginBottom: 12 }}>
+            <Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace' }}>JSON · {formatted.split('\n').length} 行</Text>
+          </div>
+          <pre style={{ margin: 0, padding: 16, background: '#1e1e1e', color: '#d4d4d4', borderRadius: 8, overflow: 'auto', fontSize: 13, lineHeight: 1.6, maxHeight: 'calc(100vh - 250px)' }}>
+            <code>{formatted}</code>
+          </pre>
+        </div>
+      );
+    }
 
     // ★ 文档预览：内嵌 iframe 展示 HTML（由后端 mammoth 转换）
     if (type === 'document') {
@@ -1022,6 +1662,14 @@ const AgentChatCanvas: React.FC = () => {
               >
                 新建
               </Button>
+              <Tooltip title="工作区文件">
+                <Button
+                  icon={<FolderOpenOutlined />}
+                  size="small"
+                  type="text"
+                  onClick={() => setWorkspaceVisible(true)}
+                />
+              </Tooltip>
             </>
           ) : (
             <>
@@ -1049,6 +1697,14 @@ const AgentChatCanvas: React.FC = () => {
               >
                 新建
               </Button>
+              <Tooltip title="工作区文件">
+                <Button
+                  icon={<FolderOpenOutlined />}
+                  size="small"
+                  type="text"
+                  onClick={() => setWorkspaceVisible(true)}
+                />
+              </Tooltip>
             </>
           )}
         </Space>
@@ -1140,7 +1796,7 @@ const AgentChatCanvas: React.FC = () => {
                       {msg.content === '▍' ? (
                         <span className="placeholder-cursor">▍ 正在生成...</span>
                       ) : (
-                        renderMessageContent(msg.content, msg.artifacts)
+                        renderMessageContent(msg.content, msg.artifacts, isLastAssistant ? executionState : null)
                       )}
                       
                       {/* 助手回复的 hover 操作按钮 */}
@@ -1347,7 +2003,7 @@ const AgentChatCanvas: React.FC = () => {
                 )}
               </Space>
               <Space>
-                {currentArtifact?.type !== 'document' && (
+                {currentArtifact?.type !== 'document' && currentArtifact?.type !== 'html' && currentArtifact?.type !== 'image' && currentArtifact?.type !== 'json' && (
                   <>
                     <Button
                       size="small"
@@ -1367,7 +2023,7 @@ const AgentChatCanvas: React.FC = () => {
                     </Button>
                   </>
                 )}
-                {currentArtifact && currentArtifact.type !== 'document' && (
+                {currentArtifact && currentArtifact.type !== 'document' && currentArtifact.type !== 'image' && currentArtifact.type !== 'html' && (
                   <Button
                     size="small"
                     icon={<CopyOutlined />}
@@ -1378,16 +2034,27 @@ const AgentChatCanvas: React.FC = () => {
                     复制
                   </Button>
                 )}
-                {currentArtifact?.type === 'document' && currentArtifact.downloadUrl && (
+                {(currentArtifact?.type === 'document' || currentArtifact?.type === 'image') && currentArtifact.downloadUrl && (
                   <Button
                     size="small"
                     type="primary"
-                    icon={<FileTextOutlined />}
+                    icon={currentArtifact.type === 'image' ? <PictureOutlined /> : <FileTextOutlined />}
                     onClick={() => {
                       window.open(currentArtifact.downloadUrl, '_blank');
                     }}
                   >
-                    下载文件
+                    下载
+                  </Button>
+                )}
+                {currentArtifact?.type === 'html' && (
+                  <Button
+                    size="small"
+                    icon={<CopyOutlined />}
+                    onClick={() => {
+                      navigator.clipboard.writeText(currentArtifact.content);
+                    }}
+                  >
+                    复制源码
                   </Button>
                 )}
                 <Button size="small" icon={<CloseOutlined />} onClick={closeCanvas} />
@@ -1447,6 +2114,57 @@ const AgentChatCanvas: React.FC = () => {
           )}
           locale={{ emptyText: '暂无历史对话' }}
         />
+      </Drawer>
+
+      {/* Workspace 工作区抽屉 */}
+      <Drawer
+        title={
+          <Space>
+            <FolderOpenOutlined style={{ color: '#6366f1' }} />
+            <span>工作区文件</span>
+            <Text type="secondary" style={{ fontSize: 11, fontWeight: 'normal' }}>
+              #{currentThreadId.slice(-6)}
+            </Text>
+          </Space>
+        }
+        placement="right"
+        open={workspaceVisible}
+        onClose={() => setWorkspaceVisible(false)}
+        width={isMobile ? '100%' : 380}
+        styles={{ body: { padding: isMobile ? 8 : 12 } }}
+        extra={
+          <Button
+            icon={<ReloadOutlined />}
+            size="small"
+            onClick={loadWorkspaceFiles}
+            loading={loadingWorkspace}
+          >
+            刷新
+          </Button>
+        }
+      >
+        {loadingWorkspace ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <Spin size="default" />
+            <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>加载中...</Text>
+          </div>
+        ) : workspaceFiles.length === 0 ? (
+          <Empty
+            description={
+              <span>
+                暂无文件<br />
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  AI 生成的文档和报告将自动保存到这里
+                </Text>
+              </span>
+            }
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          />
+        ) : (
+          <div style={{ maxHeight: 'calc(100vh - 180px)', overflow: 'auto' }}>
+            {renderFileTree(workspaceFiles)}
+          </div>
+        )}
       </Drawer>
     </div>
   );

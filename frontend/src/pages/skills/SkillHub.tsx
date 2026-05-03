@@ -46,12 +46,23 @@ interface SkillItem {
 }
 
 const domainLabelMap: Record<string, string> = {
-  legal: '法务',
-  finance: '财务',
+  mtl_market: '市场管理',
+  ltc_sales: '销售管理',
+  itr_service: '客户服务',
+  ipd_rd: '产品研发',
+  scm: '供应链',
   procurement: '采购',
+  manufacturing: '制造',
+  delivery: '交付',
+  finance: '财务',
   hr: '人力资源',
-  tech: '技术',
-  platform: '平台',
+  it: '信息技术',
+  legal: '法务合规',
+  strategy: '战略管理',
+  quality: '质量管理',
+  risk: '风险管理',
+  admin: '行政管理',
+  other: '其他',
 };
 
 const statusLabelMap: Record<string, { label: string; color: string }> = {
@@ -194,12 +205,23 @@ const SkillHub: React.FC = () => {
             onChange={setSelectedDomain}
             options={[
               { value: 'all', label: '全部领域' },
-              { value: 'legal', label: '法务' },
-              { value: 'finance', label: '财务' },
+              { value: 'mtl_market', label: '市场管理' },
+              { value: 'ltc_sales', label: '销售管理' },
+              { value: 'itr_service', label: '客户服务' },
+              { value: 'ipd_rd', label: '产品研发' },
+              { value: 'scm', label: '供应链' },
               { value: 'procurement', label: '采购' },
+              { value: 'manufacturing', label: '制造' },
+              { value: 'delivery', label: '交付' },
+              { value: 'finance', label: '财务' },
               { value: 'hr', label: '人力资源' },
-              { value: 'tech', label: '技术' },
-              { value: 'platform', label: '平台' },
+              { value: 'it', label: '信息技术' },
+              { value: 'legal', label: '法务合规' },
+              { value: 'strategy', label: '战略管理' },
+              { value: 'quality', label: '质量管理' },
+              { value: 'risk', label: '风险管理' },
+              { value: 'admin', label: '行政管理' },
+              { value: 'other', label: '其他' },
             ]}
             style={{ width: 150 }}
           />

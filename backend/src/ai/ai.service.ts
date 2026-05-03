@@ -6,6 +6,8 @@ import { Agent } from '../entities/agent.entity';
 import { Skill } from '../entities/skill.entity';
 import { ExecutionService } from './execution.service';
 import { ToolBridgeService } from './tool-bridge.service';
+import { SkillExecutorService } from './skill-executor.service';
+import { WorkspaceService } from '../workspace/workspace.service';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -178,6 +180,8 @@ export class AiService {
     private skillRepository: Repository<Skill>,
     private executionService: ExecutionService,
     private toolBridge: ToolBridgeService,
+    private skillExecutor: SkillExecutorService,
+    private workspaceService: WorkspaceService,
   ) {
     this.client = new OpenAI({
       apiKey: process.env.QWEN_API_KEY || 'sk-35e6ff25e8a149d79b54d2656c107e98',
@@ -322,6 +326,52 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     }
 
     return normalized;
+  }
+
+  /**
+   * 获取已发布 Skills 作为 AI 可调用的工具定义
+   * 使用一个通用工具 `execute_skill`，AI 通过参数指定要执行的 Skill
+   */
+  private async getSkillTool(): Promise<any | null> {
+    try {
+      const skills = await this.skillRepository.find({
+        where: { status: 'published' },
+        select: ['id', 'namespace', 'name', 'description', 'domain', 'subDomain', 'abilityName'],
+        take: 50,
+      });
+
+      if (skills.length === 0) return null;
+
+      // 生成 Skill 列表描述
+      const skillListStr = skills.map(s =>
+        `- ${s.name} (${s.namespace}): ${s.description || '无描述'} — 领域: ${s.domain}/${s.subDomain}`
+      ).join('\n');
+
+      return {
+        type: 'function',
+        function: {
+          name: 'execute_skill',
+          description: `执行一个已发布的 AI Skill。可用的 Skills 列表：\n${skillListStr}\n\n根据用户的需求选择合适的 Skill 来执行。Skill 会自动完成多步骤操作并生成交付物。`,
+          parameters: {
+            type: 'object',
+            properties: {
+              skillName: {
+                type: 'string',
+                description: '要执行的 Skill 名称，从可用列表中选择',
+              },
+              input: {
+                type: 'string',
+                description: '本次执行的具体任务描述，尽可能详细',
+              },
+            },
+            required: ['skillName', 'input'],
+          },
+        },
+      };
+    } catch (err) {
+      this.logger.warn(`获取 Skill 工具列表失败: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
   }
 
   /**
@@ -483,24 +533,29 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       }
     }
 
+    // 先构建 tools 列表（平台工具 + Skill 工具）
+    const platformTools = await this.toolBridge.getTools();
+    const skillTool = await this.getSkillTool();
+    const allTools = skillTool ? [...platformTools, skillTool] : platformTools;
+    
     if (!onChunk) {
       // 非流式模式：直接一次调用，最快速度
       const completion = await this.client.chat.completions.create({
         model: modelName,
         messages,
-        tools: await this.toolBridge.getTools(),
+        tools: allTools,
         tool_choice: 'auto',
         temperature: 0.7,
         max_tokens: 4096,
       } as any);
-
+    
       const msg = completion.choices[0]?.message;
       if (msg?.tool_calls && msg.tool_calls.length > 0) {
         messages.push(msg as any);
         for (const tc of msg.tool_calls) {
           try {
             const args = JSON.parse(tc.function.arguments);
-            const result = await this.executeToolCall(tc.function.name, args, apiBaseUrl);
+            const result = await this.executeToolCall(tc.function.name, args, apiBaseUrl, threadId);
             messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) } as any);
           } catch (err) {
             messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` }) } as any);
@@ -516,7 +571,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       const stream = await this.client.chat.completions.create({
         model: modelName,
         messages,
-        tools: await this.toolBridge.getTools(),
+        tools: allTools,
         tool_choice: 'auto',
         stream: true,
       } as any);
@@ -588,7 +643,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
             let result: any;
             try {
               const args = JSON.parse(tc.function.arguments);
-              result = await this.executeToolCall(tc.function.name, args, apiBaseUrl);
+              result = await this.executeToolCall(tc.function.name, args, apiBaseUrl, threadId, onChunk);
             } catch (err) {
               result = { error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` };
             }
@@ -692,10 +747,17 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     name: string,
     args: any,
     apiBaseUrl: string,
+    threadId?: string,
+    onChunk?: ((chunk: string) => void) | null,
   ): Promise<any> {
+    // ★ 0. Skill 执行工具 → 路由到 SkillExecutor
+    if (name === 'execute_skill') {
+      return await this.executeSkillWithProgress(args, threadId, onChunk);
+    }
+
     // 1. 本地工具（依赖 NestJS fileStore / reportStore）→ 本地执行
     if (this.toolBridge.isLocalTool(name)) {
-      return await this.executeLocalTool(name, args, apiBaseUrl);
+      return await this.executeLocalTool(name, args, apiBaseUrl, threadId);
     }
 
     // 2. 远程工具 → 转发到 Agent Runtime
@@ -703,14 +765,85 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     if (remoteResult.success) {
       if (remoteResult.result?._local) {
         // Agent Runtime 返回本地标记 → 回退到本地执行
-        return await this.executeLocalTool(name, args, apiBaseUrl);
+        return await this.executeLocalTool(name, args, apiBaseUrl, threadId);
       }
       return remoteResult.result;
     }
 
     // 3. Agent Runtime 不可达 → 降级到本地执行
     this.logger.warn(`Agent Runtime 执行失败 (${name}), 尝试本地降级`);
-    return await this.executeLocalFallback(name, args, apiBaseUrl);
+    return await this.executeLocalFallback(name, args, apiBaseUrl, threadId);
+  }
+
+  /**
+   * 执行 Skill 并流式推送进度
+   */
+  private async executeSkillWithProgress(
+    args: any,
+    threadId?: string,
+    onChunk?: ((chunk: string) => void) | null,
+  ): Promise<any> {
+    const skillName = args?.skillName || '';
+    const input = args?.input || '';
+
+    if (!skillName) {
+      return { error: '缺少参数: skillName' };
+    }
+
+    // 查找 Skill
+    const skill = await this.skillRepository.findOne({
+      where: { name: skillName, status: 'published' },
+    });
+
+    if (!skill) {
+      return { error: `未找到已发布的 Skill: ${skillName}` };
+    }
+
+    this.logger.log(`AI 触发了 Skill 执行: ${skillName} (id=${skill.id})`);
+
+    // 流式推送：开始执行
+    if (onChunk) {
+      onChunk(JSON.stringify({
+        type: 'execution_start',
+        data: { skillName: skill.name, skillId: skill.id, description: skill.description },
+      }) + '\n');
+    }
+
+    // 执行 Skill，传入进度回调
+    const actualThreadId = threadId || `skill-exec-${skill.id}-${Date.now()}`;
+    const result = await this.skillExecutor.execute(skill.id, input, actualThreadId, (progress) => {
+      if (onChunk) {
+        // 将每个进度事件推送到前端
+        onChunk(JSON.stringify({
+          type: 'execution_progress',
+          data: progress,
+        }) + '\n');
+      }
+    });
+
+    // 流式推送：执行完成
+    if (onChunk) {
+      onChunk(JSON.stringify({
+        type: 'execution_done',
+        data: {
+          skillName: skill.name,
+          output: result.output.slice(0, 2000),
+          artifacts: result.artifacts,
+          totalRounds: result.totalRounds,
+          totalDurationMs: result.totalDurationMs,
+        },
+      }) + '\n');
+    }
+
+    return {
+      success: true,
+      skillName: skill.name,
+      executionId: result.executionId,
+      totalRounds: result.totalRounds,
+      totalDurationMs: result.totalDurationMs,
+      artifacts: result.artifacts,
+      output: `Skill「${skill.name}」执行完成！共 ${result.totalRounds} 轮，耗时 ${(result.totalDurationMs / 1000).toFixed(1)} 秒，产出 ${result.artifacts.length} 个交付物。`,
+    };
   }
 
   /**
@@ -720,6 +853,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     name: string,
     args: any,
     apiBaseUrl: string,
+    threadId?: string,
   ): Promise<any> {
     switch (name) {
       case 'generate_document': {
@@ -733,14 +867,25 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
             ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
+        // 同时保存到 fileStore（向后兼容）和 Workspace
         this.fileStore.set(token, { buffer, filename, contentType });
         setTimeout(() => this.fileStore.delete(token), 10 * 60 * 1000);
+
+        let workspaceFile: any = null;
+        if (threadId) {
+          try {
+            workspaceFile = await this.workspaceService.writeFile(threadId, filename, buffer, contentType);
+          } catch (err) {
+            this.logger.warn(`Workspace 写入失败: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
 
         return {
           success: true,
           message: '文档已生成',
           downloadUrl: `${apiBaseUrl}/api/ai/download/${token}`,
           filename,
+          workspaceFile: workspaceFile ? { name: workspaceFile.name, path: workspaceFile.path } : undefined,
         };
       }
 
@@ -749,11 +894,23 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         this.reportStore.set(token, { html: args.html, title: args.title || '报告' });
         setTimeout(() => this.reportStore.delete(token), 30 * 60 * 1000);
 
+        // 同时保存到 Workspace
+        const htmlFilename = (args.filename || `report_${Date.now()}`) + '.html';
+        let workspaceFile: any = null;
+        if (threadId) {
+          try {
+            workspaceFile = await this.workspaceService.writeFile(threadId, htmlFilename, args.html, 'text/html');
+          } catch (err) {
+            this.logger.warn(`Workspace 写入失败: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+
         return {
           success: true,
           message: 'HTML 报告已生成',
           viewUrl: `${apiBaseUrl}/api/ai/report/${token}`,
           title: args.title || '报告',
+          workspaceFile: workspaceFile ? { name: workspaceFile.name, path: workspaceFile.path } : undefined,
         };
       }
 
@@ -769,11 +926,12 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     name: string,
     args: any,
     apiBaseUrl: string,
+    threadId?: string,
   ): Promise<any> {
     switch (name) {
       case 'generate_document':
       case 'generate_html_report':
-        return await this.executeLocalTool(name, args, apiBaseUrl);
+        return await this.executeLocalTool(name, args, apiBaseUrl, threadId);
 
       case 'search_web': {
         const result = await this.executionService.searchWeb(args.query, args.max_results || 5);

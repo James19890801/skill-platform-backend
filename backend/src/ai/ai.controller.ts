@@ -1,9 +1,10 @@
-import { Controller, Post, Get, Delete, Body, Param, Res, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, Param, Res, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { IsString, IsOptional, IsNumber, IsBoolean, IsArray, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Response } from 'express';
 import { AiService, PlanSkillsInput, PlannedSkill, ProcessFileInfo } from './ai.service';
+import { SkillExecutorService } from './skill-executor.service';
 
 class ProcessFileDto {
   name: string;
@@ -83,7 +84,10 @@ class ExportDto {
 @ApiTags('AI')
 @Controller('api/ai')
 export class AiController {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly skillExecutor: SkillExecutorService,
+  ) {}
 
   @Get('health')
   @ApiOperation({ summary: 'AI 服务健康检查（用于前端预热）' })
@@ -145,7 +149,13 @@ export class AiController {
           body.message,
           (chunk) => {
             if (chunk) {
-              res.write(`data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`);
+              // ★ 检测是否为结构化事件（execution_progress/execution_start/execution_done 等）
+              // 这些事件由后端 SkillExecutor 发出，前端需要特殊渲染
+              if (chunk.startsWith('{"type"') && chunk.includes('execution_')) {
+                res.write(`data: ${chunk.trim()}\n\n`);
+              } else {
+                res.write(`data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`);
+              }
             }
           },
           body.model,
@@ -276,5 +286,73 @@ export class AiController {
     }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(report.html);
+  }
+
+  // ===== SKill 执行引擎 API =====
+
+  @ApiOperation({ summary: '执行 Skill', description: '按 Skill 定义的步骤多轮调用工具执行，产出所有交付物' })
+  @Post('execute-skill/:id')
+  async executeSkill(
+    @Param('id') id: string,
+    @Body() body: { input: string; threadId?: string },
+  ) {
+    try {
+      const result = await this.skillExecutor.execute(
+        Number(id),
+        body.input || '',
+        body.threadId,
+      );
+      return {
+        success: true,
+        data: result,
+        message: `Skill 执行完成，共 ${result.totalRounds} 轮，产出 ${result.artifacts.length} 个产物`,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new HttpException(
+          { success: false, message: error.message },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      throw new HttpException(
+        { success: false, message: error instanceof Error ? error.message : 'Skill 执行失败' },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @ApiOperation({ summary: '获取 Skill 执行记录', description: '查询指定 Skill 的历史执行记录' })
+  @Get('execute-skill/:id/history')
+  async getExecutionHistory(@Param('id') id: string) {
+    try {
+      const history = await this.skillExecutor.getHistory(Number(id));
+      return { success: true, data: history };
+    } catch (error) {
+      throw new HttpException(
+        { success: false, message: error instanceof Error ? error.message : '查询失败' },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @ApiOperation({ summary: '获取单次执行详情', description: '查看某次执行的完整日志和产物' })
+  @Get('execute-skill/execution/:executionId')
+  async getExecutionDetail(@Param('executionId') executionId: string) {
+    try {
+      const detail = await this.skillExecutor.getExecution(Number(executionId));
+      if (!detail) {
+        throw new HttpException(
+          { success: false, message: '执行记录不存在' },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      return { success: true, data: detail };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        { success: false, message: error instanceof Error ? error.message : '查询失败' },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 }

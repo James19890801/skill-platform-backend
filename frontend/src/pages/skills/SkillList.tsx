@@ -24,12 +24,23 @@ const colors = {
 };
 
 const domainColors: Record<string, string> = {
-  [SkillDomain.LEGAL]: colors.primary,
+  [SkillDomain.MTL_MARKET]: '#3b82f6',
+  [SkillDomain.LTC_SALES]: '#10b981',
+  [SkillDomain.ITR_SERVICE]: '#f59e0b',
+  [SkillDomain.IPD_RD]: '#8b5cf6',
+  [SkillDomain.SCM]: '#06b6d4',
+  [SkillDomain.PROCUREMENT]: '#f97316',
+  [SkillDomain.MANUFACTURING]: '#84cc16',
+  [SkillDomain.DELIVERY]: '#14b8a6',
   [SkillDomain.FINANCE]: colors.green,
-  [SkillDomain.PROCUREMENT]: colors.amber,
   [SkillDomain.HR]: colors.purple,
-  [SkillDomain.TECH]: colors.red,
-  [SkillDomain.PLATFORM]: colors.textSecondary,
+  [SkillDomain.IT]: '#6366f1',
+  [SkillDomain.LEGAL]: colors.primary,
+  [SkillDomain.STRATEGY]: '#ec4899',
+  [SkillDomain.QUALITY]: '#0ea5e9',
+  [SkillDomain.RISK]: colors.red,
+  [SkillDomain.ADMIN]: colors.textSecondary,
+  [SkillDomain.OTHER]: '#9ca3af',
 };
 
 const statusConfig: Record<SkillStatus, { color: string; dotColor: string; label: string }> = {
