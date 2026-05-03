@@ -6,7 +6,6 @@ import {
   Delete,
   Body,
   Param,
-  Query,
   ParseIntPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
@@ -21,20 +20,20 @@ export class KnowledgeController {
 
   @Get()
   @ApiOperation({ summary: '获取知识库列表' })
-  async findAll(@Query('tenantId') tenantId?: string) {
-    return this.knowledgeService.findAll(Number(tenantId) || 1);
+  async findAll() {
+    return this.knowledgeService.findAll();
   }
 
   @Get(':id')
   @ApiOperation({ summary: '获取知识库详情' })
   async findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.knowledgeService.findOne(id, 1);
+    return this.knowledgeService.findOne(id);
   }
 
   @Post()
   @ApiOperation({ summary: '创建知识库' })
   async create(@Body() dto: CreateKnowledgeBaseDto) {
-    return this.knowledgeService.create(dto, 1, 1);
+    return this.knowledgeService.create(dto, 1);
   }
 
   @Put(':id')
@@ -43,13 +42,13 @@ export class KnowledgeController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateKnowledgeBaseDto,
   ) {
-    return this.knowledgeService.update(id, dto, 1);
+    return this.knowledgeService.update(id, dto);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: '删除知识库' })
   async remove(@Param('id', ParseIntPipe) id: number) {
-    return this.knowledgeService.remove(id, 1);
+    return this.knowledgeService.remove(id);
   }
 
   @Post('sync')

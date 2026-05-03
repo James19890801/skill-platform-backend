@@ -5,25 +5,18 @@ import { existsSync, mkdirSync } from 'fs';
 import { dirname, isAbsolute, join } from 'path';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
-import { SeedModule } from './seed/seed.module';
 import { SkillsModule } from './skills/skills.module';
 import { ReviewsModule } from './reviews/reviews.module';
-import { OrgsModule } from './orgs/orgs.module';
 import { ModelsModule } from './models/models.module';
 import { DashboardModule } from './dashboard/dashboard.module';
-import { ArchitectureModule } from './architecture/architecture.module';
-import { ProcessModule } from './process/process.module';
 import { SearchModule } from './search/search.module';
 import { UsersModule } from './users/users.module';
 import { AiModule } from './ai/ai.module';
-import { TenantModule } from './tenant/tenant.module';
 import { AgentsModule } from './agents/agents.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { MemoryModule } from './memory/memory.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import {
-  Tenant,
-  Organization,
   User,
   Skill,
   SkillVersion,
@@ -33,11 +26,6 @@ import {
   SkillReview,
   SkillUsageStat,
   UserSkillClaim,
-  ArchitectureTree,
-  ArchitectureNode,
-  ArchitectureFile,
-  BusinessProcess,
-  ProcessDocument,
   Agent,
   KnowledgeBase,
   Memory,
@@ -66,8 +54,6 @@ if (!existsSync(databaseDir)) {
       autoLoadEntities: true,
       logging: process.env.NODE_ENV !== 'production',
       entities: [
-        Tenant,
-        Organization,
         User,
         Skill,
         SkillVersion,
@@ -76,11 +62,6 @@ if (!existsSync(databaseDir)) {
         SkillReview,
         SkillUsageStat,
         UserSkillClaim,
-        ArchitectureTree,
-        ArchitectureNode,
-        ArchitectureFile,
-        BusinessProcess,
-        ProcessDocument,
         Agent,
         KnowledgeBase,
         Memory,
@@ -88,18 +69,13 @@ if (!existsSync(databaseDir)) {
       ],
     }),
     AuthModule,
-    SeedModule,
     SkillsModule,
     ReviewsModule,
-    OrgsModule,
     ModelsModule,
     DashboardModule,
-    ArchitectureModule,
-    ProcessModule,
     SearchModule,
     UsersModule,
     AiModule,
-    TenantModule,
     AgentsModule,
     KnowledgeModule,
     MemoryModule,

@@ -49,13 +49,13 @@ const styles = {
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { user, tenant } = useAuthStore();
+  const { user, isAdmin } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState<{
     totalSkills: number;
     publishedSkills: number;
     pendingReviews: number;
-    skillsByDomain: Record<string, number>;
+    domainStats: Array<{ domain: string; count: number; published: number }>;
   } | null>(null);
 
   // 加载真实统计数据
@@ -72,7 +72,7 @@ const Dashboard: React.FC = () => {
           totalSkills: 0,
           publishedSkills: 0,
           pendingReviews: 0,
-          skillsByDomain: {},
+          domainStats: [],
         });
       } finally {
         setLoading(false);
@@ -86,7 +86,7 @@ const Dashboard: React.FC = () => {
     { title: 'Skill 总量', value: dashboardData.totalSkills, icon: <FileTextOutlined />, color: '#10b981', trend: '+8', trendText: '本月' },
     { title: '已发布', value: dashboardData.publishedSkills, icon: <PieChartOutlined />, color: '#f59e0b', trend: '↑5%', trendText: '' },
     { title: '待审核', value: dashboardData.pendingReviews, icon: <WarningOutlined />, color: '#ef4444', trend: '-4', trendText: '本月', trendDown: true },
-    { title: '领域数', value: Object.keys(dashboardData.skillsByDomain).length, icon: <ApartmentOutlined />, color: '#2563eb', trend: '+3', trendText: '本月' },
+    { title: '领域数', value: dashboardData.domainStats?.length || 0, icon: <ApartmentOutlined />, color: '#2563eb', trend: '+3', trendText: '本月' },
   ] : [];
 
   // 加载状态
@@ -111,7 +111,7 @@ const Dashboard: React.FC = () => {
       {/* 顶部标题 */}
       <div style={styles.header}>
         <div style={{ fontSize: 16, color: '#64748b', marginBottom: 8 }}>
-          欢迎回来，{tenant?.name || user?.tenantName || '默认租户'} - {user?.name || '用户'}
+          欢迎回来，{user?.email || '用户'}
         </div>
         <div style={styles.title}>Skill 管理平台</div>
         <div style={styles.subtitle}>管理和运营企业技能资产</div>
@@ -123,7 +123,7 @@ const Dashboard: React.FC = () => {
           <Col span={6} key={index}>
             <Card 
               style={{ ...styles.statCard, position: 'relative' }}
-              bodyStyle={{ padding: '24px', paddingLeft: '28px' }}
+              styles={{ body: { padding: '24px', paddingLeft: '28px' } }}
               hoverable
             >
               <div style={{ ...styles.colorBar, backgroundColor: stat.color }} />

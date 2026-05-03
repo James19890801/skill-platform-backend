@@ -10,9 +10,8 @@ export class SearchController {
   @Get()
   @ApiOperation({ summary: '全局搜索' })
   @ApiQuery({ name: 'q', required: true, description: '搜索关键词' })
-  @ApiQuery({ name: 'tenantId', required: false, description: '租户ID' })
-  async search(@Query('q') keyword: string, @Query('tenantId') tenantId?: string) {
-    return this.searchService.search(keyword, tenantId ? parseInt(tenantId, 10) : 1);
+  async search(@Query('q') keyword: string) {
+    return this.searchService.search(keyword);
   }
 
   @Get('skills')
@@ -20,13 +19,11 @@ export class SearchController {
   @ApiQuery({ name: 'q', required: false, description: '搜索关键词' })
   @ApiQuery({ name: 'domain', required: false, description: '领域筛选' })
   @ApiQuery({ name: 'status', required: false, description: '状态筛选' })
-  @ApiQuery({ name: 'tenantId', required: false, description: '租户ID' })
   async searchSkills(
     @Query('q') keyword: string,
     @Query('domain') domain?: string,
     @Query('status') status?: string,
-    @Query('tenantId') tenantId?: string,
   ) {
-    return this.searchService.searchSkills(keyword, { domain, status }, tenantId ? parseInt(tenantId, 10) : 1);
+    return this.searchService.searchSkills(keyword, { domain, status });
   }
 }

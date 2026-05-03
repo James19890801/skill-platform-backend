@@ -29,6 +29,8 @@ import {
   RocketOutlined,
 } from '@ant-design/icons';
 import apiClient from '../../services/api';
+import { useAuthStore } from '../../stores/useAuthStore';
+import LoginModal from '../../components/LoginModal';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -78,7 +80,9 @@ const SkillHub: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [selectedDomain, setSelectedDomain] = useState('all');
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuthStore();
 
   // 从后端获取 Skills
   const loadSkills = async () => {
@@ -184,10 +188,22 @@ const SkillHub: React.FC = () => {
       {/* 顶部操作栏 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1e293b' }}>Skill 市场</h2>
-        <Button type="primary" onClick={() => navigate('/skills/create')}>
+        <Button type="primary" onClick={() => {
+          if (isAuthenticated()) {
+            navigate('/skills/create');
+          } else {
+            setShowLoginModal(true);
+          }
+        }}>
           + 新建 Skill
         </Button>
       </div>
+
+      <LoginModal
+        visible={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        redirectTo="/skills/create"
+      />
 
       {/* 搜索与筛选 */}
       <Card style={{ marginBottom: 16 }}>

@@ -26,7 +26,7 @@ import {
   DeleteOutlined,
   CloudOutlined,
 } from '@ant-design/icons';
-import { KnowledgeBase, CreateKnowledgeBaseRequest, UpdateKnowledgeBaseRequest } from '../../types';
+import { KnowledgeBase, CreateKnowledgeBaseRequest, UpdateKnowledgeBaseRequest } from '../../services/api';
 import { knowledgeApi } from '../../services/api';
 
 const { Title, Text } = Typography;

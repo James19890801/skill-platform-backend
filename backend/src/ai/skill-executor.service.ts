@@ -68,7 +68,7 @@ export class SkillExecutorService {
     private workspaceService: WorkspaceService,
   ) {
     this.client = new OpenAI({
-      apiKey: process.env.QWEN_API_KEY || 'sk-35e6ff25e8a149d79b54d2656c107e98',
+      apiKey: process.env.QWEN_API_KEY || '',
       baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       timeout: 30_000,
       maxRetries: 1,
@@ -288,7 +288,7 @@ export class SkillExecutorService {
 
       // 8. 保存最终产物到 workspace（如果 AI 回复中有 HTML 等内容）
       if (finalOutput) {
-        await this.saveFinalArtifacts(finalOutput, actualThreadId, artifacts, addLog);
+        await this.saveFinalArtifacts(finalOutput, actualThreadId, artifacts, addLog, savedExecution, execId);
       }
 
       // 9. 更新执行会话为完成状态
@@ -474,7 +474,7 @@ export class SkillExecutorService {
             });
           }
         } catch (fileErr) {
-          this.logger.warn(`SKill文件注入失败: ${file.name}: ${fileErr instanceof Error ? fileErr.message : String(fileErr)}`);
+          this.logger.warn(`Skill文件注入失败: ${file.name}: ${fileErr instanceof Error ? fileErr.message : String(fileErr)}`);
         }
       }
     } catch {
@@ -490,6 +490,8 @@ export class SkillExecutorService {
     threadId: string,
     artifacts: Array<{ name: string; path: string; type: string; size: number }>,
     addLog: (entry: ExecutionLogEntry) => void,
+    execution?: any,
+    execId?: number,
   ): Promise<void> {
     // 如果 AI 的回复中包含大型 Markdown 或 HTML 内容，保存为文档
     if (output.length > 500 && !this.isHtmlInArtifacts(artifacts)) {
@@ -499,7 +501,7 @@ export class SkillExecutorService {
         const filename = `skill_output_${Date.now()}.html`;
         try {
           const file = await this.workspaceService.writeFile(threadId, filename, output, 'text/html');
-          this.recordArtifact(artifacts, file, null as any, 0);
+          this.recordArtifact(artifacts, file, execution, execId);
           addLog({
             round: 0,
             action: 'tool_result',
@@ -525,7 +527,7 @@ export class SkillExecutorService {
         const filename = `code_${codeIdx}.${ext}`;
         try {
           const file = await this.workspaceService.writeFile(threadId, filename, code);
-          this.recordArtifact(artifacts, file, null as any, 0);
+          this.recordArtifact(artifacts, file, execution, execId);
           codeIdx++;
         } catch { /* ignore */ }
       }
@@ -539,7 +541,7 @@ export class SkillExecutorService {
     artifacts: Array<{ name: string; path: string; type: string; size: number }>,
     file: any,
     execution: any,
-    execId: number,
+    execId?: number,
   ): Promise<void> {
     if (!file || !file.name) return;
     // 去重
@@ -554,7 +556,7 @@ export class SkillExecutorService {
     });
 
     // 更新数据库中的 artifacts 字段
-    if (execution) {
+    if (execution && execId) {
       execution.artifacts = JSON.stringify(artifacts);
       try {
         await this.executionRepository.update(execId, { artifacts: execution.artifacts });

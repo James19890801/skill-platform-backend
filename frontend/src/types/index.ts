@@ -99,58 +99,17 @@ export const DomainLabels: Record<SkillDomain, string> = {
 };
 
 // ============================================
-// 租户相关接口
-// ============================================
-export interface ITenant {
-  id: number;
-  name: string;
-  code: string;
-  logo?: string;
-  contactEmail?: string;
-  contactPhone?: string;
-  status: 'active' | 'suspended' | 'trial';
-  plan: 'free' | 'basic' | 'pro' | 'enterprise';
-  dingtalkCorpId?: string;
-  wecomCorpId?: string;
-  settings?: Record<string, any>;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ============================================
 // 用户相关接口
 // ============================================
 export interface IUser {
   id: number;
-  name: string;
   email: string;
-  role: 'admin' | 'manager' | 'member';
-  orgId: number;
-  orgName: string;
-  jobTitle: string;
-  avatar?: string;
-  tenantId: number;
-  tenantName?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ============================================
-// 组织相关接口
-// ============================================
-export interface IOrganization {
-  id: number;
-  name: string;
-  code: string;
-  parentId: number | null;
-  path: string;
-  level: number;
-  managerId?: number;
-  description?: string;
-  createdAt: string;
-  updatedAt: string;
-  children?: IOrganization[];
-  manager?: IUser;
+  phone: string;
+  isAdmin: boolean;
+  firstLoginAt?: string;
+  lastLoginAt?: string;
+  loginCount?: number;
+  createdAt?: string;
 }
 
 // ============================================
@@ -169,14 +128,12 @@ export interface ISkill {
   status: SkillStatus;
   priority: SkillPriority;
   ownerId: number;
-  orgId: number;
   sopSource: string;
   currentVersion: string;
   tags?: string[];
   createdAt: string;
   updatedAt: string;
   owner?: IUser;
-  organization?: IOrganization;
   versions?: ISkillVersion[];
   // 衍生字段（用于前端展示）
   orgName?: string;
@@ -224,14 +181,12 @@ export interface ISkillVersion {
 // ============================================
 export interface IJobModel {
   id: number;
-  orgId: number;
   name: string;
   code: string;
   description?: string;
   responsibilities?: string;
   createdAt: string;
   updatedAt: string;
-  organization?: IOrganization;
   skillBindings?: IModelSkillBinding[];
 }
 
@@ -297,6 +252,8 @@ export interface SkillListParams extends PaginationParams {
   domain?: SkillDomain;
   orgId?: number;
   keyword?: string;
+  search?: string;
+  limit?: number;
 }
 
 // 审核列表查询参数
@@ -316,13 +273,9 @@ export interface SearchParams {
   pageSize?: number;
 }
 
-// ============================================
-// 登录相关接口
-// ============================================
 export interface LoginRequest {
-  email?: string;
-  identifier?: string;
-  password: string;
+  email: string;
+  phone: string;
 }
 
 export interface LoginResponse {
@@ -330,55 +283,7 @@ export interface LoginResponse {
   user: IUser;
 }
 
-// 预设用户信息（用于 Mock 模式）
-export interface PresetUser {
-  id: number;
-  name: string;
-  username: string; // 用于后端登录
-  email: string;
-  password: string;
-  role: 'admin' | 'manager' | 'member';
-  orgId: number;
-  orgName: string;
-  jobTitle: string;
-  avatar?: string;
-}
 
-export const PRESET_USERS: PresetUser[] = [
-  {
-    id: 1,
-    name: '系统管理员',
-    username: 'admin',
-    email: 'admin@skill.com',
-    password: 'password123',
-    role: 'admin',
-    orgId: 1,
-    orgName: '集团总部',
-    jobTitle: '管理员',
-  },
-  {
-    id: 2,
-    name: '法务经理',
-    username: 'manager',
-    email: 'legal.manager@skill.com',
-    password: 'password123',
-    role: 'manager',
-    orgId: 2,
-    orgName: '法务部',
-    jobTitle: '法务部经理',
-  },
-  {
-    id: 3,
-    name: '合同专员',
-    username: 'member',
-    email: 'contract.staff@skill.com',
-    password: 'password123',
-    role: 'member',
-    orgId: 3,
-    orgName: '法务部-合同组',
-    jobTitle: '合同专员',
-  },
-];
 
 // ===== 业务流程相关类型 =====
 export interface IBusinessProcess {
@@ -565,9 +470,6 @@ export interface KnowledgeBase {
   documentCount: number;
   status: 'connected' | 'syncing' | 'error';
   userId: number;
-  user: IUser;
-  tenantId: number;
-  tenant: ITenant;
   createdAt: string;
   updatedAt: string;
 }

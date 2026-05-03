@@ -82,8 +82,8 @@ const SkillList: React.FC = () => {
         const response = await skillsApi.list({
           page: pagination.current,
           limit: pagination.pageSize,
-          domain: domainFilter || undefined,
-          status: statusFilter || undefined,
+          domain: (domainFilter || undefined) as SkillDomain | undefined,
+          status: (statusFilter || undefined) as SkillStatus | undefined,
           search: searchText || undefined,
         });
         
@@ -91,11 +91,11 @@ const SkillList: React.FC = () => {
         // 响应拦截器已解包外层 { success, data }，此时 response 是分页数据本身
         const data = Array.isArray(response) 
           ? response 
-          : (response.items || response.data || []);
+          : (response.items || []);
         setSkills(data);
         
         // 计算统计数据
-        const total = Array.isArray(response) ? data.length : (response.total || response.count || data.length);
+        const total = Array.isArray(response) ? data.length : (response.total || data.length);
         const published = data.filter((s: any) => s.status === SkillStatus.PUBLISHED).length;
         const draft = data.filter((s: any) => s.status === SkillStatus.DRAFT).length;
         const reviewing = data.filter((s: any) => s.status === SkillStatus.REVIEWING).length;
@@ -127,7 +127,7 @@ const SkillList: React.FC = () => {
       title: 'Skill 名称',
       dataIndex: 'name',
       key: 'name',
-      render: (text: string, record: typeof mockData[0]) => (
+      render: (text: string, record: any) => (
         <div>
           <div style={{ fontWeight: 600, color: colors.textPrimary, cursor: 'pointer' }} onClick={() => navigate(`/skills/${record.id}`)}>
             {text}
@@ -204,7 +204,7 @@ const SkillList: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 160,
-      render: (_: unknown, record: typeof mockData[0]) => (
+      render: (_: unknown, record: any) => (
         <Space size={4}>
           <Tooltip title="查看">
             <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/skills/${record.id}`)} style={{ color: colors.textSecondary }} />

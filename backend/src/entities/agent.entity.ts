@@ -41,9 +41,6 @@ export class Agent {
   @Column({ default: 'active' })
   status: string; // active | inactive | archived
 
-  @Column({ default: 1 })
-  tenantId: number;
-
   @Column({ nullable: true })
   ownerId: number;
 

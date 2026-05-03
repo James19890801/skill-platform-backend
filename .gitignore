@@ -28,3 +28,4 @@ build/
 coverage/
 data/
 agent-runtime/src/data/sessions/
+*.sqlite

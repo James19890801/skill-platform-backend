@@ -13,7 +13,7 @@ export class KnowledgeService {
     private knowledgeRepository: Repository<KnowledgeBase>,
   ) {}
 
-  async create(createKnowledgeBaseDto: CreateKnowledgeBaseDto, userId: number, tenantId: number): Promise<KnowledgeBase> {
+  async create(createKnowledgeBaseDto: CreateKnowledgeBaseDto, userId: number): Promise<KnowledgeBase> {
     const knowledgeBase = new KnowledgeBase();
     knowledgeBase.name = createKnowledgeBaseDto.name;
     knowledgeBase.description = createKnowledgeBaseDto.description;
@@ -22,28 +22,26 @@ export class KnowledgeService {
     knowledgeBase.documentCount = createKnowledgeBaseDto.documentCount || 0;
     knowledgeBase.status = createKnowledgeBaseDto.status || KnowledgeStatus.CONNECTED;
     knowledgeBase.userId = userId;
-    knowledgeBase.tenantId = tenantId;
 
     return await this.knowledgeRepository.save(knowledgeBase);
   }
 
-  async findAll(tenantId: number): Promise<KnowledgeBase[]> {
+  async findAll(): Promise<KnowledgeBase[]> {
     return await this.knowledgeRepository.find({
-      where: { tenantId },
       order: { createdAt: 'DESC' },
     });
   }
 
-  async findAllByUserId(userId: number, tenantId: number): Promise<KnowledgeBase[]> {
+  async findAllByUserId(userId: number): Promise<KnowledgeBase[]> {
     return await this.knowledgeRepository.find({
-      where: { userId, tenantId },
+      where: { userId },
       order: { createdAt: 'DESC' },
     });
   }
 
-  async findOne(id: number, tenantId: number): Promise<KnowledgeBase> {
+  async findOne(id: number): Promise<KnowledgeBase> {
     const knowledgeBase = await this.knowledgeRepository.findOne({
-      where: { id, tenantId },
+      where: { id },
     });
 
     if (!knowledgeBase) {
@@ -53,9 +51,9 @@ export class KnowledgeService {
     return knowledgeBase;
   }
 
-  async findOneForUser(id: number, userId: number, tenantId: number): Promise<KnowledgeBase> {
+  async findOneForUser(id: number, userId: number): Promise<KnowledgeBase> {
     const knowledgeBase = await this.knowledgeRepository.findOne({
-      where: { id, userId, tenantId },
+      where: { id, userId },
     });
 
     if (!knowledgeBase) {
@@ -65,8 +63,8 @@ export class KnowledgeService {
     return knowledgeBase;
   }
 
-  async update(id: number, updateKnowledgeBaseDto: UpdateKnowledgeBaseDto, tenantId: number): Promise<KnowledgeBase> {
-    const knowledgeBase = await this.findOne(id, tenantId);
+  async update(id: number, updateKnowledgeBaseDto: UpdateKnowledgeBaseDto): Promise<KnowledgeBase> {
+    const knowledgeBase = await this.findOne(id);
 
     Object.assign(knowledgeBase, updateKnowledgeBaseDto);
     knowledgeBase.updatedAt = new Date();
@@ -74,8 +72,8 @@ export class KnowledgeService {
     return await this.knowledgeRepository.save(knowledgeBase);
   }
 
-  async updateForUser(id: number, updateKnowledgeBaseDto: UpdateKnowledgeBaseDto, userId: number, tenantId: number): Promise<KnowledgeBase> {
-    const knowledgeBase = await this.findOneForUser(id, userId, tenantId);
+  async updateForUser(id: number, updateKnowledgeBaseDto: UpdateKnowledgeBaseDto, userId: number): Promise<KnowledgeBase> {
+    const knowledgeBase = await this.findOneForUser(id, userId);
 
     Object.assign(knowledgeBase, updateKnowledgeBaseDto);
     knowledgeBase.updatedAt = new Date();
@@ -83,20 +81,18 @@ export class KnowledgeService {
     return await this.knowledgeRepository.save(knowledgeBase);
   }
 
-  async remove(id: number, tenantId: number): Promise<void> {
-    const knowledgeBase = await this.findOne(id, tenantId);
+  async remove(id: number): Promise<void> {
+    const knowledgeBase = await this.findOne(id);
     await this.knowledgeRepository.remove(knowledgeBase);
   }
 
-  async removeForUser(id: number, userId: number, tenantId: number): Promise<void> {
-    const knowledgeBase = await this.findOneForUser(id, userId, tenantId);
+  async removeForUser(id: number, userId: number): Promise<void> {
+    const knowledgeBase = await this.findOneForUser(id, userId);
     await this.knowledgeRepository.remove(knowledgeBase);
   }
 
-  async sync(apiKey: string, kbId: string, tenantId: number = 1): Promise<{ success: boolean; message: string }> {
-    // 百炼知识库同步逻辑
-    // TODO: 实现与百炼 API 的实际同步
-    this.logger.log(`Sync knowledge base: kbId=${kbId}, tenantId=${tenantId}`);
+  async sync(apiKey: string, kbId: string): Promise<{ success: boolean; message: string }> {
+    this.logger.log(`Sync knowledge base: kbId=${kbId}`);
     return {
       success: true,
       message: '知识库同步任务已提交，将在后台执行',

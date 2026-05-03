@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity';
 
 @Injectable()
@@ -15,46 +14,34 @@ export class AuthService {
     private configService: ConfigService,
   ) {}
 
-  async validateUser(identifier: string, password: string): Promise<User | null> {
-    // 首先尝试按邮箱查找用户
+  async login(email: string, phone: string) {
+    // 先按邮箱查找
     let user = await this.userRepository.findOne({
-      where: { email: identifier },
-      relations: ['organization'],
+      where: { email },
     });
 
-    // 如果没找到邮箱，尝试按手机号查找
+    // 如果找不到，创建新用户
     if (!user) {
-      user = await this.userRepository.findOne({
-        where: { phone: identifier },
-        relations: ['organization'],
+      user = this.userRepository.create({
+        email,
+        phone,
+        firstLoginAt: new Date(),
+        lastLoginAt: new Date(),
+        loginCount: 1,
       });
-    }
-
-    if (!user) {
-      return null;
-    }
-
-    // 使用 bcrypt 验证密码
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (isPasswordValid) {
-      return user;
-    }
-
-    return null;
-  }
-
-  async login(email: string, password: string) {
-    const user = await this.validateUser(email, password);
-
-    if (!user) {
-      throw new UnauthorizedException('邮箱或密码错误');
+      user = await this.userRepository.save(user);
+    } else {
+      // 已有用户，更新登录信息
+      user.lastLoginAt = new Date();
+      user.loginCount += 1;
+      await this.userRepository.save(user);
     }
 
     const payload = {
       sub: user.id,
       email: user.email,
-      role: user.role,
-      tenantId: user.tenantId,  // 新增租户ID
+      phone: user.phone,
+      isAdmin: user.isAdmin,
     };
 
     const secret = this.configService.get<string>('JWT_SECRET') || 'skill-platform-secret-key';
@@ -66,18 +53,12 @@ export class AuthService {
       }),
       user: {
         id: user.id,
-        name: user.name,
         email: user.email,
-        role: user.role,
-        orgId: user.orgId,
-        tenantId: user.tenantId,  // 新增租户ID
-        organization: user.organization
-          ? {
-              id: user.organization.id,
-              name: user.organization.name,
-              path: user.organization.path,
-            }
-          : null,
+        phone: user.phone,
+        isAdmin: user.isAdmin,
+        firstLoginAt: user.firstLoginAt,
+        lastLoginAt: user.lastLoginAt,
+        loginCount: user.loginCount,
       },
     };
   }
@@ -85,7 +66,6 @@ export class AuthService {
   async getProfile(userId: number) {
     const user = await this.userRepository.findOne({
       where: { id: userId },
-      relations: ['organization'],
     });
 
     if (!user) {
@@ -94,25 +74,13 @@ export class AuthService {
 
     return {
       id: user.id,
-      name: user.name,
       email: user.email,
-      role: user.role,
-      jobTitle: user.jobTitle,
-      orgId: user.orgId,
-      tenantId: user.tenantId,  // 新增租户ID
-      apiKey: user.apiKey,
-      organization: user.organization
-        ? {
-            id: user.organization.id,
-            name: user.organization.name,
-            path: user.organization.path,
-          }
-        : null,
+      phone: user.phone,
+      isAdmin: user.isAdmin,
+      firstLoginAt: user.firstLoginAt,
+      lastLoginAt: user.lastLoginAt,
+      loginCount: user.loginCount,
       createdAt: user.createdAt,
     };
-  }
-
-  async logout() {
-    return { success: true };
   }
 }

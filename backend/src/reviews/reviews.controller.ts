@@ -15,8 +15,8 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard, Roles } from '../common';
+import { AuthGuard } from '../auth/guards/auth.guard';
+import { AdminGuard } from '../auth/guards/admin.guard';
 import { ReviewsService } from './reviews.service';
 import { ReviewQueryDto, ApproveReviewDto, RejectReviewDto } from './dto';
 
@@ -30,41 +30,37 @@ export class ReviewsController {
   @ApiQuery({ name: 'status', required: false, description: '状态筛选' })
   @ApiQuery({ name: 'page', required: false, description: '页码' })
   @ApiQuery({ name: 'limit', required: false, description: '每页数量' })
-  @ApiQuery({ name: 'tenantId', required: false, description: '租户ID' })
-  async findAll(@Query() query: ReviewQueryDto, @Query('tenantId') tenantId?: string) {
-    return this.reviewsService.findAll(query, tenantId ? parseInt(tenantId, 10) : 1);
+  async findAll(@Query() query: ReviewQueryDto) {
+    return this.reviewsService.findAll(query);
   }
 
   @Get(':id')
   @ApiOperation({ summary: '获取审核详情' })
-  @ApiQuery({ name: 'tenantId', required: false, description: '租户ID' })
-  async findOne(@Param('id', ParseIntPipe) id: number, @Query('tenantId') tenantId?: string) {
-    return this.reviewsService.findOne(id, tenantId ? parseInt(tenantId, 10) : 1);
+  async findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.reviewsService.findOne(id);
   }
 
   @Post(':id/approve')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('manager')
+  @UseGuards(AuthGuard, AdminGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '通过审核（需要 manager 权限）' })
+  @ApiOperation({ summary: '通过审核（仅管理员）' })
   async approve(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ApproveReviewDto,
     @Request() req: any,
   ) {
-    return this.reviewsService.approve(id, dto, req.user.id, req.user.tenantId || 1);
+    return this.reviewsService.approve(id, dto, req.user.id);
   }
 
   @Post(':id/reject')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('manager')
+  @UseGuards(AuthGuard, AdminGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '驳回审核（需要 manager 权限）' })
+  @ApiOperation({ summary: '驳回审核（仅管理员）' })
   async reject(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: RejectReviewDto,
     @Request() req: any,
   ) {
-    return this.reviewsService.reject(id, dto, req.user.id, req.user.tenantId || 1);
+    return this.reviewsService.reject(id, dto, req.user.id);
   }
 }

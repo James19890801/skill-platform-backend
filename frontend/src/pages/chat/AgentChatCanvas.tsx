@@ -48,6 +48,7 @@ import {
   FolderOutlined,
   FileOutlined,
   ReloadOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
@@ -1654,14 +1655,15 @@ const AgentChatCanvas: React.FC = () => {
                   onClick={() => { loadConversations(); setHistoryVisible(true); }}
                 />
               </Tooltip>
-              <Button
-                type="text"
-                size="small"
-                onClick={newConversation}
-                style={{ fontSize: 13, color: '#6366f1', fontWeight: 500 }}
-              >
-                新建
-              </Button>
+              <Tooltip title="新建对话">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<PlusOutlined />}
+                  onClick={newConversation}
+                  style={{ color: '#6366f1' }}
+                />
+              </Tooltip>
               <Tooltip title="工作区文件">
                 <Button
                   icon={<FolderOpenOutlined />}
@@ -1689,14 +1691,15 @@ const AgentChatCanvas: React.FC = () => {
                   onClick={clearChat}
                 />
               </Tooltip>
-              <Button
-                type="text"
-                size="small"
-                onClick={newConversation}
-                style={{ fontSize: 13, color: '#6366f1', fontWeight: 500 }}
-              >
-                新建
-              </Button>
+              <Tooltip title="新建对话">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<PlusOutlined />}
+                  onClick={newConversation}
+                  style={{ color: '#6366f1' }}
+                />
+              </Tooltip>
               <Tooltip title="工作区文件">
                 <Button
                   icon={<FolderOpenOutlined />}

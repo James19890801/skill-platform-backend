@@ -9,7 +9,6 @@ import {
 } from 'typeorm';
 import { Skill } from './skill.entity';
 import { User } from './user.entity';
-import { Tenant } from './tenant.entity';
 
 @Entity('skill_reviews')
 export class SkillReview {
@@ -34,9 +33,6 @@ export class SkillReview {
   @Column()
   targetScope: string; // 目标层级：personal | business | platform
 
-  @Column({ default: 1 })
-  tenantId: number;
-
   @CreateDateColumn()
   createdAt: Date;
 
@@ -54,8 +50,4 @@ export class SkillReview {
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'reviewerId' })
   reviewer: User;
-
-  @ManyToOne(() => Tenant, { nullable: true })
-  @JoinColumn({ name: 'tenantId' })
-  tenant: Tenant;
 }

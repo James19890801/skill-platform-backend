@@ -3,7 +3,7 @@ import { Card, Form, Input, Select, Button, TreeSelect, message, Spin, Collapse,
 import { SaveOutlined, RobotOutlined, ArrowLeftOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { SkillDomain, DomainLabels } from '../../types';
-import { skillsApi, orgsApi, modelsApi } from '../../services/api';
+import { skillsApi, modelsApi } from '../../services/api';
 import { useAuthStore } from '../../stores/useAuthStore';
 
 const { TextArea } = Input;
@@ -136,7 +136,7 @@ const SkillCreate: React.FC = () => {
 
   // 获取当前用户角色，判断是否可编辑执行配置
   const user = useAuthStore(state => state.user);
-  const canEditExecution = user?.role === 'admin' || user?.role === 'manager';
+  const canEditExecution = user?.isAdmin === true;
 
   // 组织和岗位数据状态
   const [orgTree, setOrgTree] = useState<any[]>([]);
@@ -159,25 +159,13 @@ const SkillCreate: React.FC = () => {
       try {
         setDataLoading(true);
         
-        // 并行加载组织树和岗位列表
-        const [orgData, modelData] = await Promise.all([
-          orgsApi.getTree().catch(() => []),
-          modelsApi.list().catch(() => []),
-        ]);
+        // 从后端加载岗位列表
+        const modelData = await modelsApi.list().catch(() => []);
         
-        // 转换组织树
-        if (Array.isArray(orgData) && orgData.length > 0) {
-          setOrgTree(convertOrgTree(orgData));
-        } else {
-          // 降级使用 Mock 数据
-          setOrgTree([
-            { title: '集团总部', value: 'hq', key: 'hq', children: [
-              { title: '法务部', value: 'legal', key: 'legal' },
-              { title: '财务部', value: 'finance', key: 'finance' },
-              { title: '采购部', value: 'procurement', key: 'procurement' },
-            ]},
-          ]);
-        }
+        // 组织树已废弃，直接使用降级数据
+        setOrgTree([
+          { title: '全局', value: 'global', key: 'global' },
+        ]);
         
         // 转换岗位列表
         if (Array.isArray(modelData) && modelData.length > 0) {
@@ -282,7 +270,7 @@ ${description}
         fallbackType: values.fallbackType,
       };
       
-      await skillsApi.create(skillData);
+      await skillsApi.create(skillData as any);
       message.success('Skill 创建成功！已进入审核流程');
       navigate('/skills');
     } catch (error: unknown) {

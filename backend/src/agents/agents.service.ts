@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -14,9 +15,8 @@ export class AgentsService {
     private agentRepository: Repository<Agent>,
   ) {}
 
-  async findAll(tenantId: number = 1) {
+  async findAll() {
     const [items, total] = await this.agentRepository.findAndCount({
-      where: { tenantId },
       order: { updatedAt: 'DESC' },
     });
     return {
@@ -25,35 +25,9 @@ export class AgentsService {
     };
   }
 
-  async findAllByUserId(userId?: number, tenantId: number = 1) {
-    const whereCondition: any = { tenantId };
-    if (userId) {
-      whereCondition.ownerId = userId;
-    }
-    
-    const [items, total] = await this.agentRepository.findAndCount({
-      where: whereCondition,
-      order: { updatedAt: 'DESC' },
-    });
-    return {
-      items: items.map(this.parseAgent),
-      total,
-    };
-  }
-
-  async findOneForUser(id: number, userId: number, tenantId: number = 1) {
+  async findOne(id: number) {
     const agent = await this.agentRepository.findOne({
-      where: { id, tenantId, ownerId: userId },
-    });
-    if (!agent) {
-      throw new NotFoundException(`Agent #${id} not found or not owned by user`);
-    }
-    return this.parseAgent(agent);
-  }
-
-  async findOne(id: number, tenantId: number = 1) {
-    const agent = await this.agentRepository.findOne({
-      where: { id, tenantId },
+      where: { id },
     });
     if (!agent) {
       throw new NotFoundException(`Agent #${id} not found`);
@@ -61,20 +35,25 @@ export class AgentsService {
     return this.parseAgent(agent);
   }
 
-  async create(dto: CreateAgentDto, ownerId: number, tenantId: number = 1) {
+  async create(dto: CreateAgentDto, ownerId: number) {
     const agent = this.agentRepository.create({
       ...dto,
       skills: dto.skills ? JSON.stringify(dto.skills) : '[]',
       knowledgeBases: dto.knowledgeBases ? JSON.stringify(dto.knowledgeBases) : '[]',
       ownerId,
-      tenantId,
     });
     const saved = await this.agentRepository.save(agent);
     return this.parseAgent(saved);
   }
 
-  async update(id: number, dto: UpdateAgentDto, tenantId: number = 1) {
-    const agent = await this.findOne(id, tenantId);
+  async update(id: number, dto: UpdateAgentDto, userId: number, isAdmin: boolean) {
+    const agent = await this.findOne(id);
+
+    // 非管理员只能编辑自己的 Agent
+    if (!isAdmin && agent.ownerId !== userId) {
+      throw new ForbiddenException('只能编辑自己的 Agent');
+    }
+
     const updateData: any = { ...dto };
     if (dto.skills !== undefined) {
       updateData.skills = JSON.stringify(dto.skills);
@@ -83,11 +62,17 @@ export class AgentsService {
       updateData.knowledgeBases = JSON.stringify(dto.knowledgeBases);
     }
     await this.agentRepository.update(id, updateData);
-    return this.findOne(id, tenantId);
+    return this.findOne(id);
   }
 
-  async remove(id: number, tenantId: number = 1) {
-    const agent = await this.findOne(id, tenantId);
+  async remove(id: number, userId: number, isAdmin: boolean) {
+    const agent = await this.findOne(id);
+
+    // 非管理员只能删除自己的 Agent
+    if (!isAdmin && agent.ownerId !== userId) {
+      throw new ForbiddenException('只能删除自己的 Agent');
+    }
+
     await this.agentRepository.delete(id);
     return agent;
   }

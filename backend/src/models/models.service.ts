@@ -14,22 +14,17 @@ export class ModelsService {
     private skillRepository: Repository<Skill>,
   ) {}
 
-  async findAll(orgId?: number, tenantId: number = 1) {
-    const query: any = { tenantId };
-    if (orgId) {
-      query.orgId = orgId;
-    }
+  async findAll() {
     return this.modelRepository.find({
-      where: query,
-      relations: ['organization', 'skills', 'skills.skill'],
+      relations: ['skills', 'skills.skill'],
       order: { createdAt: 'DESC' },
     });
   }
 
-  async findOne(id: number, tenantId: number = 1) {
+  async findOne(id: number) {
     const model = await this.modelRepository.findOne({
-      where: { id, tenantId },
-      relations: ['organization', 'skills', 'skills.skill'],
+      where: { id },
+      relations: ['skills', 'skills.skill'],
     });
     if (!model) {
       throw new NotFoundException(`JobModel #${id} not found`);
@@ -37,44 +32,38 @@ export class ModelsService {
     return model;
   }
 
-  async create(data: { name: string; description?: string; orgId?: number }, tenantId: number = 1) {
+  async create(data: { name: string; description?: string }) {
     const model = this.modelRepository.create({
       name: data.name,
       description: data.description || '',
-      orgId: data.orgId || undefined,
-      tenantId,
     });
     return this.modelRepository.save(model);
   }
 
-  async update(id: number, data: { name?: string; description?: string; orgId?: number }, tenantId: number = 1) {
-    const model = await this.findOne(id, tenantId);
+  async update(id: number, data: { name?: string; description?: string }) {
+    const model = await this.findOne(id);
     Object.assign(model, data);
     return this.modelRepository.save(model);
   }
 
-  async remove(id: number, tenantId: number = 1) {
-    const model = await this.findOne(id, tenantId);
-    // 先删除关联的 skills
+  async remove(id: number) {
+    const model = await this.findOne(id);
     await this.modelSkillRepository.delete({ modelId: id });
     await this.modelRepository.remove(model);
     return { success: true, message: `JobModel #${id} deleted` };
   }
 
-  async bindSkills(id: number, skillIds: number[], tenantId: number = 1) {
-    const model = await this.findOne(id, tenantId);
-    
-    // 验证 skills 存在且属于同一租户
-    const skills = await this.skillRepository.find({ where: { id: In(skillIds), tenantId } });
+  async bindSkills(id: number, skillIds: number[]) {
+    const model = await this.findOne(id);
+
+    const skills = await this.skillRepository.find({ where: { id: In(skillIds) } });
     if (skills.length !== skillIds.length) {
       throw new NotFoundException('Some skills not found');
     }
 
-    // 获取已绑定的 skillIds
     const existingBindings = await this.modelSkillRepository.find({ where: { modelId: id } });
     const existingSkillIds = existingBindings.map(b => b.skillId);
 
-    // 只添加新的绑定
     const newSkillIds = skillIds.filter(sid => !existingSkillIds.includes(sid));
     const newBindings = newSkillIds.map(skillId => 
       this.modelSkillRepository.create({ modelId: id, skillId })
@@ -84,16 +73,16 @@ export class ModelsService {
       await this.modelSkillRepository.save(newBindings);
     }
 
-    return this.findOne(id, tenantId);
+    return this.findOne(id);
   }
 
-  async unbindSkill(id: number, skillId: number, tenantId: number = 1) {
-    await this.findOne(id, tenantId); // 确保 model 存在
-    
+  async unbindSkill(id: number, skillId: number) {
+    await this.findOne(id);
+
     const binding = await this.modelSkillRepository.findOne({
       where: { modelId: id, skillId },
     });
-    
+
     if (!binding) {
       throw new NotFoundException(`Skill #${skillId} is not bound to JobModel #${id}`);
     }

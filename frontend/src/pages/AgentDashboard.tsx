@@ -11,6 +11,8 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { agentsApi, AgentDTO } from '../services/api';
+import { useAuthStore } from '../stores/useAuthStore';
+import LoginModal from '../components/LoginModal';
 
 const { useBreakpoint } = Grid;
 const { Title, Text, Paragraph } = Typography;
@@ -32,6 +34,8 @@ const AgentDashboard: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [sortBy, setSortBy] = useState<'hot' | 'default'>('hot');
   const [likedAgents, setLikedAgents] = useState<Set<number>>(new Set());
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const { isAuthenticated } = useAuthStore();
 
   const fetchAgents = async () => {
     setLoading(true);
@@ -81,9 +85,21 @@ const AgentDashboard: React.FC = () => {
           <Title level={isMobile ? 4 : 3} style={{ marginBottom: 4 }}><RobotOutlined style={{ marginRight: 8, color: '#6366f1' }} />AI 广场</Title>
           <Text type="secondary" style={{ fontSize: isMobile ? 12 : 14 }}>共 {filteredAndSorted.length} 个智能助手</Text>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} size={isMobile ? 'small' : 'large'} onClick={() => navigate('/agents/create')}
+        <Button type="primary" icon={<PlusOutlined />} size={isMobile ? 'small' : 'large'} onClick={() => {
+          if (isAuthenticated()) {
+            navigate('/agents/create');
+          } else {
+            setShowLoginModal(true);
+          }
+        }}
           style={{ background: '#6366f1', alignSelf: isMobile ? 'stretch' : 'auto' }}>{isMobile ? '新建' : '创建 Agent'}</Button>
       </div>
+
+      <LoginModal
+        visible={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        redirectTo="/agents/create"
+      />
 
       <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <Input placeholder="搜索 Agent 名称或描述..." prefix={<SearchOutlined style={{ color: '#999' }} />} value={searchText}

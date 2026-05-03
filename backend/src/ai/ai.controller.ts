@@ -289,7 +289,7 @@ export class AiController {
     res.send(report.html);
   }
 
-  // ===== SKill 执行引擎 API =====
+  // ===== Skill 执行引擎 API =====
 
   @ApiOperation({ summary: '执行 Skill', description: '按 Skill 定义的步骤多轮调用工具执行，产出所有交付物' })
   @Post('execute-skill/:id')

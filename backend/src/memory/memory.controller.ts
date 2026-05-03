@@ -22,13 +22,10 @@ export class MemoryController {
   @Get()
   @ApiOperation({ summary: '获取记忆列表' })
   @ApiQuery({ name: 'agentId', required: false, description: '按Agent筛选' })
-  @ApiQuery({ name: 'tenantId', required: false, description: '租户ID' })
   async findAll(
     @Query('agentId') agentId?: string,
-    @Query('tenantId') tenantId?: string,
   ) {
     return this.memoryService.findAll(
-      Number(tenantId) || 1,
       agentId ? Number(agentId) : undefined,
     );
   }
@@ -36,13 +33,13 @@ export class MemoryController {
   @Get(':id')
   @ApiOperation({ summary: '获取记忆详情' })
   async findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.memoryService.findOne(id, 1);
+    return this.memoryService.findOne(id);
   }
 
   @Post()
   @ApiOperation({ summary: '创建记忆' })
   async create(@Body() dto: CreateMemoryDto) {
-    return this.memoryService.create(dto, 1);
+    return this.memoryService.create(dto);
   }
 
   @Put(':id')
@@ -51,12 +48,12 @@ export class MemoryController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateMemoryDto,
   ) {
-    return this.memoryService.update(id, dto, 1);
+    return this.memoryService.update(id, dto);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: '删除记忆' })
   async remove(@Param('id', ParseIntPipe) id: number) {
-    return this.memoryService.remove(id, 1);
+    return this.memoryService.remove(id);
   }
 }

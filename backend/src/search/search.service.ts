@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, ILike } from 'typeorm';
-import { Skill, User, Organization } from '../entities';
+import { Repository, Like } from 'typeorm';
+import { Skill, User } from '../entities';
 
 @Injectable()
 export class SearchService {
@@ -10,51 +10,45 @@ export class SearchService {
     private skillRepository: Repository<Skill>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
-    @InjectRepository(Organization)
-    private orgRepository: Repository<Organization>,
   ) {}
 
-  async search(keyword: string, tenantId: number = 1) {
+  async search(keyword: string) {
     if (!keyword || keyword.trim() === '') {
-      return { skills: [], users: [], organizations: [] };
+      return { skills: [], users: [] };
     }
 
     const searchPattern = `%${keyword}%`;
 
-    const [skills, users, organizations] = await Promise.all([
+    const [skills, users] = await Promise.all([
       this.skillRepository.find({
         where: [
-          { name: Like(searchPattern), tenantId },
-          { namespace: Like(searchPattern), tenantId },
-          { description: Like(searchPattern), tenantId },
+          { name: Like(searchPattern) },
+          { namespace: Like(searchPattern) },
+          { description: Like(searchPattern) },
         ],
         take: 20,
       }),
       this.userRepository.find({
         where: [
-          { name: Like(searchPattern), tenantId },
-          { email: Like(searchPattern), tenantId },
+          { email: Like(searchPattern) },
+          { phone: Like(searchPattern) },
         ],
-        take: 10,
-      }),
-      this.orgRepository.find({
-        where: { name: Like(searchPattern), tenantId },
         take: 10,
       }),
     ]);
 
-    return { skills, users, organizations };
+    return { skills, users };
   }
 
-  async searchSkills(keyword: string, filters?: { domain?: string; status?: string }, tenantId: number = 1) {
+  async searchSkills(keyword: string, filters?: { domain?: string; status?: string }) {
     const where: any[] = [];
 
     if (keyword && keyword.trim() !== '') {
       const searchPattern = `%${keyword}%`;
       const baseConditions: any[] = [
-        { name: Like(searchPattern), tenantId },
-        { namespace: Like(searchPattern), tenantId },
-        { description: Like(searchPattern), tenantId },
+        { name: Like(searchPattern) },
+        { namespace: Like(searchPattern) },
+        { description: Like(searchPattern) },
       ];
 
       if (filters?.domain || filters?.status) {
@@ -68,17 +62,15 @@ export class SearchService {
         where.push(...baseConditions);
       }
     } else if (filters?.domain || filters?.status) {
-      const condition: any = { tenantId };
+      const condition: any = {};
       if (filters.domain) condition.domain = filters.domain;
       if (filters.status) condition.status = filters.status;
       where.push(condition);
-    } else {
-      where.push({ tenantId });
     }
 
     return this.skillRepository.find({
       where: where.length > 0 ? where : undefined,
-      relations: ['owner', 'organization'],
+      relations: ['owner'],
       take: 50,
     });
   }

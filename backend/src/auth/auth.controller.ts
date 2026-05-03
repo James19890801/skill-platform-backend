@@ -1,17 +1,17 @@
 import { Controller, Post, Get, Body, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsString } from 'class-validator';
+import { IsEmail, IsMobilePhone, IsString } from 'class-validator';
 import { AuthService } from './auth.service';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { AuthGuard } from './guards/auth.guard';
 
 class LoginDto {
-  @ApiProperty({ description: '邮箱或手机号' })
-  @IsString()
-  identifier: string;
+  @ApiProperty({ description: '邮箱' })
+  @IsEmail()
+  email: string;
 
-  @ApiProperty({ description: '密码' })
+  @ApiProperty({ description: '手机号' })
   @IsString()
-  password: string;
+  phone: string;
 }
 
 @ApiTags('认证')
@@ -20,19 +20,13 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('login')
-  @ApiOperation({ summary: '用户登录' })
+  @ApiOperation({ summary: '用户登录/注册' })
   async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto.identifier, loginDto.password);
-  }
-
-  @Post('logout')
-  @ApiOperation({ summary: '用户登出' })
-  async logout() {
-    return this.authService.logout();
+    return this.authService.login(loginDto.email, loginDto.phone);
   }
 
   @Get('profile')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(AuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '获取当前用户信息' })
   async getProfile(@Request() req: any) {

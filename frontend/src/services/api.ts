@@ -124,21 +124,9 @@ export const usersApi = {
   
   getById: (id: number): Promise<IUser> =>
     apiClient.get(`/users/${id}`),
-  
-  getByOrg: (orgId: number): Promise<IUser[]> =>
-    apiClient.get('/users', { params: { orgId } }),
 };
 
-// ============================================
-// Orgs API
-// ============================================
-export const orgsApi = {
-  getTree: (): Promise<any[]> =>
-    apiClient.get('/orgs/tree'),
 
-  list: (): Promise<any[]> =>
-    apiClient.get('/orgs'),
-};
 
 // ============================================
 // Models API
@@ -155,12 +143,15 @@ export const dashboardApi = {
   getStats: (): Promise<{
     totalSkills: number;
     publishedSkills: number;
-    pendingReviews: number;
+    draftSkills: number;
+    archivedSkills: number;
     totalOrgs: number;
     totalModels: number;
+    totalUsers: number;
+    pendingReviews: number;
+    domainStats: Array<{ domain: string; count: number; published: number }>;
     recentSkills: ISkill[];
-    skillsByDomain: Record<string, number>;
-    skillsByScope: Record<string, number>;
+    coverageRate: number;
   }> => apiClient.get('/dashboard/stats'),
 };
 
@@ -311,5 +302,40 @@ export const memoriesApi = {
   delete: (id: number): Promise<void> =>
     apiClient.delete(`/memories/${id}`),
 };
+
+// ============================================
+// Architecture API
+// ============================================
+export interface IArchFileResponse {
+  id: number;
+  name: string;
+  type: string;
+  content?: string;
+  size?: number;
+  uploadedAt: string;
+}
+
+export interface IArchNodeResponse {
+  id: number;
+  name: string;
+  level: number;
+  parentId: number | null;
+  description?: string;
+  sortOrder: number;
+  skillCoverage: number;
+  totalSkills: number;
+  coveredSkills: number;
+  files?: IArchFileResponse[];
+  children: IArchNodeResponse[];
+}
+
+export interface IArchTreeResponse {
+  id: number;
+  name: string;
+  currentVersion: string;
+  versionLabel?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export default apiClient;

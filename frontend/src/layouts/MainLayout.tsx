@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Layout, Menu, Typography, Breadcrumb, Button, Space, Drawer, Grid, Dropdown, message } from 'antd';
 import {
   DashboardOutlined, RobotOutlined, PlusOutlined, MessageOutlined,
   ShopOutlined, DatabaseOutlined, CloudOutlined, SettingOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, LogoutOutlined, LoginOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, LogoutOutlined, LoginOutlined, TeamOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -11,13 +11,6 @@ import { useAuthStore } from '../stores/useAuthStore';
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 const { useBreakpoint } = Grid;
-
-const menuConfig = [
-  { groupTitle: null, items: [{ key: '/dashboard', icon: <DashboardOutlined />, label: 'Agent 工作台' }] },
-  { groupTitle: 'Agent 管理', items: [{ key: '/agents/create', icon: <PlusOutlined />, label: '创建 Agent' }, { key: '/chat', icon: <MessageOutlined />, label: '对话 Canvas' }] },
-  { groupTitle: '资源管理', items: [{ key: '/skills', icon: <ShopOutlined />, label: 'Skill 市场' }, { key: '/knowledge', icon: <DatabaseOutlined />, label: '知识库' }, { key: '/memory', icon: <CloudOutlined />, label: '记忆管理' }] },
-  { groupTitle: '系统', items: [{ key: '/settings', icon: <SettingOutlined />, label: '设置' }] },
-];
 
 const breadcrumbMap: Record<string, string> = {
   '/dashboard': 'Agent 工作台', '/agents/create': '创建 Agent', '/agents/edit': '编辑 Agent',
@@ -32,8 +25,26 @@ const MainLayout: React.FC = () => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
 
-  const { user, isAuthenticated, logout } = useAuthStore();
-  const displayName = isAuthenticated() ? (user?.name || '用户') : '访客';
+  const { user, isAuthenticated, isAdmin: checkIsAdmin, logout } = useAuthStore();
+  const displayName = isAuthenticated() ? (user?.email || '用户') : '访客';
+  const isAdmin = checkIsAdmin();
+
+  const menuConfig = useMemo(() => {
+    const config = [
+      { groupTitle: null, items: [{ key: '/dashboard', icon: <DashboardOutlined />, label: 'Agent 工作台' }] },
+      { groupTitle: 'Agent 管理', items: [{ key: '/agents/create', icon: <PlusOutlined />, label: '创建 Agent' }, { key: '/chat', icon: <MessageOutlined />, label: '对话 Canvas' }] },
+      { groupTitle: '资源管理', items: [{ key: '/skills', icon: <ShopOutlined />, label: 'Skill 市场' }, { key: '/knowledge', icon: <DatabaseOutlined />, label: '知识库' }, { key: '/memory', icon: <CloudOutlined />, label: '记忆管理' }] },
+    ];
+
+    // 仅管理员显示用户管理
+    const systemItems = [{ key: '/settings', icon: <SettingOutlined />, label: '设置' }];
+    if (isAdmin) {
+      systemItems.unshift({ key: '/users', icon: <TeamOutlined />, label: '用户管理' });
+    }
+    config.push({ groupTitle: '系统', items: systemItems });
+
+    return config;
+  }, [isAdmin]);
 
   const handleLogout = () => {
     logout();

@@ -115,7 +115,7 @@ const SkillEdit: React.FC = () => {
   }, [skill?.id]);
 
   const user = useAuthStore(state => state.user);
-  const canEditExecution = user?.role === 'admin' || user?.role === 'manager';
+  const canEditExecution = user?.isAdmin === true;
 
   useEffect(() => {
     if (!id) {
@@ -270,8 +270,8 @@ const SkillEdit: React.FC = () => {
           <Card size="small" style={{ background: '#f8fafc', border: `1px solid ${colors.border}`, borderRadius: 8, marginTop: 16 }}>
             <Descriptions column={3} size="small">
               <Descriptions.Item label="当前版本">{skill.currentVersion}</Descriptions.Item>
-              <Descriptions.Item label="负责人">{skill.owner?.name || '-'}</Descriptions.Item>
-              <Descriptions.Item label="所属组织">{skill.organization?.name || '-'}</Descriptions.Item>
+              <Descriptions.Item label="负责人">{skill.ownerName || '-'}</Descriptions.Item>
+              <Descriptions.Item label="所属组织">{skill.orgName || '-'}</Descriptions.Item>
             </Descriptions>
           </Card>
         </div>

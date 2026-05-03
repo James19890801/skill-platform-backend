@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Skill, SkillReview, SkillUsageStat, User, Organization, JobModel } from '../entities';
+import { Skill, SkillReview, User } from '../entities';
 
 @Injectable()
 export class DashboardService {
@@ -10,17 +10,11 @@ export class DashboardService {
     private skillRepository: Repository<Skill>,
     @InjectRepository(SkillReview)
     private reviewRepository: Repository<SkillReview>,
-    @InjectRepository(SkillUsageStat)
-    private usageStatRepository: Repository<SkillUsageStat>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
-    @InjectRepository(Organization)
-    private orgRepository: Repository<Organization>,
-    @InjectRepository(JobModel)
-    private modelRepository: Repository<JobModel>,
   ) {}
 
-  async getStats(tenantId: number = 1) {
+  async getStats() {
     const [
       totalSkills,
       publishedSkills,
@@ -28,26 +22,20 @@ export class DashboardService {
       archivedSkills,
       pendingReviews,
       totalUsers,
-      totalOrgs,
-      totalModels,
     ] = await Promise.all([
-      this.skillRepository.count({ where: { tenantId } }),
-      this.skillRepository.count({ where: { status: 'published', tenantId } }),
-      this.skillRepository.count({ where: { status: 'draft', tenantId } }),
-      this.skillRepository.count({ where: { status: 'archived', tenantId } }),
-      this.reviewRepository.count({ where: { status: 'pending', tenantId } }),
-      this.userRepository.count({ where: { tenantId } }),
-      this.orgRepository.count({ where: { tenantId } }),
-      this.modelRepository.count({ where: { tenantId } }),
+      this.skillRepository.count(),
+      this.skillRepository.count({ where: { status: 'published' } }),
+      this.skillRepository.count({ where: { status: 'draft' } }),
+      this.skillRepository.count({ where: { status: 'archived' } }),
+      this.reviewRepository.count({ where: { status: 'pending' } }),
+      this.userRepository.count(),
     ]);
 
-    // 按领域统计
     const domainStatsRaw = await this.skillRepository
       .createQueryBuilder('skill')
       .select('skill.domain', 'domain')
       .addSelect('COUNT(*)', 'count')
       .addSelect('SUM(CASE WHEN skill.status = \'published\' THEN 1 ELSE 0 END)', 'published')
-      .where('skill.tenantId = :tenantId', { tenantId })
       .groupBy('skill.domain')
       .getRawMany();
 
@@ -57,15 +45,12 @@ export class DashboardService {
       published: parseInt(d.published, 10) || 0,
     }));
 
-    // 最近创建的5个Skill
     const recentSkills = await this.skillRepository.find({
-      where: { tenantId },
       relations: ['owner'],
       order: { createdAt: 'DESC' },
       take: 5,
     });
 
-    // 计算覆盖率
     const coverageRate = totalSkills > 0 
       ? Math.round((publishedSkills / totalSkills) * 100) / 100 
       : 0;
@@ -75,8 +60,6 @@ export class DashboardService {
       publishedSkills,
       draftSkills,
       archivedSkills,
-      totalOrgs,
-      totalModels,
       totalUsers,
       pendingReviews,
       domainStats,
@@ -85,21 +68,19 @@ export class DashboardService {
     };
   }
 
-  async getOverview(tenantId: number = 1) {
+  async getOverview() {
     const [
       totalSkills,
       publishedSkills,
       draftSkills,
       pendingReviews,
       totalUsers,
-      totalOrgs,
     ] = await Promise.all([
-      this.skillRepository.count({ where: { tenantId } }),
-      this.skillRepository.count({ where: { status: 'published', tenantId } }),
-      this.skillRepository.count({ where: { status: 'draft', tenantId } }),
-      this.reviewRepository.count({ where: { status: 'pending', tenantId } }),
-      this.userRepository.count({ where: { tenantId } }),
-      this.orgRepository.count({ where: { tenantId } }),
+      this.skillRepository.count(),
+      this.skillRepository.count({ where: { status: 'published' } }),
+      this.skillRepository.count({ where: { status: 'draft' } }),
+      this.reviewRepository.count({ where: { status: 'pending' } }),
+      this.userRepository.count(),
     ]);
 
     return {
@@ -108,32 +89,28 @@ export class DashboardService {
       draftSkills,
       pendingReviews,
       totalUsers,
-      totalOrgs,
     };
   }
 
-  async getSkillsByDomain(tenantId: number = 1) {
+  async getSkillsByDomain() {
     const skills = await this.skillRepository
       .createQueryBuilder('skill')
       .select('skill.domain', 'domain')
       .addSelect('COUNT(*)', 'count')
-      .where('skill.tenantId = :tenantId', { tenantId })
       .groupBy('skill.domain')
       .getRawMany();
 
     return skills;
   }
 
-  async getRecentActivity(tenantId: number = 1) {
+  async getRecentActivity() {
     const recentSkills = await this.skillRepository.find({
-      where: { tenantId },
       relations: ['owner'],
       order: { updatedAt: 'DESC' },
       take: 10,
     });
 
     const recentReviews = await this.reviewRepository.find({
-      where: { tenantId },
       relations: ['skill', 'submitter'],
       order: { createdAt: 'DESC' },
       take: 10,

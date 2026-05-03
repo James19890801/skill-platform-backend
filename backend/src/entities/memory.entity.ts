@@ -17,9 +17,6 @@ export class Memory {
   @Column({ type: 'varchar', length: 50, default: 'fact' })
   category: string; // preference | fact | context
 
-  @Column({ type: 'int', default: 1 })
-  tenantId: number;
-
   @CreateDateColumn()
   createdAt: Date;
 

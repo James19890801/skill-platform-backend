@@ -9,9 +9,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { User } from './user.entity';
-import { Organization } from './organization.entity';
 import { SkillVersion } from './skill-version.entity';
-import { Tenant } from './tenant.entity';
 
 @Entity('skills')
 export class Skill {
@@ -49,16 +47,10 @@ export class Skill {
   ownerId: number;
 
   @Column({ nullable: true })
-  orgId: number;
-
-  @Column({ nullable: true })
   sopSource: string; // 溯源到 SOP 文档
 
   @Column({ default: '1.0.0' })
   currentVersion: string;
-
-  @Column({ default: 1 })
-  tenantId: number;
 
   // === Skill 执行描述（供外部 Agent 调用） ===
 
@@ -108,14 +100,6 @@ export class Skill {
   @JoinColumn({ name: 'ownerId' })
   owner: User;
 
-  @ManyToOne(() => Organization, { nullable: true })
-  @JoinColumn({ name: 'orgId' })
-  organization: Organization;
-
   @OneToMany(() => SkillVersion, (version) => version.skill)
   versions: SkillVersion[];
-
-  @ManyToOne(() => Tenant, { nullable: true })
-  @JoinColumn({ name: 'tenantId' })
-  tenant: Tenant;
 }

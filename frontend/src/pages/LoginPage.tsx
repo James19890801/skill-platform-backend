@@ -1,31 +1,33 @@
 import React, { useState } from 'react';
 import { Button, Form, Input, Card, message } from 'antd';
-import { MailOutlined, LockOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { MailOutlined, PhoneOutlined } from '@ant-design/icons';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/useAuthStore';
 import { authApi } from '../services/api';
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { setAuth } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [loginForm] = Form.useForm();
 
-  const handleFormLogin = async (values: { identifier: string; password: string }) => {
+  // 支持回调跳转（如从创建按钮的弹窗过来）
+  const from = (location.state as any)?.from || '/dashboard';
+
+  const handleFormLogin = async (values: { email: string; phone: string }) => {
     setLoading(true);
     
     try {
-      // 调用真实登录接口，identifier 可以是邮箱或手机号
       const response = await authApi.login({
-        identifier: values.identifier,
-        password: values.password,
+        email: values.email,
+        phone: values.phone,
       });
       
       setAuth(response.access_token, response.user);
-      message.success(`欢迎回来，${response.user.name}！`);
-      navigate('/dashboard');
+      message.success('登录成功！');
+      navigate(from, { replace: true });
     } catch (error: unknown) {
-      // 登录失败显示错误提示
       console.error('登录失败:', error);
       const errorMessage = error instanceof Error ? error.message : '登录失败，请检查后端服务是否正常运行';
       message.error(errorMessage);
@@ -52,43 +54,38 @@ const LoginPage: React.FC = () => {
       >
         <div style={{ textAlign: 'center', marginBottom: '32px', padding: '20px' }}>
           <h2>欢迎回来</h2>
-          <p style={{ color: '#999' }}>请输入您的账户信息</p>
+          <p style={{ color: '#999' }}>输入邮箱和手机号即可登录/注册</p>
         </div>
 
         <Form
           form={loginForm}
           name="login"
-          initialValues={{ remember: true }}
           onFinish={handleFormLogin}
           autoComplete="off"
         >
           <Form.Item
-            name="identifier"
+            name="email"
             rules={[
-              { 
-                required: true, 
-                message: '请输入邮箱或手机号!' 
-              },
-              {
-                pattern: /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$|^1[3-9]\d{9}$/,
-                message: '请输入有效的邮箱或手机号!'
-              }
+              { required: true, message: '请输入邮箱' },
+              { type: 'email', message: '请输入有效的邮箱地址' }
             ]}
           >
             <Input
               prefix={<MailOutlined />}
-              placeholder="请输入邮箱或手机号"
+              placeholder="请输入邮箱"
             />
           </Form.Item>
 
           <Form.Item
-            name="password"
-            rules={[{ required: true, message: '请输入密码!' }]}
+            name="phone"
+            rules={[
+              { required: true, message: '请输入手机号' },
+              { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' }
+            ]}
           >
             <Input
-              prefix={<LockOutlined />}
-              type="password"
-              placeholder="请输入密码"
+              prefix={<PhoneOutlined />}
+              placeholder="请输入手机号"
             />
           </Form.Item>
 
@@ -98,14 +95,17 @@ const LoginPage: React.FC = () => {
               htmlType="submit" 
               loading={loading}
               block
+              size="large"
             >
-              登录
+              登录 / 注册
             </Button>
           </Form.Item>
 
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ color: '#999' }}>还没有账号? </span>
-            <a href="/register">立即注册</a>
+          <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <p style={{ color: '#bbb', fontSize: 12, lineHeight: 1.6 }}>
+              首次登录将自动创建账号。登录即表示您同意<br />
+              我们的服务条款和隐私政策。
+            </p>
           </div>
         </Form>
       </Card>

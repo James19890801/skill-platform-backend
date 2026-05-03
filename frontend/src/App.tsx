@@ -13,6 +13,7 @@ import KnowledgeManager from './pages/knowledge/KnowledgeManager';
 import MemoryManager from './pages/memory/MemoryManager';
 import Settings from './pages/settings/Settings';
 import LoginPage from './pages/LoginPage';
+import UserManagement from './pages/users/UserManagement';
 
 function App() {
   return (
@@ -42,6 +43,9 @@ function App() {
           
           {/* 设置 */}
           <Route path="settings" element={<Settings />} />
+          
+          {/* 用户管理（仅管理员可见） */}
+          <Route path="users" element={<UserManagement />} />
         </Route>
         
         <Route path="login" element={<LoginPage />} />
