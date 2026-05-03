@@ -107,7 +107,11 @@ export class AiController {
       agentRuntimeUrl: process.env.AGENT_RUNTIME_URL || 'http://localhost:8001',
       toolsCount: tools.length,
       toolNames,
-      agentRuntimeConnected: tools.length > 4, // >4 说明成功连上了 Agent Runtime
+      agentRuntimeConnected: tools.length > 4,
+      env: {
+        qwenApiKeySet: !!process.env.QWEN_API_KEY,
+        nodeEnv: process.env.NODE_ENV || '(not set)',
+      },
     };
   }
 
@@ -144,49 +148,59 @@ export class AiController {
       const stream = body.stream !== false;
       
       if (stream) {
-        // 流式输出 SSE — 禁用缓存 + TCP_NODELAY 保证毫秒级首字符响应
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-          'X-Accel-Buffering': 'no',
-          'Transfer-Encoding': 'chunked',
-        });
-
-        // 禁用 Nagle 算法，确保每个 write() 立即发送 TCP 包
         try {
-          const socket = (res as any).socket;
-          if (socket && typeof socket.setNoDelay === 'function') {
-            socket.setNoDelay(true);
-          }
-        } catch { /* 低版本 Node 兼容 */ }
+          // 流式输出 SSE — 禁用缓存 + TCP_NODELAY 保证毫秒级首字符响应
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+            'Transfer-Encoding': 'chunked',
+          });
 
-        const fullContent = await this.aiService.chatStream(
-          body.message,
-          (chunk) => {
-            if (chunk) {
-              // ★ 检测是否为结构化事件（execution_progress/execution_start/execution_done 等）
-              // 这些事件由后端 SkillExecutor 发出，前端需要特殊渲染
-              if (chunk.startsWith('{"type"') && chunk.includes('execution_')) {
-                res.write(`data: ${chunk.trim()}\n\n`);
-              } else {
-                res.write(`data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`);
-              }
+          // 禁用 Nagle 算法，确保每个 write() 立即发送 TCP 包
+          try {
+            const socket = (res as any).socket;
+            if (socket && typeof socket.setNoDelay === 'function') {
+              socket.setNoDelay(true);
             }
-          },
-          body.model,
-          body.agentId,
-          body.skills,
-          body.thread_id,
-          body.attachments,
-        );
+          } catch { /* 低版本 Node 兼容 */ }
 
-        // ★ 空响应检测：AI 未返回内容（上下文溢出/模型拒绝）
-        if (!fullContent?.trim()) {
-          res.write(`data: ${JSON.stringify({ type: 'error', content: 'AI 未返回有效回复，可能是上下文过长，请尝试清除对话后重试' })}\n\n`);
+          const fullContent = await this.aiService.chatStream(
+            body.message,
+            (chunk) => {
+              if (chunk) {
+                // ★ 检测是否为结构化事件（execution_progress/execution_start/execution_done 等）
+                // 这些事件由后端 SkillExecutor 发出，前端需要特殊渲染
+                if (chunk.startsWith('{"type"') && chunk.includes('execution_')) {
+                  res.write(`data: ${chunk.trim()}\n\n`);
+                } else {
+                  res.write(`data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`);
+                }
+              }
+            },
+            body.model,
+            body.agentId,
+            body.skills,
+            body.thread_id,
+            body.attachments,
+          );
+
+          // ★ 空响应检测：AI 未返回内容（上下文溢出/模型拒绝）
+          if (!fullContent?.trim()) {
+            res.write(`data: ${JSON.stringify({ type: 'error', content: 'AI 未返回有效回复，可能是上下文过长，请尝试清除对话后重试' })}\n\n`);
+          }
+          res.write('data: [DONE]\n\n');
+          res.end();
+        } catch (streamError) {
+          // ★ 修复：streaming 模式下 headers 已发送，不能 throw，只能写 SSE 错误事件
+          try {
+            const errMsg = streamError instanceof Error ? streamError.message : 'AI 服务异常';
+            res.write(`data: ${JSON.stringify({ type: 'error', content: `⚠️ AI 服务异常: ${errMsg}` })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            res.end();
+          } catch { /* socket may already be closed */ }
         }
-        res.write('data: [DONE]\n\n');
-        res.end();
       } else {
         // 非流式输出
         const content = await this.aiService.chatStream(
