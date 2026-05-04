@@ -4,7 +4,38 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter, TransformInterceptor } from './common';
+import { getRepository } from 'typeorm';
+import { User } from './entities/user.entity';
 import * as bodyParser from 'body-parser';
+
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '494161546@qq.com';
+const ADMIN_PHONE = process.env.ADMIN_PHONE || '13136092523';
+
+async function ensureAdmin() {
+  const userRepo = getRepository(User);
+  let admin = await userRepo.findOne({ where: { email: ADMIN_EMAIL } });
+  if (!admin) {
+    admin = userRepo.create({
+      email: ADMIN_EMAIL,
+      phone: ADMIN_PHONE,
+      isAdmin: true,
+      firstLoginAt: new Date(),
+      lastLoginAt: new Date(),
+      loginCount: 0,
+    });
+    await userRepo.save(admin);
+    console.log(`✅ 管理员账号已创建: ${ADMIN_EMAIL}`);
+  } else if (!admin.isAdmin) {
+    admin.isAdmin = true;
+    if (admin.phone !== ADMIN_PHONE) {
+      admin.phone = ADMIN_PHONE;
+    }
+    await userRepo.save(admin);
+    console.log(`✅ 管理员权限已更新: ${ADMIN_EMAIL}`);
+  } else {
+    console.log(`✅ 管理员账号正常: ${ADMIN_EMAIL}`);
+  }
+}
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -58,6 +89,9 @@ async function bootstrap() {
       .then(() => console.log('✅ 预热完成'))
       .catch(() => {});
   }, 1000);
+
+  // 启动后自动确保管理员账号存在
+  await ensureAdmin();
 }
 
 bootstrap();
