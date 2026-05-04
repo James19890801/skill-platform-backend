@@ -2,9 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 安装依赖
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# 安装依赖（精简版，加快 Railway Hobby 构建）
+COPY requirements-minimal.txt ./
+RUN pip install --no-cache-dir -r requirements-minimal.txt
 
 # 复制源码
 COPY . .

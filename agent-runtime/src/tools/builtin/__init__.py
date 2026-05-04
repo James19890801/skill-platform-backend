@@ -99,29 +99,32 @@ def get_tool_registry() -> ToolRegistry:
     return _registry
 
 
-def _discover_and_register(registry: ToolRegistry):
-    """自动发现并注册所有内置工具"""
-    from . import web_search
-    from . import web_scrape
-    from . import code_exec
-    from . import file_ops
-    from . import data_tools
-    from . import network_tools
-    from . import utility_tools
-    from . import media_tools
-    from . import knowledge_tools
-    from . import system_tools
+def _safe_import_tools(module_name: str, attr: str = "TOOLS"):
+    """安全导入工具模块，缺失依赖时优雅降级"""
+    try:
+        mod = __import__(f"tools.builtin.{module_name}", fromlist=[attr])
+        return getattr(mod, attr, [])
+    except ImportError as e:
+        print(f"[ToolRegistry] 跳过工具模块 {module_name}: 缺少依赖 ({e})")
+        return []
+    except Exception as e:
+        print(f"[ToolRegistry] 加载工具模块 {module_name} 失败: {e}")
+        return []
 
-    registry.register_many(web_search.TOOLS)
-    registry.register_many(web_scrape.TOOLS)
-    registry.register_many(code_exec.TOOLS)
-    registry.register_many(file_ops.TOOLS)
-    registry.register_many(data_tools.TOOLS)
-    registry.register_many(network_tools.TOOLS)
-    registry.register_many(utility_tools.TOOLS)
-    registry.register_many(media_tools.TOOLS)
-    registry.register_many(knowledge_tools.TOOLS)
-    registry.register_many(system_tools.TOOLS)
+
+def _discover_and_register(registry: ToolRegistry):
+    """自动发现并注册所有内置工具（缺失依赖时优雅降级）"""
+    tool_modules = [
+        "web_search", "web_scrape", "code_exec",
+        "file_ops", "data_tools", "network_tools",
+        "utility_tools", "media_tools", "knowledge_tools",
+        "system_tools",
+    ]
+
+    for module_name in tool_modules:
+        tools = _safe_import_tools(module_name)
+        if tools:
+            registry.register_many(tools)
 
 
 def generate_tools_prompt() -> str:
