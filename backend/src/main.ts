@@ -12,28 +12,32 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '494161546@qq.com';
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '13136092523';
 
 async function ensureAdmin() {
-  const userRepo = getRepository(User);
-  let admin = await userRepo.findOne({ where: { email: ADMIN_EMAIL } });
-  if (!admin) {
-    admin = userRepo.create({
-      email: ADMIN_EMAIL,
-      phone: ADMIN_PHONE,
-      isAdmin: true,
-      firstLoginAt: new Date(),
-      lastLoginAt: new Date(),
-      loginCount: 0,
-    });
-    await userRepo.save(admin);
-    console.log(`✅ 管理员账号已创建: ${ADMIN_EMAIL}`);
-  } else if (!admin.isAdmin) {
-    admin.isAdmin = true;
-    if (admin.phone !== ADMIN_PHONE) {
-      admin.phone = ADMIN_PHONE;
+  try {
+    const userRepo = getRepository(User);
+    let admin = await userRepo.findOne({ where: { email: ADMIN_EMAIL } });
+    if (!admin) {
+      admin = userRepo.create({
+        email: ADMIN_EMAIL,
+        phone: ADMIN_PHONE,
+        isAdmin: true,
+        firstLoginAt: new Date(),
+        lastLoginAt: new Date(),
+        loginCount: 0,
+      });
+      await userRepo.save(admin);
+      console.log(`✅ 管理员账号已创建: ${ADMIN_EMAIL}`);
+    } else if (!admin.isAdmin) {
+      admin.isAdmin = true;
+      if (admin.phone !== ADMIN_PHONE) {
+        admin.phone = ADMIN_PHONE;
+      }
+      await userRepo.save(admin);
+      console.log(`✅ 管理员权限已更新: ${ADMIN_EMAIL}`);
+    } else {
+      console.log(`✅ 管理员账号正常: ${ADMIN_EMAIL}`);
     }
-    await userRepo.save(admin);
-    console.log(`✅ 管理员权限已更新: ${ADMIN_EMAIL}`);
-  } else {
-    console.log(`✅ 管理员账号正常: ${ADMIN_EMAIL}`);
+  } catch (err: any) {
+    console.error('⚠️ ensureAdmin 失败（非致命），继续启动:', err?.message || err);
   }
 }
 
@@ -94,4 +98,15 @@ async function bootstrap() {
   await ensureAdmin();
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  console.error('❌ Application bootstrap failed:', err);
+  process.exit(1);
+});
+
+// 全局未捕获异常保护，防止进程意外退出
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ Unhandled Rejection:', reason);
+});
