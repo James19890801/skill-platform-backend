@@ -45,6 +45,7 @@ EXPOSE 3000
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATABASE_PATH=/app/data/database.sqlite
+ENV WORKSPACE_DIR=/app/data/workspaces
 
 # 启动应用
 CMD ["node", "dist/main.js"]

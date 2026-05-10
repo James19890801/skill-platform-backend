@@ -27,5 +27,6 @@ build/
 # Local runtime files
 coverage/
 data/
+backups/
 agent-runtime/src/data/sessions/
 *.sqlite

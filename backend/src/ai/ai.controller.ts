@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Delete, Body, Param, Res, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, Param, Query, Res, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { IsString, IsOptional, IsNumber, IsBoolean, IsArray, ValidateNested, IsNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -6,6 +6,8 @@ import { Response } from 'express';
 import { AiService, PlanSkillsInput, PlannedSkill, ProcessFileInfo } from './ai.service';
 import { SkillExecutorService } from './skill-executor.service';
 import { ToolBridgeService } from './tool-bridge.service';
+import { SkillRuntimeQueueService } from '../skill-runtime/skill-runtime-queue.service';
+import { SkillRuntimeTraceService } from '../skill-runtime/skill-runtime-trace.service';
 
 class ProcessFileDto {
   name: string;
@@ -76,7 +78,7 @@ class ExportDto {
 
   @IsString()
   @IsOptional()
-  format?: 'docx' | 'xlsx';
+  format?: 'docx' | 'xlsx' | 'pptx';
 
   @IsString()
   @IsOptional()
@@ -90,6 +92,8 @@ export class AiController {
     private readonly aiService: AiService,
     private readonly skillExecutor: SkillExecutorService,
     private readonly toolBridge: ToolBridgeService,
+    private readonly skillQueue: SkillRuntimeQueueService,
+    private readonly runtimeTrace: SkillRuntimeTraceService,
   ) {}
 
   @Get('health')
@@ -230,13 +234,20 @@ export class AiController {
   }
 
   @Post('export-docx')
-  @ApiOperation({ summary: '导出文本文档为 Word / Excel' })
+  @ApiOperation({ summary: '导出文本为 Word / Excel / PowerPoint' })
   async exportDocx(@Body() body: ExportDto, @Res() res: Response) {
     try {
-      const buffer = await this.aiService.generateDocx(body.content, body.format || 'docx');
-      const ext = body.format === 'xlsx' ? 'xlsx' : 'docx';
+      const format = body.format || 'docx';
+      const buffer = await this.aiService.generateDocx(body.content, format);
+      const ext = format === 'xlsx' ? 'xlsx' : format === 'pptx' ? 'pptx' : 'docx';
       const filename = body.filename || `export.${ext}`;
-      res.setHeader('Content-Type', body.format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      const contentType =
+        format === 'xlsx'
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : format === 'pptx'
+            ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
       res.send(buffer);
     } catch (error) {
@@ -351,6 +362,38 @@ export class AiController {
     }
   }
 
+  @ApiOperation({ summary: '异步执行 Skill', description: '提交到 Skill Runtime 队列，适合长任务和断线恢复' })
+  @Post('execute-skill/:id/queue')
+  async queueSkill(
+    @Param('id') id: string,
+    @Body() body: { input: string; threadId?: string },
+  ) {
+    try {
+      const execution = await this.skillQueue.enqueue(Number(id), body.input || '', body.threadId);
+      return {
+        success: true,
+        data: {
+          executionId: execution.id,
+          status: execution.status,
+          threadId: execution.threadId,
+          queue: this.skillQueue.getSnapshot(),
+        },
+        message: 'Skill 已进入运行队列，可通过事件接口持续查看进度',
+      };
+    } catch (error) {
+      throw new HttpException(
+        { success: false, message: error instanceof Error ? error.message : 'Skill 入队失败' },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @ApiOperation({ summary: 'Skill Runtime 队列状态' })
+  @Get('execute-skill/queue/status')
+  getSkillQueueStatus() {
+    return { success: true, data: this.skillQueue.getSnapshot() };
+  }
+
   @ApiOperation({ summary: '获取 Skill 执行记录', description: '查询指定 Skill 的历史执行记录' })
   @Get('execute-skill/:id/history')
   async getExecutionHistory(@Param('id') id: string) {
@@ -365,6 +408,81 @@ export class AiController {
     }
   }
 
+  @ApiOperation({ summary: '获取执行事件', description: '按 sequence 续取某次执行的 Runtime 事件' })
+  @Get('execute-skill/execution/:executionId/events')
+  async getExecutionEvents(
+    @Param('executionId') executionId: string,
+    @Query('after') after?: string,
+  ) {
+    try {
+      const events = await this.runtimeTrace.listEvents(Number(executionId), Number(after || 0));
+      return { success: true, data: events };
+    } catch (error) {
+      throw new HttpException(
+        { success: false, message: error instanceof Error ? error.message : '查询事件失败' },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @ApiOperation({ summary: '流式订阅执行事件', description: 'SSE 事件流，支持 after 续传' })
+  @Get('execute-skill/execution/:executionId/events/stream')
+  async streamExecutionEvents(
+    @Param('executionId') executionId: string,
+    @Query('after') after: string | undefined,
+    @Res() res: Response,
+  ) {
+    const execId = Number(executionId);
+    let cursor = Number(after || 0);
+    let closed = false;
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    res.on('close', () => {
+      closed = true;
+    });
+
+    const flush = async (): Promise<boolean> => {
+      const events = await this.runtimeTrace.listEvents(execId, cursor);
+      for (const event of events) {
+        if (closed) return true;
+        res.write(this.runtimeTrace.toSseFrame(event));
+        cursor = event.sequence;
+        if (event.eventType === 'skill.completed' || event.eventType === 'skill.failed') {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    try {
+      if (await flush()) {
+        res.end();
+        return;
+      }
+
+      const interval = setInterval(async () => {
+        try {
+          if (closed || await flush()) {
+            clearInterval(interval);
+            if (!closed) res.end();
+          }
+        } catch {
+          clearInterval(interval);
+          if (!closed) res.end();
+        }
+      }, 1000);
+    } catch (error) {
+      res.write(`event: error\ndata: ${JSON.stringify({ message: error instanceof Error ? error.message : '订阅事件失败' })}\n\n`);
+      res.end();
+    }
+  }
+
   @ApiOperation({ summary: '获取单次执行详情', description: '查看某次执行的完整日志和产物' })
   @Get('execute-skill/execution/:executionId')
   async getExecutionDetail(@Param('executionId') executionId: string) {
@@ -376,7 +494,11 @@ export class AiController {
           HttpStatus.NOT_FOUND,
         );
       }
-      return { success: true, data: detail };
+      const [events, artifacts] = await Promise.all([
+        this.runtimeTrace.listEvents(Number(executionId), 0),
+        this.runtimeTrace.listArtifacts(Number(executionId)),
+      ]);
+      return { success: true, data: { ...detail, runtimeEvents: events, runtimeArtifacts: artifacts } };
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(

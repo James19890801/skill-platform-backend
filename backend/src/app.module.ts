@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { existsSync, mkdirSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { dirname, isAbsolute, join } from 'path';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
@@ -29,6 +29,9 @@ import {
   Agent,
   KnowledgeBase,
   Memory,
+  SkillRuntimeArtifact,
+  SkillRuntimeEvent,
+  SkillRuntimeStep,
 } from './entities';
 
 const configuredDatabasePath = process.env.DATABASE_PATH?.trim() || 'database.sqlite';
@@ -40,6 +43,34 @@ const databaseDir = dirname(resolvedDatabasePath);
 if (!existsSync(databaseDir)) {
   mkdirSync(databaseDir, { recursive: true });
 }
+
+function backupDatabaseIfPresent(databasePath: string) {
+  try {
+    if (!existsSync(databasePath) || statSync(databasePath).size === 0) {
+      return;
+    }
+
+    const backupDir = join(dirname(databasePath), 'db-backups');
+    if (!existsSync(backupDir)) {
+      mkdirSync(backupDir, { recursive: true });
+    }
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    copyFileSync(databasePath, join(backupDir, `database.${stamp}.sqlite`));
+
+    const backups = readdirSync(backupDir)
+      .filter((name) => name.endsWith('.sqlite'))
+      .sort();
+    const staleBackups = backups.slice(0, Math.max(0, backups.length - 10));
+    for (const backup of staleBackups) {
+      unlinkSync(join(backupDir, backup));
+    }
+  } catch (err) {
+    console.warn('⚠️ 数据库启动前备份失败（非致命）:', err instanceof Error ? err.message : err);
+  }
+}
+
+backupDatabaseIfPresent(resolvedDatabasePath);
 
 @Module({
   imports: [
@@ -66,6 +97,9 @@ if (!existsSync(databaseDir)) {
         KnowledgeBase,
         Memory,
         SkillExecution,
+        SkillRuntimeArtifact,
+        SkillRuntimeEvent,
+        SkillRuntimeStep,
       ],
     }),
     AuthModule,

@@ -5,6 +5,8 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
+    "test:runtime": "node -r ts-node/register/transpile-only --test test/skill-runtime.package.test.ts",
+    "test:tools": "node -r ts-node/register/transpile-only --test test/runtime-tools.completeness.test.ts",
     "start": "node dist/main.js",
     "start:dev": "ts-node -r tsconfig-paths/register src/main.ts",
     "start:watch": "nodemon --exec ts-node -r tsconfig-paths/register src/main.ts"
@@ -26,13 +28,14 @@
     "exceljs": "^4.4.0",
     "mammoth": "^1.8.0",
     "openai": "^4.24.0",
-    "pdf-parse": "^1.1.1",
-    "xlsx": "^0.18.5",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pdf-parse": "^1.1.1",
+    "pptxgenjs": "^3.12.0",
     "reflect-metadata": "^0.2.1",
     "rxjs": "^7.8.1",
-    "typeorm": "^0.3.20"
+    "typeorm": "^0.3.20",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

@@ -8,6 +8,7 @@ import { ExecutionService } from './execution.service';
 import { ToolBridgeService } from './tool-bridge.service';
 import { SkillExecutorService } from './skill-executor.service';
 import { WorkspaceService } from '../workspace/workspace.service';
+import { SkillResolverService } from '../skill-runtime/skill-resolver.service';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -182,6 +183,7 @@ export class AiService {
     private toolBridge: ToolBridgeService,
     private skillExecutor: SkillExecutorService,
     private workspaceService: WorkspaceService,
+    private skillResolver: SkillResolverService,
   ) {
     const apiKey = process.env.QWEN_API_KEY;
     if (!apiKey) {
@@ -806,10 +808,13 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       return { error: '缺少参数: skillName' };
     }
 
-    // 查找 Skill
-    const skill = await this.skillRepository.findOne({
-      where: { name: skillName, status: 'published' },
-    });
+    const resolved = await this.skillResolver.resolve(input || skillName, [skillName], 1);
+    const resolvedSkillId = resolved[0]?.skillId;
+
+    // 查找 Skill：优先使用 Resolver 的 namespace/name 精确匹配结果，兼容旧的 name 参数
+    const skill = resolvedSkillId
+      ? await this.skillRepository.findOne({ where: { id: resolvedSkillId, status: 'published' } })
+      : await this.skillRepository.findOne({ where: { name: skillName, status: 'published' } });
 
     if (!skill) {
       return { error: `未找到已发布的 Skill: ${skillName}` };
@@ -873,15 +878,12 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
   ): Promise<any> {
     switch (name) {
       case 'generate_document': {
-        const format = args.format || 'docx';
-        const ext = format === 'xlsx' ? 'xlsx' : 'docx';
+        const format = this.normalizeDocumentFormat(args.format);
+        const ext = format;
         const filename = (args.filename || '文档') + '.' + ext;
         const buffer = await this.generateDocx(args.content, format);
         const token = `dl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const contentType =
-          format === 'xlsx'
-            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        const contentType = this.getOfficeContentType(format);
 
         // 同时保存到 fileStore（向后兼容）和 Workspace
         this.fileStore.set(token, { buffer, filename, contentType });
@@ -899,6 +901,33 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         return {
           success: true,
           message: '文档已生成',
+          downloadUrl: `${apiBaseUrl}/api/ai/download/${token}`,
+          filename,
+          workspaceFile: workspaceFile ? { name: workspaceFile.name, path: workspaceFile.path } : undefined,
+        };
+      }
+
+      case 'generate_presentation': {
+        const filename = (args.filename || args.title || '演示文稿') + '.pptx';
+        const buffer = await this.generateDocx(args.content || args.title || '演示文稿', 'pptx');
+        const token = `dl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const contentType = this.getOfficeContentType('pptx');
+
+        this.fileStore.set(token, { buffer, filename, contentType });
+        setTimeout(() => this.fileStore.delete(token), 10 * 60 * 1000);
+
+        let workspaceFile: any = null;
+        if (threadId) {
+          try {
+            workspaceFile = await this.workspaceService.writeFile(threadId, filename, buffer, contentType);
+          } catch (err) {
+            this.logger.warn(`Workspace 写入失败: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+
+        return {
+          success: true,
+          message: 'PPT 已生成',
           downloadUrl: `${apiBaseUrl}/api/ai/download/${token}`,
           filename,
           workspaceFile: workspaceFile ? { name: workspaceFile.name, path: workspaceFile.path } : undefined,
@@ -930,6 +959,34 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         };
       }
 
+      case 'bing_search':
+      case 'search_web': {
+        const result = await this.executionService.searchWeb(
+          args.query,
+          args.max_results || args.maxResults || 5,
+          name === 'bing_search' ? 'bing' : (args.provider || 'bing'),
+        );
+        if (result.success) {
+          try {
+            const parsed = JSON.parse(result.output);
+            if (parsed.error) return { error: parsed.error };
+            return { success: true, provider: name === 'bing_search' ? 'bing' : (args.provider || 'bing'), results: parsed };
+          } catch {
+            return { success: true, output: result.output.slice(0, 3000) };
+          }
+        }
+        return { success: false, error: result.error || '搜索失败' };
+      }
+
+      case 'execute_python':
+      case 'python_repl': {
+        const result = await this.executionService.executePython(args.code, args.timeout_ms || 30_000);
+        if (result.success) {
+          return { success: true, output: result.output.slice(0, 8000), duration_ms: result.durationMs };
+        }
+        return { success: false, error: result.error };
+      }
+
       default:
         return { error: `本地未知工具: ${name}` };
     }
@@ -946,11 +1003,15 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
   ): Promise<any> {
     switch (name) {
       case 'generate_document':
+      case 'generate_presentation':
       case 'generate_html_report':
+      case 'bing_search':
+      case 'execute_python':
+      case 'python_repl':
         return await this.executeLocalTool(name, args, apiBaseUrl, threadId);
 
       case 'search_web': {
-        const result = await this.executionService.searchWeb(args.query, args.max_results || 5);
+        const result = await this.executionService.searchWeb(args.query, args.max_results || 5, args.provider || 'bing');
         if (result.success) {
           try {
             const parsed = JSON.parse(result.output);
@@ -1040,11 +1101,195 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     }
   }
 
+  private normalizeDocumentFormat(format: unknown): 'docx' | 'xlsx' | 'pptx' {
+    return format === 'xlsx' || format === 'pptx' ? format : 'docx';
+  }
+
+  private getOfficeContentType(format: 'docx' | 'xlsx' | 'pptx'): string {
+    if (format === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    if (format === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+
+  private parseMarkdownTables(content: string): string[][][] {
+    const lines = content.split('\n');
+    const tables: string[][][] = [];
+    let i = 0;
+
+    while (i < lines.length) {
+      if (!lines[i].trim().startsWith('|')) {
+        i++;
+        continue;
+      }
+
+      const rawRows: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        rawRows.push(lines[i].trim());
+        i++;
+      }
+
+      if (rawRows.length < 2) continue;
+      const rows = rawRows
+        .filter((row, index) => index !== 1 || !/^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(row))
+        .map((row) => row.split('|').slice(1, -1).map((cell) => cell.trim()))
+        .filter((row) => row.some(Boolean));
+      if (rows.length) tables.push(rows);
+    }
+
+    return tables;
+  }
+
+  private generateXlsx(content: string): Buffer {
+    const workbook = XLSX.utils.book_new();
+    const tables = this.parseMarkdownTables(content);
+
+    if (tables.length > 0) {
+      tables.forEach((table, index) => {
+        const worksheet = XLSX.utils.aoa_to_sheet(table);
+        XLSX.utils.book_append_sheet(workbook, worksheet, `Sheet${index + 1}`);
+      });
+    } else {
+      const rows = content
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => [line.replace(/^#+\s*/, '').replace(/^\s*[-*+]\s+/, '')]);
+      const worksheet = XLSX.utils.aoa_to_sheet([['内容'], ...rows]);
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Content');
+    }
+
+    return Buffer.from(XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }));
+  }
+
+  private parsePresentationSlides(content: string): Array<{ title: string; bullets: string[] }> {
+    const lines = content.split('\n');
+    const slides: Array<{ title: string; bullets: string[] }> = [];
+    let current: { title: string; bullets: string[] } | null = null;
+
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      const heading = line.match(/^#{1,3}\s+(.+)/);
+      if (heading) {
+        if (current) slides.push(current);
+        current = { title: heading[1].trim(), bullets: [] };
+        continue;
+      }
+      const bullet = line.replace(/^\s*[-*+]\s+/, '').replace(/^\d+\.\s+/, '').replace(/\*\*(.*?)\*\*/g, '$1');
+      if (!current) current = { title: '要点', bullets: [] };
+      current.bullets.push(bullet);
+    }
+
+    if (current) slides.push(current);
+    return slides.length ? slides : [{ title: '演示文稿', bullets: ['暂无内容'] }];
+  }
+
+  private async generatePptx(content: string): Promise<Buffer> {
+    const PptxGenJS = require('pptxgenjs');
+    const pptx = new PptxGenJS();
+    pptx.layout = 'LAYOUT_WIDE';
+    pptx.author = 'Skill Platform';
+    pptx.subject = 'Generated by Skill Runtime';
+    pptx.company = 'Skill Platform';
+    pptx.theme = {
+      headFontFace: 'Microsoft YaHei',
+      bodyFontFace: 'Microsoft YaHei',
+      lang: 'zh-CN',
+    };
+
+    const slides = this.parsePresentationSlides(content);
+    const deckTitle = slides[0]?.title || '演示文稿';
+
+    const titleSlide = pptx.addSlide();
+    titleSlide.background = { color: 'F7F7F8' };
+    titleSlide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.333, h: 0.18, fill: { color: '2563EB' }, line: { color: '2563EB' } });
+    titleSlide.addText(deckTitle, {
+      x: 0.8,
+      y: 1.7,
+      w: 8.8,
+      h: 0.7,
+      fontFace: 'Microsoft YaHei',
+      fontSize: 34,
+      bold: true,
+      color: '1A1A1C',
+      breakLine: false,
+      fit: 'shrink',
+    });
+    titleSlide.addText('Generated by Skill Runtime', {
+      x: 0.84,
+      y: 2.55,
+      w: 5.5,
+      h: 0.3,
+      fontFace: 'Microsoft YaHei',
+      fontSize: 13,
+      color: '6B7280',
+      fit: 'shrink',
+    });
+
+    for (const slideData of slides.slice(0, 12)) {
+      const slide = pptx.addSlide();
+      slide.background = { color: 'FFFFFF' };
+      slide.addText(slideData.title, {
+        x: 0.65,
+        y: 0.45,
+        w: 11.7,
+        h: 0.45,
+        fontFace: 'Microsoft YaHei',
+        fontSize: 24,
+        bold: true,
+        color: '1A1A1C',
+        fit: 'shrink',
+      });
+      slide.addShape(pptx.ShapeType.line, { x: 0.65, y: 1.05, w: 11.8, h: 0, line: { color: 'E5E7EB', width: 1 } });
+
+      const bullets = slideData.bullets.slice(0, 8);
+      if (bullets.length) {
+        slide.addText(
+          bullets.map((bullet) => ({ text: bullet, options: { bullet: { type: 'ul' } } })),
+          {
+            x: 0.85,
+            y: 1.35,
+            w: 11.2,
+            h: 4.8,
+            fontFace: 'Microsoft YaHei',
+            fontSize: 15,
+            color: '374151',
+            breakLine: false,
+            fit: 'shrink',
+            paraSpaceAfterPt: 8,
+          },
+        );
+      }
+
+      slide.addText('Skill Runtime', {
+        x: 10.7,
+        y: 6.95,
+        w: 1.8,
+        h: 0.2,
+        fontFace: 'Microsoft YaHei',
+        fontSize: 9,
+        color: '9CA3AF',
+        align: 'right',
+      });
+    }
+
+    const data = await pptx.write({ outputType: 'nodebuffer' });
+    return Buffer.from(data);
+  }
+
   /**
-   * 将 Markdown 文本转换为 Word 文档 (.docx)
-   * 支持表格、标题、段落等基本格式
+   * 将 Markdown 文本转换为真实 Office 文档。
+   * 支持 Word (.docx)、Excel (.xlsx)、PowerPoint (.pptx)。
    */
-  async generateDocx(content: string, format: 'docx' | 'xlsx' = 'docx'): Promise<Buffer> {
+  async generateDocx(content: string, format: 'docx' | 'xlsx' | 'pptx' = 'docx'): Promise<Buffer> {
+    const normalizedFormat = this.normalizeDocumentFormat(format);
+    if (normalizedFormat === 'xlsx') {
+      return this.generateXlsx(content);
+    }
+    if (normalizedFormat === 'pptx') {
+      return this.generatePptx(content);
+    }
+
     // 清洗内容：去除 HTML 标签、清理 markdown 乱码（保留 | 管道符，表格需要它们）
     const cleaned = content
       .replace(/<br\s*\/?>/gi, '\n')

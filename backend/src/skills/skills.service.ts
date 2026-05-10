@@ -14,6 +14,7 @@ import {
   SkillQueryDto,
   SubmitReviewDto,
 } from './dto';
+import { buildSkillPackage } from '../skill-runtime/skill-package';
 
 @Injectable()
 export class SkillsService {
@@ -89,6 +90,7 @@ export class SkillsService {
     });
 
     const savedSkill = await this.skillRepository.save(skill);
+    await this.refreshPackageHash(savedSkill.id);
 
     const version = this.versionRepository.create({
       skillId: savedSkill.id,
@@ -112,6 +114,7 @@ export class SkillsService {
 
     Object.assign(skill, updateDto);
     await this.skillRepository.save(skill);
+    await this.refreshPackageHash(id);
 
     return this.findOne(id);
   }
@@ -158,6 +161,13 @@ export class SkillsService {
 
     if (skill.status !== 'reviewing') {
       throw new BadRequestException('Only reviewing skills can be published');
+    }
+
+    try {
+      const pkg = buildSkillPackage(skill as any);
+      skill.packageHash = pkg.packageHash;
+    } catch (err) {
+      throw new BadRequestException(err instanceof Error ? err.message : 'SkillPackage 校验失败');
     }
 
     skill.status = 'published';
@@ -310,5 +320,18 @@ export class SkillsService {
         },
       },
     };
+  }
+
+  private async refreshPackageHash(skillId: number): Promise<void> {
+    const skill = await this.skillRepository.findOne({ where: { id: skillId } });
+    if (!skill) return;
+
+    try {
+      const pkg = buildSkillPackage(skill as any);
+      skill.packageHash = pkg.packageHash;
+      await this.skillRepository.save(skill);
+    } catch {
+      // Draft skills may be incomplete. Package validation happens again at publish/execute time.
+    }
   }
 }

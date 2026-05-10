@@ -97,11 +97,12 @@ const MainLayout: React.FC = () => {
 
   if (isMobile) {
     return (
-      <Layout style={{ minHeight: '100vh' }}>
-        <Header style={{ padding: '0 16px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', height: 56, lineHeight: '56px', position: 'sticky', top: 0, zIndex: 99 }}>
+      <Layout className="platform-shell" style={{ minHeight: '100vh' }}>
+        <Header style={{ padding: '0 16px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', height: 56, lineHeight: '56px', position: 'sticky', top: 0, zIndex: 99 }}>
           <Space>
             <Button type="text" icon={<MenuFoldOutlined />} onClick={() => setMobileNavOpen(true)} style={{ fontSize: 18, color: '#333' }} />
-            <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '1px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>E2E AI</span>
+            <span className="platform-brand-mark">AI</span>
+            <span className="platform-brand">E2E AI</span>
           </Space>
           <Space size={4}>
             {isAuthenticated() ? (
@@ -120,23 +121,24 @@ const MainLayout: React.FC = () => {
         <Drawer title={<span style={{ fontWeight: 700, fontSize: 16, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>E2E AI</span>} placement="left" open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} width={280}>
           <Menu mode="inline" selectedKeys={[getSelectedKey()]} items={buildMenuItems()} onClick={handleMenuClick} style={{ borderRight: 'none', marginTop: 8 }} />
         </Drawer>
-        <Content style={{ padding: 12, background: '#f5f5f5', minHeight: 'calc(100vh - 56px)' }}><Outlet /></Content>
+        <Content style={{ padding: 12, background: 'var(--bg-main)', minHeight: 'calc(100vh - 56px)' }}><Outlet /></Content>
       </Layout>
     );
   }
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout className="platform-shell" style={{ minHeight: '100vh' }}>
       <Sider trigger={null} collapsible collapsed={collapsed} width={220} collapsedWidth={80}
-        style={{ overflow: 'auto', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0, zIndex: 100, background: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)' }}>
-        <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', gap: 10 }}>
-          <img src="/logo.png" alt="logo" style={{ width: 32, height: 32, borderRadius: '50%' }} />
-          {!collapsed && <span style={{ color: '#fff', fontSize: 20, fontWeight: 700, letterSpacing: '2px', fontFamily: '"Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>E2E AI</span>}
+        className="platform-sidebar"
+        style={{ overflow: 'auto', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0, zIndex: 100, background: '#fff' }}>
+        <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', borderBottom: '1px solid var(--border-color)', gap: 10, padding: collapsed ? 0 : '0 18px' }}>
+          <span className="platform-brand-mark">AI</span>
+          {!collapsed && <span className="platform-brand">E2E AI</span>}
         </div>
-        <Menu theme="dark" mode="inline" selectedKeys={[getSelectedKey()]} items={buildMenuItems()} onClick={handleMenuClick} style={{ background: 'transparent', borderRight: 'none', marginTop: 8 }} />
+        <Menu theme="light" mode="inline" selectedKeys={[getSelectedKey()]} items={buildMenuItems()} onClick={handleMenuClick} style={{ background: 'transparent', borderRight: 'none', marginTop: 8 }} />
       </Sider>
       <Layout style={{ marginLeft: collapsed ? 80 : 220, transition: 'margin-left 0.2s' }}>
-        <Header style={{ height: 56, padding: '0 24px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', position: 'sticky', top: 0, zIndex: 99 }}>
+        <Header style={{ height: 56, padding: '0 24px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, zIndex: 99 }}>
           <Space align="center">
             <Button type="text" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} style={{ fontSize: 16 }} />
             <Breadcrumb items={getBreadcrumbItems()} />
@@ -153,7 +155,7 @@ const MainLayout: React.FC = () => {
             </Button>
           )}
         </Header>
-        <Content style={{ margin: 16, padding: 20, background: '#f5f5f5', borderRadius: 12, minHeight: 'calc(100vh - 56px - 32px)' }}><Outlet /></Content>
+        <Content style={{ margin: 16, padding: 0, background: 'var(--bg-main)', borderRadius: 12, minHeight: 'calc(100vh - 56px - 32px)' }}><Outlet /></Content>
       </Layout>
     </Layout>
   );

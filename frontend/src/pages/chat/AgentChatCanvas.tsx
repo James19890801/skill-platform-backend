@@ -687,6 +687,21 @@ const AgentChatCanvas: React.FC = () => {
               {children}
             </Text>
           ),
+          ul: ({ children }) => (
+            <ul style={{ paddingLeft: 20, marginLeft: 0, marginBottom: 8, listStyleType: 'disc' }}>
+              {children}
+            </ul>
+          ),
+          ol: ({ children }) => (
+            <ol style={{ paddingLeft: 22, marginLeft: 0, marginBottom: 8 }}>
+              {children}
+            </ol>
+          ),
+          li: ({ children, ...props }) => (
+            <li style={{ marginLeft: 0, marginBottom: 4, lineHeight: 1.7 }}>
+              {children}
+            </li>
+          ),
         }}
       >
         {preprocessed}
@@ -1596,8 +1611,18 @@ const AgentChatCanvas: React.FC = () => {
     return <Text>{content}</Text>;
   };
 
+  const sidebarItems = conversations.length > 0
+    ? conversations
+    : messages.length > 0
+      ? [{
+          threadId: currentThreadId,
+          messageCount: messages.length,
+          firstMessage: messages.find(m => m.role === 'user')?.content || '当前对话',
+        }]
+      : [];
+
   return (
-    <div ref={containerRef} style={{ height: isMobile ? '100vh' : 'calc(100vh - 56px - 32px)', display: 'flex', flexDirection: 'column' }}>
+    <div ref={containerRef} className="agent-workbench" style={{ height: isMobile ? '100vh' : 'calc(100vh - 56px - 32px)', display: 'flex', flexDirection: 'column' }}>
       {/* 顶部工具栏 */}
       <div style={{
         padding: isMobile ? '6px 10px' : '8px 16px',
@@ -1715,8 +1740,43 @@ const AgentChatCanvas: React.FC = () => {
 
       {/* 主区域：对话 + Canvas */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+        {!isMobile && (
+          <aside className="agent-chat-sidebar">
+            <div className="agent-chat-sidebar-header">
+              <Button type="primary" icon={<PlusOutlined />} block onClick={newConversation}>
+                新对话
+              </Button>
+            </div>
+            <div className="agent-chat-list">
+              {loadingHistory ? (
+                <div style={{ padding: 24, textAlign: 'center' }}><Spin size="small" /></div>
+              ) : sidebarItems.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有会话" style={{ marginTop: 40 }} />
+              ) : (
+                sidebarItems.map((item) => (
+                  <div
+                    key={item.threadId}
+                    className={`agent-chat-item ${item.threadId === currentThreadId ? 'active' : ''}`}
+                    onClick={() => item.threadId !== currentThreadId && switchConversation(item.threadId)}
+                  >
+                    <div className="agent-chat-item-title">{item.firstMessage || '未命名对话'}</div>
+                    <div className="agent-chat-item-meta">{item.messageCount} 条消息 · #{item.threadId.slice(-6)}</div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="agent-chat-sidebar-footer">
+              <Avatar size={28} icon={<UserOutlined />} style={{ background: '#2563eb' }} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <Text strong style={{ display: 'block', fontSize: 13 }} ellipsis>{agentName || 'Agent 工作台'}</Text>
+                <Text type="secondary" style={{ fontSize: 11 }}>Skills · Memory · Canvas</Text>
+              </div>
+            </div>
+          </aside>
+        )}
         {/* 左侧：对话区 */}
         <div
+          className="agent-message-panel"
           style={{
             width: `${leftWidth}%`,
             display: 'flex',
@@ -1732,8 +1792,9 @@ const AgentChatCanvas: React.FC = () => {
               flex: 1,
               overflow: 'auto',
               padding: isMobile ? '8px 12px' : '16px 20px',
-              background: '#f8f9fb',
+              background: 'var(--bg-main)',
             }}
+            className="agent-message-scroll"
           >
             {messages.length === 0 ? (
               <div style={{
@@ -1788,11 +1849,12 @@ const AgentChatCanvas: React.FC = () => {
                         maxWidth: '82%',
                         marginLeft: msg.role === 'user' ? 0 : 8,
                         marginRight: msg.role === 'user' ? 8 : 0,
-                        padding: msg.role === 'user' ? '6px 12px' : '8px 12px',
+                        padding: msg.role === 'user' ? '6px 14px' : '8px 16px',
                         borderRadius: 10,
-                        background: msg.role === 'user' ? '#e8f5e9' : '#fff',
+                        background: msg.role === 'user' ? '#2563eb' : '#fff',
+                        color: msg.role === 'user' ? '#fff' : undefined,
                         boxShadow: msg.role === 'user' ? 'none' : '0 1px 2px rgba(0,0,0,0.04)',
-                        border: msg.role === 'user' ? 'none' : '1px solid #f0f0f0',
+                        border: msg.role === 'user' ? 'none' : '1px solid var(--border-color)',
                         lineHeight: 1.55,
                       }}
                     >
@@ -1875,7 +1937,7 @@ const AgentChatCanvas: React.FC = () => {
 
 
           {/* 输入区 */}
-          <div style={{ padding: isMobile ? '6px 8px 8px' : '8px 16px 14px', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
+          <div style={{ padding: isMobile ? '6px 8px 8px' : '8px 16px 14px', borderTop: '1px solid var(--border-color)', background: '#fff', flexShrink: 0 }}>
             {/* 附件预览 */}
             {attachments.length > 0 && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8, padding: '4px 0' }}>
@@ -1900,8 +1962,8 @@ const AgentChatCanvas: React.FC = () => {
             {/* 输入框容器 */}
             <div style={{
               borderRadius: 12,
-              border: '1px solid #e0e0e0',
-              background: '#f8f9fb',
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-main)',
               overflow: 'hidden',
               transition: 'border-color 0.2s',
             }}>
@@ -1954,7 +2016,7 @@ const AgentChatCanvas: React.FC = () => {
                     onClick={sendMessage}
                     loading={isLoading}
                     size="small"
-                    style={{ background: '#6366f1', border: 'none', width: 28, height: 28 }}
+                    style={{ background: '#2563eb', border: 'none', width: 28, height: 28 }}
                   />
                 </Space>
               </div>
@@ -1990,14 +2052,14 @@ const AgentChatCanvas: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
-              borderLeft: '1px solid #f0f0f0',
+              borderLeft: '1px solid var(--border-color)',
               background: '#fff',
               transition: isDragging ? 'none' : 'width 0.2s',
               minWidth: 0,
             }}
           >
             {/* Canvas 头部 */}
-            <div style={{ padding: '10px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, background: '#fff' }}>
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, background: '#fff' }}>
               <Space>
                 <AppstoreOutlined style={{ color: '#6366f1' }} />
                 <Text strong>🎨 Canvas</Text>

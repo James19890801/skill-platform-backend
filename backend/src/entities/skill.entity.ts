@@ -90,6 +90,18 @@ export class Skill {
   @Column({ nullable: true, type: 'text' })
   toolDefinition: string; // JSON: OpenAI function calling 格式的工具定义，供 Agent 框架直接消费
 
+  @Column({ nullable: true, type: 'text' })
+  manifest: string; // JSON: SkillPackage manifest，声明版本、触发规则、权限、运行策略
+
+  @Column({ nullable: true, type: 'text' })
+  runtimePolicy: string; // JSON: 每个 Skill 的运行限制，如 network/filesystem/maxRounds
+
+  @Column({ nullable: true, type: 'text' })
+  triggerRules: string; // JSON: Resolver 使用的触发规则 [{type,value}]
+
+  @Column({ nullable: true })
+  packageHash: string; // 当前 SkillPackage 的内容指纹，用于发布与回溯
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -14,6 +14,8 @@ export interface ExecutionResult {
   durationMs: number;
 }
 
+type WebSearchProvider = 'auto' | 'bing' | 'duckduckgo';
+
 @Injectable()
 export class ExecutionService {
   private readonly logger = new Logger(ExecutionService.name);
@@ -92,9 +94,91 @@ export class ExecutionService {
   }
 
   /**
-   * 使用 DuckDuckGo 搜索网络（无需 API Key）
+   * 搜索网络。
+   * - 默认优先 Bing：有 BING_SEARCH_API_KEY 时走官方接口；没有 Key 时走 Bing HTML 轻量检索
+   * - DuckDuckGo 作为可选兜底，减少必须购买外部服务的压力
    */
-  async searchWeb(query: string, maxResults: number = 5): Promise<ExecutionResult> {
+  async searchWeb(query: string, maxResults: number = 5, provider: WebSearchProvider = 'bing'): Promise<ExecutionResult> {
+    const normalized = provider || 'bing';
+    if (normalized === 'bing' || normalized === 'auto') {
+      const bingResult = await this.searchBing(query, maxResults);
+      if (bingResult.success || normalized === 'bing') {
+        return bingResult;
+      }
+    }
+    return this.searchDuckDuckGo(query, maxResults);
+  }
+
+  async searchBing(query: string, maxResults: number = 5): Promise<ExecutionResult> {
+    const startTime = Date.now();
+    const limit = Math.max(1, Math.min(Number(maxResults) || 5, 10));
+    const apiKey = process.env.BING_SEARCH_API_KEY || process.env.BING_API_KEY;
+    const endpoint = process.env.BING_SEARCH_ENDPOINT || 'https://api.bing.microsoft.com/v7.0/search';
+
+    try {
+      if (apiKey) {
+        const url = new URL(endpoint);
+        url.searchParams.set('q', query);
+        url.searchParams.set('count', String(limit));
+        url.searchParams.set('mkt', process.env.BING_SEARCH_MARKET || 'zh-CN');
+        const res = await fetch(url, {
+          headers: { 'Ocp-Apim-Subscription-Key': apiKey },
+          signal: AbortSignal.timeout(12000),
+        });
+        if (!res.ok) {
+          throw new Error(`Bing API returned ${res.status}`);
+        }
+        const body = await res.json() as any;
+        const results = (body.webPages?.value || []).slice(0, limit).map((item: any) => ({
+          title: item.name || '',
+          snippet: item.snippet || '',
+          url: item.url || '',
+          provider: 'bing',
+        }));
+        return {
+          success: true,
+          output: JSON.stringify(results, null, 2),
+          durationMs: Date.now() - startTime,
+        };
+      }
+
+      const url = new URL('https://www.bing.com/search');
+      url.searchParams.set('q', query);
+      url.searchParams.set('count', String(limit));
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 SkillPlatformRuntime/1.0',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) {
+        throw new Error(`Bing HTML returned ${res.status}`);
+      }
+      const html = await res.text();
+      const results = this.parseBingResults(html, limit);
+      if (results.length === 0) {
+        throw new Error('Bing did not return parsable results');
+      }
+      return {
+        success: true,
+        output: JSON.stringify(results, null, 2),
+        durationMs: Date.now() - startTime,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        output: '',
+        error: `Bing 搜索失败: ${err?.message || String(err)}`,
+        durationMs: Date.now() - startTime,
+      };
+    }
+  }
+
+  /**
+   * 使用 DuckDuckGo 搜索网络（无需 API Key）。
+   */
+  private async searchDuckDuckGo(query: string, maxResults: number = 5): Promise<ExecutionResult> {
     const code = `
 import sys, json
 try:
@@ -114,6 +198,39 @@ except Exception as e:
     print(json.dumps({\"error\": str(e)}))
 `;
     return this.executePython(code, 15_000);
+  }
+
+  private parseBingResults(html: string, maxResults: number): Array<{ title: string; snippet: string; url: string; provider: string }> {
+    const blocks = html.match(/<li class="b_algo"[\s\S]*?<\/li>/gi) || [];
+    const results: Array<{ title: string; snippet: string; url: string; provider: string }> = [];
+    for (const block of blocks) {
+      const linkMatch = block.match(/<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+      if (!linkMatch) continue;
+      const snippetMatch = block.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+      const url = this.decodeHtml(linkMatch[1]);
+      if (!/^https?:\/\//i.test(url)) continue;
+      results.push({
+        title: this.cleanHtml(linkMatch[2]),
+        snippet: snippetMatch ? this.cleanHtml(snippetMatch[1]) : '',
+        url,
+        provider: 'bing',
+      });
+      if (results.length >= maxResults) break;
+    }
+    return results;
+  }
+
+  private cleanHtml(value: string): string {
+    return this.decodeHtml(value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+  }
+
+  private decodeHtml(value: string): string {
+    return value
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
   }
 
   /**

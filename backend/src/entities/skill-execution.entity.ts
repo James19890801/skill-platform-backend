@@ -29,8 +29,14 @@ export class SkillExecution {
   @Column({ nullable: true })
   threadId: string; // 关联的对话线程 ID
 
+  @Column({ nullable: true })
+  workspaceId: string; // 本次 Skill 执行独立 workspace ID
+
   @Column({ default: 'pending' })
-  status: string; // pending | running | completed | failed
+  status: string; // queued | pending | running | completed | failed
+
+  @Column({ nullable: true })
+  packageHash: string; // 本次执行绑定的 SkillPackage 指纹，方便回放和排障
 
   @Column({ type: 'text', nullable: true })
   input: string; // 用户输入的 JSON 参数
@@ -46,6 +52,9 @@ export class SkillExecution {
 
   @Column({ nullable: true })
   startedAt: Date;
+
+  @Column({ nullable: true })
+  queuedAt: Date;
 
   @Column({ nullable: true })
   completedAt: Date;

@@ -45,7 +45,83 @@ interface SkillItem {
   status: string;
   ownerName: string;
   orgName: string;
+  localTemplate?: boolean;
 }
+
+const curatedDesktopSkills: SkillItem[] = [
+  {
+    id: -101,
+    name: '流程挖掘',
+    description: '从流程日志、访谈材料和实例轨迹中识别瓶颈、返工与关键控制点。',
+    version: '1.0.0',
+    domain: 'quality',
+    subDomain: 'process-mining',
+    status: 'published',
+    ownerName: '本地精选',
+    orgName: 'Desktop',
+    localTemplate: true,
+  },
+  {
+    id: -102,
+    name: '审批快速分析',
+    description: '读取审批材料，提炼背景、金额、风险、历史意见和建议结论。',
+    version: '1.0.0',
+    domain: 'risk',
+    subDomain: 'approval',
+    status: 'published',
+    ownerName: '本地精选',
+    orgName: 'Desktop',
+    localTemplate: true,
+  },
+  {
+    id: -103,
+    name: '合同文本解析',
+    description: '拆解合同主体、期限、付款、违约、争议解决等关键条款。',
+    version: '1.0.0',
+    domain: 'legal',
+    subDomain: 'contract',
+    status: 'published',
+    ownerName: '本地精选',
+    orgName: 'Desktop',
+    localTemplate: true,
+  },
+  {
+    id: -104,
+    name: '报价审批分析',
+    description: '检查报价审批中的毛利、折扣、历史成交和异常风险。',
+    version: '1.0.0',
+    domain: 'finance',
+    subDomain: 'pricing',
+    status: 'published',
+    ownerName: '本地精选',
+    orgName: 'Desktop',
+    localTemplate: true,
+  },
+  {
+    id: -105,
+    name: '数字化咨询报告',
+    description: '将诊断材料整理为结构化咨询报告，包含现状、问题、路径和里程碑。',
+    version: '1.0.0',
+    domain: 'strategy',
+    subDomain: 'consulting',
+    status: 'published',
+    ownerName: '本地精选',
+    orgName: 'Desktop',
+    localTemplate: true,
+  },
+  {
+    id: -106,
+    name: '邮件风险识别',
+    description: '识别邮件中的承诺、价格、合规、客户情绪和升级风险。',
+    version: '1.0.0',
+    domain: 'risk',
+    subDomain: 'email',
+    status: 'published',
+    ownerName: '本地精选',
+    orgName: 'Desktop',
+    localTemplate: true,
+  },
+];
 
 const domainLabelMap: Record<string, string> = {
   mtl_market: '市场管理',
@@ -90,7 +166,7 @@ const SkillHub: React.FC = () => {
     try {
       const res: any = await apiClient.get('/skills', { params: { page: 1, limit: 100 } });
       const data = res?.items || [];
-      setSkills(data.map((s: any) => ({
+      const mapped = data.map((s: any) => ({
         id: s.id,
         name: s.name,
         description: s.description || '',
@@ -100,10 +176,12 @@ const SkillHub: React.FC = () => {
         status: s.status || 'published',
         ownerName: s.owner?.name || '系统',
         orgName: s.organization?.name || '平台',
-      })));
+      }));
+      setSkills(mapped.length > 0 ? mapped : curatedDesktopSkills);
     } catch (error) {
       console.error('加载 Skills 失败:', error);
-      message.error('加载 Skills 失败');
+      setSkills(curatedDesktopSkills);
+      message.warning('后端 Skill 暂不可用，已展示少量本地精选模板');
     } finally {
       setLoading(false);
     }
@@ -123,11 +201,19 @@ const SkillHub: React.FC = () => {
 
   // 查看详情
   const viewDetail = (skill: SkillItem) => {
+    if (skill.localTemplate) {
+      message.info('这是本地精选模板，导入后可进入详情');
+      return;
+    }
     navigate(`/skills/${skill.id}`);
   };
 
   // 打开编辑
   const openEdit = (skill: SkillItem) => {
+    if (skill.localTemplate) {
+      navigate('/skills/create');
+      return;
+    }
     navigate(`/skills/edit/${skill.id}`);
   };
 
@@ -139,6 +225,7 @@ const SkillHub: React.FC = () => {
       <Col xs={24} sm={12} md={8} lg={6} key={skill.id}>
         <Card
           hoverable
+          className="market-card"
           style={{ height: '100%' }}
           actions={[
             <Tooltip title="查看详情">
@@ -176,6 +263,7 @@ const SkillHub: React.FC = () => {
             <Space>
               <Tag>{domainLabelMap[skill.domain] || skill.domain}</Tag>
               {skill.subDomain && <Tag>{skill.subDomain}</Tag>}
+              {skill.localTemplate && <Tag color="blue">本地模板</Tag>}
             </Space>
           </div>
         </Card>
@@ -184,10 +272,13 @@ const SkillHub: React.FC = () => {
   };
 
   return (
-    <div>
+    <div className="skill-hub-shell">
       {/* 顶部操作栏 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1e293b' }}>Skill 市场</h2>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Skill 市场</h2>
+          <Text type="secondary">真实数据优先，后端为空时只展示少量本地精选模板</Text>
+        </div>
         <Button type="primary" onClick={() => {
           if (isAuthenticated()) {
             navigate('/skills/create');

@@ -51,6 +51,21 @@ export class CreateSkillDto {
   @IsString()
   @IsOptional()
   content?: string;
+
+  @ApiPropertyOptional({ description: 'SkillPackage manifest（JSON）' })
+  @IsString()
+  @IsOptional()
+  manifest?: string;
+
+  @ApiPropertyOptional({ description: '运行策略（JSON）' })
+  @IsString()
+  @IsOptional()
+  runtimePolicy?: string;
+
+  @ApiPropertyOptional({ description: '触发规则（JSON）' })
+  @IsString()
+  @IsOptional()
+  triggerRules?: string;
 }
 
 export class UpdateSkillDto {
@@ -157,6 +172,21 @@ export class UpdateSkillDto {
   @ApiPropertyOptional({ description: '捆绑文件列表（JSON）' })
   @IsOptional()
   files?: string;
+
+  @ApiPropertyOptional({ description: 'SkillPackage manifest（JSON）' })
+  @IsString()
+  @IsOptional()
+  manifest?: string;
+
+  @ApiPropertyOptional({ description: '运行策略（JSON）' })
+  @IsString()
+  @IsOptional()
+  runtimePolicy?: string;
+
+  @ApiPropertyOptional({ description: '触发规则（JSON）' })
+  @IsString()
+  @IsOptional()
+  triggerRules?: string;
 }
 
 export class CreateSkillVersionDto {

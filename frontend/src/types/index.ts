@@ -150,6 +150,10 @@ export interface ISkill {
   errorHandling?: string;
   agentPrompt?: string;
   toolDefinition?: string;
+  manifest?: string;
+  runtimePolicy?: string;
+  triggerRules?: string;
+  packageHash?: string;
   content?: string; // ★ Skill 标准正文（Markdown）：角色定义、核心职责、输入输出、执行原则
   files?: ISkillFile[]; // 捆绑文件列表
 }
@@ -158,9 +162,33 @@ export interface ISkill {
 export interface ISkillFile {
   name: string;
   path: string;
-  type: 'script' | 'template' | 'reference' | 'asset';
+  type: 'script' | 'template' | 'reference' | 'asset' | 'data';
   content: string;
   description?: string;
+}
+
+export interface ISkillRuntimeEvent {
+  id: number;
+  executionId: number;
+  skillId: number;
+  sequence: number;
+  eventType: string;
+  status: string;
+  payload?: string;
+  createdAt: string;
+}
+
+export interface ISkillRuntimeArtifact {
+  id: number;
+  executionId: number;
+  skillId: number;
+  name: string;
+  path: string;
+  type: string;
+  size: number;
+  mimeType?: string;
+  metadata?: string;
+  createdAt: string;
 }
 
 export interface ISkillVersion {

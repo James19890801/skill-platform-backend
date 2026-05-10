@@ -8,6 +8,8 @@ import type {
   SearchParams,
   LoginRequest,
   LoginResponse,
+  ISkillRuntimeArtifact,
+  ISkillRuntimeEvent,
 } from '../types';
 
 // Axios 实例
@@ -96,6 +98,50 @@ export const skillsApi = {
   
   createVersion: (id: number, data: unknown): Promise<unknown> =>
     apiClient.post(`/skills/${id}/versions`, data),
+};
+
+// ============================================
+// Skill Runtime API
+// ============================================
+export interface SkillRuntimeQueueResponse {
+  executionId: number;
+  status: string;
+  threadId: string;
+  queue: {
+    queued: number;
+    running: number;
+    concurrency: number;
+  };
+}
+
+export interface SkillExecutionDetail {
+  id: number;
+  skillId: number;
+  threadId?: string;
+  workspaceId?: string;
+  status: string;
+  input?: string;
+  output?: string;
+  artifacts?: string;
+  logs?: string;
+  totalRounds: number;
+  totalDurationMs: number;
+  runtimeEvents: ISkillRuntimeEvent[];
+  runtimeArtifacts: ISkillRuntimeArtifact[];
+}
+
+export const skillRuntimeApi = {
+  queue: (skillId: number, data: { input: string; threadId?: string }): Promise<SkillRuntimeQueueResponse> =>
+    apiClient.post(`/ai/execute-skill/${skillId}/queue`, data),
+
+  getQueueStatus: (): Promise<SkillRuntimeQueueResponse['queue']> =>
+    apiClient.get('/ai/execute-skill/queue/status'),
+
+  getEvents: (executionId: number, after?: number): Promise<ISkillRuntimeEvent[]> =>
+    apiClient.get(`/ai/execute-skill/execution/${executionId}/events`, { params: after ? { after } : undefined }),
+
+  getExecutionDetail: (executionId: number): Promise<SkillExecutionDetail> =>
+    apiClient.get(`/ai/execute-skill/execution/${executionId}`),
 };
 
 // ============================================

@@ -6,6 +6,13 @@ import { Skill } from '../entities/skill.entity';
 import { SkillExecution } from '../entities/skill-execution.entity';
 import { ToolBridgeService } from './tool-bridge.service';
 import { WorkspaceService } from '../workspace/workspace.service';
+import { SkillLoaderService } from '../skill-runtime/skill-loader.service';
+import { SkillRuntimeTraceService } from '../skill-runtime/skill-runtime-trace.service';
+import {
+  SkillPackage,
+  SkillPackageFile,
+  buildSkillWorkspaceId,
+} from '../skill-runtime/skill-package';
 
 /**
  * 执行日志条目
@@ -66,6 +73,8 @@ export class SkillExecutorService {
     private executionRepository: Repository<SkillExecution>,
     private toolBridge: ToolBridgeService,
     private workspaceService: WorkspaceService,
+    private skillLoader: SkillLoaderService,
+    private runtimeTrace: SkillRuntimeTraceService,
   ) {
     this.client = new OpenAI({
       apiKey: process.env.QWEN_API_KEY || '',
@@ -88,54 +97,88 @@ export class SkillExecutorService {
     userInput: string,
     threadId?: string,
     onProgress?: ProgressCallback,
+    options?: { executionId?: number },
   ): Promise<SkillExecutionResult> {
     const startTime = Date.now();
 
     // 1. 加载 Skill
-    const skill = await this.skillRepository.findOne({ where: { id: skillId } });
-    if (!skill) {
-      throw new NotFoundException(`Skill #${skillId} 不存在`);
-    }
-    if (skill.status !== 'published') {
-      throw new NotFoundException(`Skill #${skillId} 未发布，无法执行`);
-    }
+    const { skill, pkg } = await this.skillLoader.loadPublishedPackage(skillId);
 
     // 2. 创建执行会话
-    const execution = this.executionRepository.create({
-      skillId,
-      threadId: threadId || `skill-${skillId}-${Date.now()}`,
-      status: 'running',
-      input: JSON.stringify({ userInput }),
-      startedAt: new Date(),
-      logs: '[]',
-      artifacts: '[]',
-    });
-    const savedExecution = await this.executionRepository.save(execution);
+    let savedExecution = options?.executionId
+      ? await this.executionRepository.findOne({ where: { id: options.executionId } })
+      : null;
+
+    if (savedExecution) {
+      savedExecution.status = 'running';
+      savedExecution.input = JSON.stringify({ userInput });
+      savedExecution.startedAt = new Date();
+      savedExecution.packageHash = pkg.packageHash;
+      savedExecution.logs = savedExecution.logs || '[]';
+      savedExecution.artifacts = savedExecution.artifacts || '[]';
+      if (threadId) savedExecution.threadId = threadId;
+    } else {
+      savedExecution = this.executionRepository.create({
+        skillId,
+        threadId: threadId || `skill-${skillId}-${Date.now()}`,
+        status: 'running',
+        input: JSON.stringify({ userInput }),
+        startedAt: new Date(),
+        packageHash: pkg.packageHash,
+        logs: '[]',
+        artifacts: '[]',
+      });
+    }
+    savedExecution = await this.executionRepository.save(savedExecution);
     const execId = savedExecution.id;
+    const actualThreadId = buildSkillWorkspaceId(skillId, execId, threadId || savedExecution.threadId);
+    savedExecution.workspaceId = actualThreadId;
+    await this.executionRepository.update(execId, { workspaceId: actualThreadId, packageHash: pkg.packageHash });
 
     const logs: ExecutionLogEntry[] = [];
     const artifacts: Array<{ name: string; path: string; type: string; size: number }> = [];
+    let eventSequence = await this.runtimeTrace.getLastSequence(execId);
+
+    const emitRuntimeEvent = (eventType: string, payload: unknown, status = 'info') => {
+      eventSequence += 1;
+      void this.runtimeTrace.recordEvent({
+        executionId: execId,
+        skillId,
+        sequence: eventSequence,
+        eventType,
+        status,
+        payload,
+      }).catch((err) => this.logger.warn(`运行事件写入失败: ${err instanceof Error ? err.message : String(err)}`));
+    };
 
     const addLog = (entry: ExecutionLogEntry) => {
       logs.push(entry);
       savedExecution.logs = JSON.stringify(logs);
       this.executionRepository.update(execId, { logs: savedExecution.logs });
+      emitRuntimeEvent(`skill.${entry.action}`, entry, entry.status);
     };
 
-    const actualThreadId = threadId || `skill-${skillId}-${Date.now()}`;
     let round = 0;
 
     try {
+      emitRuntimeEvent('skill.started', {
+        skillId,
+        executionId: execId,
+        workspaceId: actualThreadId,
+        packageHash: pkg.packageHash,
+        version: pkg.version,
+      });
+
       // 3. 注入 Skill 文件到 workspace（前置准备）
-      if (skill.files) {
-        await this.injectSkillFiles(skill, actualThreadId, addLog);
+      if (pkg.files.length > 0) {
+        await this.injectSkillFiles(pkg, actualThreadId, addLog);
       }
 
       // 4. 构建系统提示
-      const systemPrompt = this.buildSystemPrompt(skill);
+      const systemPrompt = this.buildSystemPrompt(skill, pkg);
 
       // 5. 解析工具定义
-      const tools = await this.buildTools(skill);
+      const tools = await this.buildTools(pkg);
 
       // 6. 多轮工具调用循环
       const messages: Array<any> = [
@@ -144,7 +187,7 @@ export class SkillExecutorService {
       ];
 
       let finalOutput = '';
-      while (round < this.MAX_ROUNDS) {
+      while (round < pkg.maxRounds) {
         round++;
         const roundStart = Date.now();
 
@@ -178,8 +221,18 @@ export class SkillExecutorService {
 
           for (const tc of msg.tool_calls) {
             const toolStart = Date.now();
+            let stepId: number | undefined;
             try {
               const args = JSON.parse(tc.function.arguments);
+              const step = await this.runtimeTrace.startStep({
+                executionId: execId,
+                skillId,
+                stepKey: `${round}:${tc.id}`,
+                type: 'tool',
+                toolName: tc.function.name,
+                input: args,
+              });
+              stepId = step.id;
               addLog({
                 round,
                 action: 'tool_call',
@@ -201,15 +254,16 @@ export class SkillExecutorService {
                   durationMs: duration,
                   message: `工具 ${tc.function.name} 执行成功 (${duration}ms)`,
                 });
+                await this.runtimeTrace.completeStep(stepId, 'completed', result.result, undefined, duration);
                 if (onProgress) onProgress({ type: 'tool_result', data: logs[logs.length - 1], artifacts: [...artifacts] });
 
                 // 捕获产物：检查结果中是否有 workspace 文件
                 if (result.result?.workspaceFile) {
-                  this.recordArtifact(artifacts, result.result.workspaceFile, savedExecution, execId);
+                  await this.recordArtifact(artifacts, result.result.workspaceFile, savedExecution, execId, skillId);
                 }
                 if (result.result?.files && Array.isArray(result.result.files)) {
                   for (const f of result.result.files) {
-                    this.recordArtifact(artifacts, f, savedExecution, execId);
+                    await this.recordArtifact(artifacts, f, savedExecution, execId, skillId);
                   }
                 }
 
@@ -228,6 +282,7 @@ export class SkillExecutorService {
                   durationMs: duration,
                   message: `工具 ${tc.function.name} 执行失败: ${result.error || '未知错误'}`,
                 });
+                await this.runtimeTrace.completeStep(stepId, 'failed', result, result.error || '工具执行失败', duration);
                 if (onProgress) onProgress({ type: 'tool_result', data: logs[logs.length - 1], artifacts: [...artifacts] });
                 messages.push({
                   role: 'tool',
@@ -243,6 +298,7 @@ export class SkillExecutorService {
                 status: 'error',
                 message: `工具异常: ${err.message || String(err)}`,
               });
+              await this.runtimeTrace.completeStep(stepId, 'failed', undefined, err.message || String(err), Date.now() - toolStart);
               if (onProgress) onProgress({ type: 'error', data: logs[logs.length - 1], artifacts: [...artifacts] });
               messages.push({
                 role: 'tool',
@@ -276,19 +332,19 @@ export class SkillExecutorService {
       }
 
       // 7. 如果达到最大轮数仍未结束，强制终止
-      if (round >= this.MAX_ROUNDS && !finalOutput) {
-        finalOutput = `执行已达到最大 ${this.MAX_ROUNDS} 轮限制，强制终止。`;
+      if (round >= pkg.maxRounds && !finalOutput) {
+        finalOutput = `执行已达到最大 ${pkg.maxRounds} 轮限制，强制终止。`;
         addLog({
           round,
           action: 'think',
           status: 'error',
-          message: `超过最大轮数 ${this.MAX_ROUNDS}，执行终止`,
+          message: `超过最大轮数 ${pkg.maxRounds}，执行终止`,
         });
       }
 
       // 8. 保存最终产物到 workspace（如果 AI 回复中有 HTML 等内容）
       if (finalOutput) {
-        await this.saveFinalArtifacts(finalOutput, actualThreadId, artifacts, addLog, savedExecution, execId);
+        await this.saveFinalArtifacts(finalOutput, actualThreadId, artifacts, addLog, savedExecution, execId, skillId);
       }
 
       // 9. 更新执行会话为完成状态
@@ -300,6 +356,13 @@ export class SkillExecutorService {
       savedExecution.totalDurationMs = Date.now() - startTime;
       savedExecution.completedAt = new Date();
       await this.executionRepository.save(savedExecution);
+      emitRuntimeEvent('skill.completed', {
+        executionId: execId,
+        status: 'completed',
+        totalRounds: round,
+        totalDurationMs: savedExecution.totalDurationMs,
+        artifacts,
+      }, 'success');
 
       const result: SkillExecutionResult = {
         executionId: execId,
@@ -320,6 +383,12 @@ export class SkillExecutorService {
       savedExecution.totalDurationMs = Date.now() - startTime;
       savedExecution.completedAt = new Date();
       await this.executionRepository.save(savedExecution);
+      emitRuntimeEvent('skill.failed', {
+        executionId: execId,
+        status: 'failed',
+        error: err.message,
+        totalRounds: round,
+      }, 'error');
 
       addLog({
         round: 0,
@@ -373,28 +442,28 @@ export class SkillExecutorService {
   /**
    * 构建系统提示词（Skill 的 agentPrompt + content + 执行指引）
    */
-  private buildSystemPrompt(skill: Skill): string {
+  private buildSystemPrompt(skill: Skill, pkg: SkillPackage): string {
     const parts: string[] = [];
 
     // 优先使用 agentPrompt（针对 agent 执行类型的最佳系统提示）
-    if (skill.agentPrompt) {
-      parts.push(skill.agentPrompt);
+    if (pkg.agentPrompt) {
+      parts.push(pkg.agentPrompt);
     } else {
-      parts.push(`你是一个专业的 AI 助手，正在执行 Skill「${skill.name}」。`);
-      if (skill.description) {
-        parts.push(`\n## Skill 描述\n${skill.description}`);
+      parts.push(`你是一个专业的 AI 助手，正在执行 Skill「${pkg.name}」。`);
+      if (pkg.description) {
+        parts.push(`\n## Skill 描述\n${pkg.description}`);
       }
     }
 
     // 注入 Skill content（详细步骤、原则、输入输出）
-    if (skill.content) {
-      parts.push(`\n## Skill 详情\n${skill.content}`);
-    }
+    parts.push(`\n## Skill 详情\n${pkg.instructions}`);
 
     // 注入 Skill 元信息
-    parts.push(`\n## 元信息\n- 命名空间: ${skill.namespace}`);
-    parts.push(`- 领域: ${skill.domain}/${skill.subDomain}`);
-    parts.push(`- 能力名称: ${skill.abilityName}`);
+    parts.push(`\n## 元信息\n- 命名空间: ${pkg.namespace}`);
+    parts.push(`- 版本: ${pkg.version}`);
+    parts.push(`- 包指纹: ${pkg.packageHash}`);
+    parts.push(`- 领域: ${pkg.domain}/${pkg.subDomain}`);
+    parts.push(`- 能力名称: ${pkg.abilityName}`);
     if (skill.scope) parts.push(`- 范围: ${skill.scope}`);
 
     // 执行指引
@@ -412,22 +481,8 @@ export class SkillExecutorService {
   /**
    * 构建工具列表（Skill 的 toolDefinition + 平台基础工具）
    */
-  private async buildTools(skill: Skill): Promise<any[]> {
-    const tools: any[] = [];
-
-    // 1. Skill 自定义工具定义
-    if (skill.toolDefinition) {
-      try {
-        const customTool = JSON.parse(skill.toolDefinition);
-        if (Array.isArray(customTool)) {
-          tools.push(...customTool);
-        } else {
-          tools.push(customTool);
-        }
-      } catch {
-        this.logger.warn(`Skill #${skill.id} toolDefinition 解析失败，跳过自定义工具`);
-      }
-    }
+  private async buildTools(pkg: SkillPackage): Promise<any[]> {
+    const tools: any[] = [...pkg.tools];
 
     // 2. 平台基础工具（通过 ToolBridge 获取）
     try {
@@ -450,35 +505,34 @@ export class SkillExecutorService {
    * 将 Skill 捆绑的文件注入到 workspace
    */
   private async injectSkillFiles(
-    skill: Skill,
+    pkg: SkillPackage,
     threadId: string,
     addLog: (entry: ExecutionLogEntry) => void,
   ): Promise<void> {
     try {
-      const files = JSON.parse(skill.files);
+      const files = pkg.files;
       if (!Array.isArray(files) || files.length === 0) return;
 
       for (const file of files) {
         try {
-          if (file.description && file.name) {
-            // description 字段存的是 base64 编码的文件内容
-            const content = file.description;
-            const mimeType = this.guessMimeType(file.name);
-            await this.workspaceService.writeFile(threadId, file.name, content, mimeType);
+          if (file.content && file.path) {
+            const content = this.decodeSkillFile(file);
+            const mimeType = file.mimeType || this.guessMimeType(file.name);
+            await this.workspaceService.writeFile(threadId, file.path, content, mimeType);
             addLog({
               round: 0,
               action: 'tool_call',
               toolName: 'inject_file',
               status: 'success',
-              message: `注入文件到 workspace: ${file.name} (${file.type || 'unknown'})`,
+              message: `注入文件到 workspace: ${file.path} (${file.type || 'unknown'})`,
             });
           }
         } catch (fileErr) {
-          this.logger.warn(`Skill文件注入失败: ${file.name}: ${fileErr instanceof Error ? fileErr.message : String(fileErr)}`);
+          this.logger.warn(`Skill文件注入失败: ${file.path}: ${fileErr instanceof Error ? fileErr.message : String(fileErr)}`);
         }
       }
     } catch {
-      this.logger.warn(`Skill #${skill.id} files 解析失败，跳过文件注入`);
+      this.logger.warn(`SkillPackage #${pkg.id} files 注入失败，跳过文件注入`);
     }
   }
 
@@ -492,6 +546,7 @@ export class SkillExecutorService {
     addLog: (entry: ExecutionLogEntry) => void,
     execution?: any,
     execId?: number,
+    skillId?: number,
   ): Promise<void> {
     // 如果 AI 的回复中包含大型 Markdown 或 HTML 内容，保存为文档
     if (output.length > 500 && !this.isHtmlInArtifacts(artifacts)) {
@@ -501,7 +556,7 @@ export class SkillExecutorService {
         const filename = `skill_output_${Date.now()}.html`;
         try {
           const file = await this.workspaceService.writeFile(threadId, filename, output, 'text/html');
-          this.recordArtifact(artifacts, file, execution, execId);
+          await this.recordArtifact(artifacts, file, execution, execId, skillId);
           addLog({
             round: 0,
             action: 'tool_result',
@@ -527,7 +582,7 @@ export class SkillExecutorService {
         const filename = `code_${codeIdx}.${ext}`;
         try {
           const file = await this.workspaceService.writeFile(threadId, filename, code);
-          this.recordArtifact(artifacts, file, execution, execId);
+          await this.recordArtifact(artifacts, file, execution, execId, skillId);
           codeIdx++;
         } catch { /* ignore */ }
       }
@@ -542,6 +597,7 @@ export class SkillExecutorService {
     file: any,
     execution: any,
     execId?: number,
+    skillId?: number,
   ): Promise<void> {
     if (!file || !file.name) return;
     // 去重
@@ -562,6 +618,27 @@ export class SkillExecutorService {
         await this.executionRepository.update(execId, { artifacts: execution.artifacts });
       } catch { /* ignore */ }
     }
+    if (execId && skillId) {
+      try {
+        await this.runtimeTrace.recordArtifact({
+          executionId: execId,
+          skillId,
+          name: file.name,
+          path: file.path,
+          type: file.type || 'file',
+          size: file.size || 0,
+          mimeType: file.mimeType,
+        });
+      } catch { /* ignore */ }
+    }
+  }
+
+  private decodeSkillFile(file: SkillPackageFile): string | Buffer {
+    if (!file.content) return '';
+    if (file.encoding === 'base64') {
+      return Buffer.from(file.content, 'base64');
+    }
+    return file.content;
   }
 
   /**

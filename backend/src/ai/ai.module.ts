@@ -9,11 +9,44 @@ import { AiController } from './ai.controller';
 import { Agent } from '../entities/agent.entity';
 import { Skill } from '../entities/skill.entity';
 import { SkillExecution } from '../entities/skill-execution.entity';
+import { SkillRuntimeArtifact, SkillRuntimeEvent, SkillRuntimeStep } from '../entities';
+import { SkillLoaderService } from '../skill-runtime/skill-loader.service';
+import { SkillResolverService } from '../skill-runtime/skill-resolver.service';
+import { SkillRuntimeTraceService } from '../skill-runtime/skill-runtime-trace.service';
+import { SkillRuntimeQueueService } from '../skill-runtime/skill-runtime-queue.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Agent, Skill, SkillExecution]), WorkspaceModule],
-  providers: [AiService, ExecutionService, ToolBridgeService, SkillExecutorService],
+  imports: [
+    TypeOrmModule.forFeature([
+      Agent,
+      Skill,
+      SkillExecution,
+      SkillRuntimeArtifact,
+      SkillRuntimeEvent,
+      SkillRuntimeStep,
+    ]),
+    WorkspaceModule,
+  ],
+  providers: [
+    AiService,
+    ExecutionService,
+    ToolBridgeService,
+    SkillExecutorService,
+    SkillLoaderService,
+    SkillResolverService,
+    SkillRuntimeTraceService,
+    SkillRuntimeQueueService,
+  ],
   controllers: [AiController],
-  exports: [AiService, ExecutionService, ToolBridgeService, SkillExecutorService],
+  exports: [
+    AiService,
+    ExecutionService,
+    ToolBridgeService,
+    SkillExecutorService,
+    SkillLoaderService,
+    SkillResolverService,
+    SkillRuntimeTraceService,
+    SkillRuntimeQueueService,
+  ],
 })
 export class AiModule {}
