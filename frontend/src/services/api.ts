@@ -351,7 +351,7 @@ export const knowledgeApi = {
 
   uploadDocument: (id: number, file: File, options?: { chunkSize?: number; chunkOverlap?: number }): Promise<KnowledgeDocument> => {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', file, file.name);
     if (options?.chunkSize) formData.append('chunkSize', String(options.chunkSize));
     if (options?.chunkOverlap) formData.append('chunkOverlap', String(options.chunkOverlap));
     return apiClient.post(`/knowledge-bases/${id}/documents`, formData, {

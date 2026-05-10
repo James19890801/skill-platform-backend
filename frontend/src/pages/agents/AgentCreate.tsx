@@ -36,6 +36,7 @@ import { SkillDomain, DomainLabels } from '../../types';
 import { LlmModel, llmApi, knowledgeApi } from '../../services/api';
 import {
   AGENT_ICON_LIBRARY,
+  DEFAULT_AGENT_ICON,
   getAgentAvatarSrc,
   getAgentAvatarStyle,
   renderAgentAvatarContent,
@@ -79,7 +80,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
   }>>([]);
   const [availableModels, setAvailableModels] = useState<LlmModel[]>([]);
   const [availableKnowledgeBases, setAvailableKnowledgeBases] = useState<Array<{ id: number; name: string; documentCount: number }>>([]);
-  const [avatar, setAvatar] = useState<string>('icon:01');
+  const [avatar, setAvatar] = useState<string>(DEFAULT_AGENT_ICON);
 
   // 从后端加载 Skills 列表
   useEffect(() => {
@@ -138,14 +139,14 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
         temperature: initialData.temperature,
         maxTokens: initialData.maxTokens || 2048,
       });
-      setAvatar((initialData as any).avatar || 'icon:01');
+      setAvatar((initialData as any).avatar || DEFAULT_AGENT_ICON);
     }
   }, [editId, initialData, form]);
 
   const readAvatarFile = (file: File): false => {
     const reader = new FileReader();
     reader.onload = () => {
-      setAvatar(String(reader.result || 'icon:01'));
+      setAvatar(String(reader.result || DEFAULT_AGENT_ICON));
       message.success('头像已上传');
     };
     reader.onerror = () => message.error('头像读取失败');
@@ -264,26 +265,34 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
                     <Upload beforeUpload={readAvatarFile} showUploadList={false} accept="image/*">
                       <Button icon={<UploadOutlined />}>上传本地图片</Button>
                     </Upload>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 28px)', gap: 6, maxWidth: 340 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      也可以选择 30 个平台内置 AI 主题图标
+                    </Text>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 36px)', gap: 8, maxWidth: 260 }}>
                       {AGENT_ICON_LIBRARY.map((icon) => (
                         <button
                           key={icon.token}
                           type="button"
                           onClick={() => setAvatar(icon.token)}
                           style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 8,
-                            border: avatar === icon.token ? '2px solid #111827' : '1px solid #e5e7eb',
+                            width: 36,
+                            height: 36,
+                            borderRadius: 10,
+                            border: avatar === icon.token ? '2px solid #2563eb' : '1px solid #d7dde7',
                             background: icon.background,
                             color: '#fff',
-                            fontSize: 10,
-                            fontWeight: 700,
+                            fontSize: 18,
+                            lineHeight: '32px',
                             cursor: 'pointer',
+                            boxShadow: avatar === icon.token
+                              ? `0 0 0 3px ${icon.accent}, 0 10px 22px rgba(15, 23, 42, 0.16)`
+                              : '0 6px 14px rgba(15, 23, 42, 0.10)',
+                            transition: 'transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease',
                           }}
-                          title={`图标 ${icon.label}`}
+                          title={icon.label}
+                          aria-label={icon.label}
                         >
-                          {icon.label}
+                          {icon.glyph}
                         </button>
                       ))}
                     </div>

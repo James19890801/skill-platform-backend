@@ -12,6 +12,7 @@ import {
   extractTextFromDocument,
   rankKnowledgeChunks,
 } from './knowledge-pipeline';
+import { normalizeUploadedFilename } from './filename';
 
 @Injectable()
 export class KnowledgeService {
@@ -40,7 +41,7 @@ export class KnowledgeService {
     knowledgeBase.name = createKnowledgeBaseDto.name;
     knowledgeBase.description = createKnowledgeBaseDto.description;
     knowledgeBase.source = createKnowledgeBaseDto.source || KnowledgeSource.LOCAL;
-    knowledgeBase.documents = createKnowledgeBaseDto.documents || [];
+    knowledgeBase.documents = (createKnowledgeBaseDto.documents || []).map(normalizeUploadedFilename);
     knowledgeBase.documentCount = createKnowledgeBaseDto.documentCount || 0;
     knowledgeBase.status = createKnowledgeBaseDto.status || KnowledgeStatus.CONNECTED;
     knowledgeBase.userId = userId;
@@ -49,16 +50,18 @@ export class KnowledgeService {
   }
 
   async findAll(): Promise<KnowledgeBase[]> {
-    return await this.knowledgeRepository.find({
+    const knowledgeBases = await this.knowledgeRepository.find({
       order: { createdAt: 'DESC' },
     });
+    return knowledgeBases.map((knowledgeBase) => this.normalizeKnowledgeBaseDisplay(knowledgeBase));
   }
 
   async findAllByUserId(userId: number): Promise<KnowledgeBase[]> {
-    return await this.knowledgeRepository.find({
+    const knowledgeBases = await this.knowledgeRepository.find({
       where: { userId },
       order: { createdAt: 'DESC' },
     });
+    return knowledgeBases.map((knowledgeBase) => this.normalizeKnowledgeBaseDisplay(knowledgeBase));
   }
 
   async findOne(id: number): Promise<KnowledgeBase> {
@@ -78,7 +81,13 @@ export class KnowledgeService {
       this.chunkRepository.count({ where: { knowledgeBaseId: id } }),
     ]);
 
-    return Object.assign(knowledgeBase, { indexedDocuments: documents, chunkCount });
+    return Object.assign(
+      this.normalizeKnowledgeBaseDisplay(knowledgeBase),
+      {
+        indexedDocuments: documents.map((document) => this.normalizeDocumentDisplay(document)),
+        chunkCount,
+      },
+    );
   }
 
   async findOneForUser(id: number, userId: number): Promise<KnowledgeBase> {
@@ -90,12 +99,15 @@ export class KnowledgeService {
       throw new NotFoundException(`KnowledgeBase with ID ${id} not found for user`);
     }
 
-    return knowledgeBase;
+    return this.normalizeKnowledgeBaseDisplay(knowledgeBase);
   }
 
   async update(id: number, updateKnowledgeBaseDto: UpdateKnowledgeBaseDto): Promise<KnowledgeBase> {
     const knowledgeBase = await this.findOne(id);
 
+    if (updateKnowledgeBaseDto.documents) {
+      updateKnowledgeBaseDto.documents = updateKnowledgeBaseDto.documents.map(normalizeUploadedFilename);
+    }
     Object.assign(knowledgeBase, updateKnowledgeBaseDto);
     knowledgeBase.updatedAt = new Date();
 
@@ -105,6 +117,9 @@ export class KnowledgeService {
   async updateForUser(id: number, updateKnowledgeBaseDto: UpdateKnowledgeBaseDto, userId: number): Promise<KnowledgeBase> {
     const knowledgeBase = await this.findOneForUser(id, userId);
 
+    if (updateKnowledgeBaseDto.documents) {
+      updateKnowledgeBaseDto.documents = updateKnowledgeBaseDto.documents.map(normalizeUploadedFilename);
+    }
     Object.assign(knowledgeBase, updateKnowledgeBaseDto);
     knowledgeBase.updatedAt = new Date();
 
@@ -137,9 +152,10 @@ export class KnowledgeService {
     options: { chunkSize?: number; chunkOverlap?: number } = {},
   ): Promise<KnowledgeDocument> {
     const knowledgeBase = await this.findOne(knowledgeBaseId);
+    const displayName = normalizeUploadedFilename(file.originalname);
     const document = await this.documentRepository.save(this.documentRepository.create({
       knowledgeBaseId,
-      name: file.originalname,
+      name: displayName,
       mimeType: file.mimetype,
       size: file.size || file.buffer.length,
       status: 'processing',
@@ -147,12 +163,12 @@ export class KnowledgeService {
     }));
 
     try {
-      const text = await extractTextFromDocument(file.buffer, file.originalname, file.mimetype);
+      const text = await extractTextFromDocument(file.buffer, displayName, file.mimetype);
       const chunks = chunkText(text, {
         chunkSize: options.chunkSize,
         chunkOverlap: options.chunkOverlap,
         metadata: {
-          documentName: file.originalname,
+          documentName: displayName,
           mimeType: file.mimetype,
           knowledgeBaseId,
         },
@@ -178,7 +194,7 @@ export class KnowledgeService {
       document.error = undefined;
       const savedDocument = await this.documentRepository.save(document);
 
-      knowledgeBase.documents = Array.from(new Set([...(knowledgeBase.documents || []), file.originalname]));
+      knowledgeBase.documents = Array.from(new Set([...(knowledgeBase.documents || []), displayName]));
       knowledgeBase.documentCount = await this.documentRepository.count({ where: { knowledgeBaseId } });
       knowledgeBase.status = KnowledgeStatus.CONNECTED;
       await this.knowledgeRepository.save(knowledgeBase);
@@ -209,10 +225,11 @@ export class KnowledgeService {
 
   async listDocuments(knowledgeBaseId: number): Promise<KnowledgeDocument[]> {
     await this.findOne(knowledgeBaseId);
-    return this.documentRepository.find({
+    const documents = await this.documentRepository.find({
       where: { knowledgeBaseId },
       order: { createdAt: 'DESC' },
     });
+    return documents.map((document) => this.normalizeDocumentDisplay(document));
   }
 
   async search(
@@ -281,6 +298,16 @@ export class KnowledgeService {
       this.logger.warn(`Embedding API 不可用，已降级为本地检索: ${err instanceof Error ? err.message : String(err)}`);
       return texts.map(createLocalEmbedding);
     }
+  }
+
+  private normalizeKnowledgeBaseDisplay(knowledgeBase: KnowledgeBase): KnowledgeBase {
+    knowledgeBase.documents = (knowledgeBase.documents || []).map(normalizeUploadedFilename);
+    return knowledgeBase;
+  }
+
+  private normalizeDocumentDisplay(document: KnowledgeDocument): KnowledgeDocument {
+    document.name = normalizeUploadedFilename(document.name);
+    return document;
   }
 }
 
