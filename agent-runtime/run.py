@@ -12,13 +12,15 @@ from config.settings import settings
 import uvicorn
 
 if __name__ == "__main__":
-    print(f"Starting Deep Agent Runtime on {settings.agent_runtime_host}:{settings.agent_runtime_port}")
+    runtime_port = int(os.environ.get("PORT") or settings.agent_runtime_port)
+
+    print(f"Starting Deep Agent Runtime on {settings.agent_runtime_host}:{runtime_port}")
     print(f"Default model: {settings.default_model}")
     print(f"DashScope base URL: {settings.dashscope_base_url}")
     
     uvicorn.run(
         "src.main:app",
         host=settings.agent_runtime_host,
-        port=settings.agent_runtime_port,
+        port=runtime_port,
         reload=False,
     )
