@@ -2,7 +2,7 @@
  * Settings - 设置页面
  * 用户设置、模型配置、API Key 管理
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Card,
   Tabs,
@@ -15,6 +15,8 @@ import {
   Space,
   Divider,
   message,
+  Table,
+  Tag,
 } from 'antd';
 import {
   SettingOutlined,
@@ -22,11 +24,28 @@ import {
   SafetyOutlined,
   BellOutlined,
 } from '@ant-design/icons';
+import { LlmModel, LlmProvider, llmApi } from '../../services/api';
 
 const { Title, Text } = Typography;
 
 const Settings: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const [providers, setProviders] = useState<LlmProvider[]>([]);
+  const [models, setModels] = useState<LlmModel[]>([]);
+  const [providerForm] = Form.useForm();
+
+  const loadLlmData = async () => {
+    const [providerData, modelData] = await Promise.all([
+      llmApi.listProviders().catch(() => []),
+      llmApi.listModels().catch(() => []),
+    ]);
+    setProviders(providerData);
+    setModels(modelData);
+  };
+
+  useEffect(() => {
+    loadLlmData();
+  }, []);
 
   const handleSave = () => {
     setLoading(true);
@@ -34,6 +53,21 @@ const Settings: React.FC = () => {
       message.success('设置已保存');
       setLoading(false);
     }, 500);
+  };
+
+  const handleRegisterProvider = async () => {
+    try {
+      const values = await providerForm.validateFields();
+      setLoading(true);
+      await llmApi.createProvider(values);
+      message.success('模型供应商已注册并完成扫描');
+      providerForm.resetFields();
+      await loadLlmData();
+    } catch (error: any) {
+      if (!error?.errorFields) message.error('模型注册失败');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -52,36 +86,52 @@ const Settings: React.FC = () => {
               icon: <ApiOutlined />,
               children: (
                 <Form layout="vertical">
-                  <Title level={5}>阿里云百炼 API</Title>
+                  <Title level={5}>模型供应商</Title>
                   <Text type="secondary" style={{ marginBottom: 12, display: 'block' }}>
-                    使用 OpenAI 兼容协议调用百炼模型
+                    填 AK 后扫描可用模型，注册成功后可在 Agent 创建和对话中选择。
                   </Text>
-                  <Form.Item 
-                    label="API Key" 
-                    name="bailianApiKey"
-                    extra="在阿里云控制台 → DashScope → API-KEY管理 中获取"
-                  >
-                    <Input.Password placeholder="sk-xxxxxxxxxxxxxxxx" />
-                  </Form.Item>
-                  <Form.Item 
-                    label="Base URL" 
-                    name="bailianBaseUrl"
-                    extra="OpenAI 兼容模式地址，无需修改"
-                  >
-                    <Input 
-                      defaultValue="https://dashscope.aliyuncs.com/compatible-mode/v1"
-                      placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
-                    />
-                  </Form.Item>
+                  <Form form={providerForm} layout="vertical">
+                    <Form.Item label="供应商" name="provider" initialValue="dashscope" rules={[{ required: true }]}>
+                      <Select
+                        options={[
+                          { value: 'dashscope', label: '通义千问 / DashScope' },
+                          { value: 'deepseek', label: 'DeepSeek' },
+                          { value: 'openai', label: 'OpenAI' },
+                          { value: 'openai-compatible', label: 'OpenAI 兼容网关' },
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item label="显示名称" name="name" rules={[{ required: true, message: '请输入名称' }]}>
+                      <Input placeholder="公司主账号 / 测试网关" />
+                    </Form.Item>
+                    <Form.Item label="Base URL" name="baseUrl">
+                      <Input placeholder="留空使用供应商默认地址" />
+                    </Form.Item>
+                    <Form.Item label="API Key" name="apiKey" rules={[{ required: true, message: '请输入 AK' }]}>
+                      <Input.Password placeholder="sk-..." />
+                    </Form.Item>
+                    <Button type="primary" onClick={handleRegisterProvider} loading={loading}>
+                      注册并扫描模型
+                    </Button>
+                  </Form>
+                  <Divider />
+                  <Title level={5}>可用模型</Title>
+                  <Table
+                    size="small"
+                    rowKey={(record) => record.code}
+                    dataSource={models}
+                    pagination={{ pageSize: 6 }}
+                    columns={[
+                      { title: '模型', dataIndex: 'label' },
+                      { title: '代码', dataIndex: 'code', render: (value: string) => <Text code>{value}</Text> },
+                      { title: '能力', dataIndex: 'capability', render: (value: string) => <Tag color={value === 'embedding' ? 'purple' : 'blue'}>{value}</Tag> },
+                    ]}
+                  />
                   <Divider />
                   <Title level={5}>默认模型</Title>
                   <Form.Item label="默认对话模型" name="defaultModel">
                     <Select
-                      options={[
-                        { value: 'qwen-turbo', label: '通义千问 Turbo' },
-                        { value: 'qwen-plus', label: '通义千问 Plus' },
-                        { value: 'qwen-max', label: '通义千问 Max' },
-                      ]}
+                      options={models.map((model) => ({ value: model.code, label: model.label }))}
                     />
                   </Form.Item>
                   <Button type="primary" onClick={handleSave} loading={loading} style={{ background: '#6366f1' }}>

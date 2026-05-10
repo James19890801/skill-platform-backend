@@ -16,6 +16,16 @@ import { useAuthStore } from '../../stores/useAuthStore';
 const { TextArea } = Input;
 const { Text } = Typography;
 
+type PackageFileType = 'script' | 'template' | 'reference' | 'asset' | 'data';
+
+const folderByType: Record<PackageFileType, string> = {
+  script: 'scripts',
+  template: 'templates',
+  reference: 'references',
+  asset: 'assets',
+  data: 'data',
+};
+
 const colors = {
   primary: '#2563eb',
   green: '#10b981',
@@ -71,7 +81,7 @@ const SkillEdit: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
   const [skill, setSkill] = useState<any>(null);
-  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; path: string; type: string; description: string; size: number }>>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; path: string; type: PackageFileType; content?: string; encoding?: 'utf8' | 'base64'; mimeType?: string; size: number }>>([]);
   const [uploading, setUploading] = useState(false);
 
   // 文件上传处理 — 读取为 Base64 并加入列表
@@ -80,16 +90,19 @@ const SkillEdit: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const base64 = (e.target?.result as string) || '';
-      let fileType = 'assets';
+      let fileType: PackageFileType = 'asset';
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
-      if (['py', 'sh', 'js', 'ts'].includes(ext)) fileType = 'scripts';
-      else if (['docx', 'xlsx', 'pptx', 'doc', 'xls'].includes(ext)) fileType = 'templates';
-      else if (['pdf', 'md', 'txt', 'json', 'yaml', 'yml'].includes(ext)) fileType = 'references';
+      if (['py', 'sh', 'js', 'ts'].includes(ext)) fileType = 'script';
+      else if (['docx', 'xlsx', 'pptx', 'doc', 'xls'].includes(ext)) fileType = 'template';
+      else if (['csv', 'parquet'].includes(ext)) fileType = 'data';
+      else if (['pdf', 'md', 'txt', 'json', 'yaml', 'yml'].includes(ext)) fileType = 'reference';
       setUploadedFiles(prev => [...prev, {
         name: file.name,
-        path: `${fileType}/${file.name}`,
+        path: `${folderByType[fileType]}/${file.name}`,
         type: fileType,
-        description: base64,
+        content: base64,
+        encoding: 'base64',
+        mimeType: file.type,
         size: file.size,
       }]);
       message.success(`已添加: ${file.name}`);
@@ -106,11 +119,23 @@ const SkillEdit: React.FC = () => {
 
   // 加载 skill 时同步已有 files
   useEffect(() => {
-    if (skill?.files && Array.isArray(skill.files)) {
-      setUploadedFiles(skill.files.map((f: any) => ({
-        name: f.name || '', path: f.path || '', type: f.type || 'assets',
-        description: f.description || '', size: f.size || 0,
-      })));
+    if (skill?.files) {
+      const parsedFiles = typeof skill.files === 'string'
+        ? (() => {
+            try { return JSON.parse(skill.files); } catch { return []; }
+          })()
+        : skill.files;
+      if (Array.isArray(parsedFiles)) {
+        setUploadedFiles(parsedFiles.map((f: any) => ({
+          name: f.name || '',
+          path: f.path || f.name || '',
+          type: (['script', 'template', 'reference', 'asset', 'data'].includes(f.type) ? f.type : 'reference') as PackageFileType,
+          content: f.content || f.description || '',
+          encoding: f.encoding || (f.content || f.description ? 'base64' : 'utf8'),
+          mimeType: f.mimeType || f.mime,
+          size: f.size || 0,
+        })));
+      }
     }
   }, [skill?.id]);
 
@@ -161,9 +186,7 @@ const SkillEdit: React.FC = () => {
       setSaving(true);
       // 将上传文件列表转为 JSON 字符串（后端期望）
       const payload = { ...values };
-      if (uploadedFiles.length > 0) {
-        payload.files = JSON.stringify(uploadedFiles);
-      }
+      payload.files = JSON.stringify(uploadedFiles);
       await skillsApi.update(Number(id), payload);
       message.success('Skill 已更新');
       navigate(`/skills/${id}`);
@@ -472,7 +495,7 @@ const SkillEdit: React.FC = () => {
                   <Space size={8}>
                     <FileTextOutlined style={{ color: '#6366f1' }} />
                     <Text style={{ fontSize: 13 }}>{file.name}</Text>
-                    <Tag color="blue" style={{ fontSize: 11 }}>{file.type}/</Tag>
+                    <Tag color="blue" style={{ fontSize: 11 }}>{folderByType[file.type]}/</Tag>
                     <Text type="secondary" style={{ fontSize: 11 }}>
                       {(file.size / 1024).toFixed(1)} KB
                     </Text>

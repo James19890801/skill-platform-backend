@@ -11,6 +11,7 @@ import SkillCreate from './pages/skills/SkillCreate';
 import SkillEdit from './pages/skills/SkillEdit';
 import KnowledgeManager from './pages/knowledge/KnowledgeManager';
 import MemoryManager from './pages/memory/MemoryManager';
+import IntegrationCenter from './pages/integration/IntegrationCenter';
 import Settings from './pages/settings/Settings';
 import LoginPage from './pages/LoginPage';
 import UserManagement from './pages/users/UserManagement';
@@ -40,6 +41,7 @@ function App() {
           <Route path="skills/edit/:id" element={<SkillEdit />} />
           <Route path="knowledge" element={<KnowledgeManager />} />
           <Route path="memory" element={<MemoryManager />} />
+          <Route path="integrations" element={<IntegrationCenter />} />
           
           {/* 设置 */}
           <Route path="settings" element={<Settings />} />
@@ -49,6 +51,7 @@ function App() {
         </Route>
         
         <Route path="login" element={<LoginPage />} />
+        <Route path="embed/chat/:agentId" element={<AgentChatCanvas />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

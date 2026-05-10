@@ -52,6 +52,11 @@ export class CreateSkillDto {
   @IsOptional()
   content?: string;
 
+  @ApiPropertyOptional({ description: '捆绑文件列表（JSON）' })
+  @IsString()
+  @IsOptional()
+  files?: string;
+
   @ApiPropertyOptional({ description: 'SkillPackage manifest（JSON）' })
   @IsString()
   @IsOptional()

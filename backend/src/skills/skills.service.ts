@@ -14,7 +14,11 @@ import {
   SkillQueryDto,
   SubmitReviewDto,
 } from './dto';
-import { buildSkillPackage } from '../skill-runtime/skill-package';
+import {
+  buildSkillPackage,
+  buildSkillPackageZip,
+  parseSkillPackageZip,
+} from '../skill-runtime/skill-package';
 
 @Injectable()
 export class SkillsService {
@@ -102,6 +106,33 @@ export class SkillsService {
     await this.versionRepository.save(version);
 
     return this.findOne(savedSkill.id);
+  }
+
+  async createFromPackageZip(
+    buffer: Buffer,
+    userId: number,
+    overrides: Partial<CreateSkillDto> = {},
+  ) {
+    const draft = await parseSkillPackageZip(buffer, {
+      namespace: overrides.namespace,
+      name: overrides.name,
+    });
+
+    return this.create({
+      namespace: overrides.namespace || draft.namespace,
+      name: overrides.name || draft.name,
+      domain: overrides.domain || draft.domain,
+      subDomain: overrides.subDomain || draft.subDomain,
+      abilityName: overrides.abilityName || draft.abilityName,
+      description: overrides.description || draft.description,
+      scope: overrides.scope || 'personal',
+      type: overrides.type || 'pure-business',
+      content: draft.content,
+      files: JSON.stringify(draft.files),
+      manifest: draft.manifest,
+      runtimePolicy: draft.runtimePolicy,
+      triggerRules: draft.triggerRules,
+    }, userId);
   }
 
   async update(id: number, updateDto: UpdateSkillDto, userId: number) {
@@ -199,6 +230,17 @@ export class SkillsService {
       where: { skillId: id },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async getPackageZip(id: number): Promise<{ filename: string; buffer: Buffer }> {
+    const skill = await this.findOne(id);
+    const pkg = buildSkillPackage(skill as any);
+    const filename = `${pkg.namespace}-${pkg.version}.zip`.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+    return {
+      filename,
+      buffer: await buildSkillPackageZip(pkg),
+    };
   }
 
   async createVersion(id: number, dto: CreateSkillVersionDto, userId: number) {

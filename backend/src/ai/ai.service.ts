@@ -9,6 +9,8 @@ import { ToolBridgeService } from './tool-bridge.service';
 import { SkillExecutorService } from './skill-executor.service';
 import { WorkspaceService } from '../workspace/workspace.service';
 import { SkillResolverService } from '../skill-runtime/skill-resolver.service';
+import { KnowledgeService } from '../knowledge/knowledge.service';
+import { LlmService } from '../llm/llm.service';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -98,6 +100,23 @@ function getOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function parseNumericIds(value: unknown): number[] {
+  const parsed = typeof value === 'string' ? safeJsonParse(value) : value;
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .map((item) => Number(item))
+    .filter((item) => Number.isInteger(item) && item > 0);
+}
+
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return [];
+  }
+}
+
 function normalizePlannedSkill(value: unknown): PlannedSkill | null {
   if (!isRecord(value)) {
     return null;
@@ -184,6 +203,8 @@ export class AiService {
     private skillExecutor: SkillExecutorService,
     private workspaceService: WorkspaceService,
     private skillResolver: SkillResolverService,
+    private knowledgeService: KnowledgeService,
+    private llmService: LlmService,
   ) {
     const apiKey = process.env.QWEN_API_KEY;
     if (!apiKey) {
@@ -471,6 +492,18 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         if (agent) {
           systemPrompt = agent.systemPrompt || `你是一个智能助手，名称是「${agent.name}」，根据用户的指令提供帮助。`;
 
+          const agentKnowledgeBaseIds = parseNumericIds(agent.knowledgeBases);
+          if (agentKnowledgeBaseIds.length > 0 && message.trim()) {
+            try {
+              const knowledge = await this.knowledgeService.searchMany(agentKnowledgeBaseIds, message, 5);
+              if (knowledge.context) {
+                systemPrompt += `\n\n以下是已关联知识库检索结果。回答时优先参考这些内容；如果内容不足，请说明缺口。\n\n${knowledge.context}`;
+              }
+            } catch (err) {
+              this.logger.warn(`知识库检索失败，继续常规对话: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+
           const agentSkills: string[] = agent.skills
             ? (typeof agent.skills === 'string' ? JSON.parse(agent.skills) : agent.skills)
             : (skills || []);
@@ -521,7 +554,9 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     history.push({ role: 'user', content: message });
 
     // ===== 4. 工具调用循环（流式优先 — 毫秒级响应） =====
-    const modelName = model || this.model;
+    const modelBinding = await this.llmService.getModelClient(model || this.model);
+    const chatClient = modelBinding.client;
+    const modelName = modelBinding.model;
     const apiBaseUrl = process.env.API_BASE_URL || 'https://skill-platform-backend-production.up.railway.app';
     let fullContent = '';
 
@@ -547,7 +582,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     
     if (!onChunk) {
       // 非流式模式：直接一次调用，最快速度
-      const completion = await this.client.chat.completions.create({
+      const completion = await chatClient.chat.completions.create({
         model: modelName,
         messages,
         tools: allTools,
@@ -568,14 +603,14 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
             messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` }) } as any);
           }
         }
-        const final = await this.client.chat.completions.create({ model: modelName, messages, temperature: 0.7, max_tokens: 4096 } as any);
+        const final = await chatClient.chat.completions.create({ model: modelName, messages, temperature: 0.7, max_tokens: 4096 } as any);
         fullContent = final.choices[0]?.message?.content || '';
       } else {
         fullContent = msg?.content || '';
       }
     } else {
       // ★ 流式模式：直接流式调用，AI 开始输出即刻推送，不走非流式预检
-      const stream = await this.client.chat.completions.create({
+      const stream = await chatClient.chat.completions.create({
         model: modelName,
         messages,
         tools: allTools,
@@ -659,7 +694,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
 
           // 二次流式：AI 基于工具结果生成最终回复
           fullContent = '';
-          const toolStream = await this.client.chat.completions.create({
+          const toolStream = await chatClient.chat.completions.create({
             model: modelName,
             messages,
             temperature: 0.7,

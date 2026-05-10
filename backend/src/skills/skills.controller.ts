@@ -10,7 +10,13 @@ import {
   UseGuards,
   Request,
   ParseIntPipe,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -63,6 +69,18 @@ export class SkillsController {
     return this.skillsService.findAll(query);
   }
 
+  @Get(':id/package.zip')
+  @ApiOperation({ summary: '下载标准 Skill zip 包' })
+  async downloadPackage(
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ) {
+    const { filename, buffer } = await this.skillsService.getPackageZip(id);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: '获取技能详情' })
   async findOne(@Param('id', ParseIntPipe) id: number) {
@@ -75,6 +93,25 @@ export class SkillsController {
   @ApiOperation({ summary: '创建技能（需登录）' })
   async create(@Body() createDto: CreateSkillDto, @Request() req: any) {
     return this.skillsService.create(createDto, req.user.id);
+  }
+
+  @Post('import')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @UseInterceptors(FileInterceptor('file', {
+    limits: { fileSize: 25 * 1024 * 1024 },
+  }))
+  @ApiOperation({ summary: '上传标准 Skill zip 包创建草稿' })
+  async importPackage(
+    @UploadedFile() file: any,
+    @Body() body: Partial<CreateSkillDto>,
+    @Request() req: any,
+  ) {
+    if (!file?.buffer) {
+      throw new BadRequestException('请上传 zip 包');
+    }
+
+    return this.skillsService.createFromPackageZip(file.buffer, req.user.id, body);
   }
 
   @Put(':id')

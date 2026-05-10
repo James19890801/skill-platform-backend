@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import JSZip from 'jszip';
 
 export type NetworkPermission = 'none' | 'allowlist' | 'all';
 
@@ -73,6 +74,21 @@ export interface SkillLike {
   triggerRules?: string | null;
 }
 
+export interface ParsedSkillPackageDraft {
+  namespace: string;
+  name: string;
+  domain: string;
+  subDomain: string;
+  abilityName: string;
+  description: string;
+  currentVersion: string;
+  content: string;
+  files: SkillPackageFile[];
+  manifest: string;
+  runtimePolicy?: string;
+  triggerRules?: string;
+}
+
 const DEFAULT_MAX_ROUNDS = 15;
 
 export function buildSkillPackage(skill: SkillLike): SkillPackage {
@@ -130,6 +146,85 @@ export function resolveSkillCandidates(
 export function buildSkillWorkspaceId(skillId: number, executionId: number, threadId?: string): string {
   const suffix = sanitizeSegment(threadId || 'standalone');
   return `skill_${skillId}_exec_${executionId}_${suffix}`;
+}
+
+export async function buildSkillPackageZip(skill: SkillPackage | SkillLike): Promise<Buffer> {
+  const pkg = isSkillPackage(skill) ? skill : buildSkillPackage(skill);
+  const zip = new JSZip();
+
+  zip.file('SKILL.md', pkg.instructions);
+  zip.file('skill.json', JSON.stringify(toPackageManifest(pkg), null, 2));
+
+  for (const file of pkg.files) {
+    const path = normalizeBundleFilePath(file);
+    zip.file(path, fileContentToBuffer(file));
+  }
+
+  return zip.generateAsync({
+    type: 'nodebuffer',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 },
+  });
+}
+
+export async function parseSkillPackageZip(
+  buffer: Buffer,
+  fallback: { namespace?: string; name?: string } = {},
+): Promise<ParsedSkillPackageDraft> {
+  const zip = await JSZip.loadAsync(buffer);
+  const entries = Object.values(zip.files).filter((entry) => !entry.dir);
+  const skillEntry = findZipEntry(entries, 'SKILL.md');
+
+  if (!skillEntry) {
+    throw new Error('Skill zip 包缺少根目录 SKILL.md');
+  }
+
+  const manifestEntry = findZipEntry(entries, 'skill.json') ?? findZipEntry(entries, 'manifest.json');
+  const rawManifest = manifestEntry ? await manifestEntry.async('string') : '{}';
+  const manifest = parseObject(rawManifest) ?? {};
+  const content = await skillEntry.async('string');
+  const namespace = pickString(manifest.namespace, manifest.id, fallback.namespace, `uploaded.${Date.now()}`);
+  const name = pickString(manifest.name, fallback.name, namespace.split('.').pop(), '上传 Skill');
+  const files: SkillPackageFile[] = [];
+
+  for (const entry of entries) {
+    if (isReservedBundlePath(entry.name)) continue;
+    const path = sanitizePath(entry.name);
+    const fileBuffer = await entry.async('nodebuffer');
+    files.push({
+      path,
+      name: path.split('/').pop() || path,
+      type: inferFileTypeFromPath(path),
+      content: fileBuffer.toString('base64'),
+      encoding: 'base64',
+    });
+  }
+
+  const normalizedManifest = {
+    ...manifest,
+    id: pickString(manifest.id, namespace),
+    namespace,
+    name,
+    description: pickString(manifest.description),
+    version: pickString(manifest.version, '1.0.0'),
+    entrypoint: 'SKILL.md',
+    files: files.map(toManifestFile),
+  };
+
+  return {
+    namespace,
+    name,
+    domain: pickString(manifest.domain, 'other'),
+    subDomain: pickString(manifest.subDomain, 'miscellaneous'),
+    abilityName: pickString(manifest.abilityName, name),
+    description: pickString(manifest.description),
+    currentVersion: pickString(manifest.version, '1.0.0'),
+    content,
+    files,
+    manifest: JSON.stringify(normalizedManifest, null, 2),
+    runtimePolicy: manifest.runtime ? JSON.stringify(manifest.runtime, null, 2) : undefined,
+    triggerRules: manifest.triggers ? JSON.stringify(parseArray(manifest.triggers)) : undefined,
+  };
 }
 
 function scorePackage(
@@ -221,10 +316,25 @@ function normalizePermissions(value: unknown): SkillRuntimePermissions {
 }
 
 function normalizeFileType(value: string): SkillPackageFile['type'] {
-  if (value === 'script' || value === 'template' || value === 'asset' || value === 'data') {
-    return value;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'script' || normalized === 'scripts') {
+    return 'script';
+  }
+  if (normalized === 'template' || normalized === 'templates') {
+    return 'template';
+  }
+  if (normalized === 'asset' || normalized === 'assets') {
+    return 'asset';
+  }
+  if (normalized === 'data' || normalized === 'datasets') {
+    return 'data';
   }
   return 'reference';
+}
+
+function inferFileTypeFromPath(path: string): SkillPackageFile['type'] {
+  const folder = path.split('/')[0] || '';
+  return normalizeFileType(folder);
 }
 
 function normalizeTriggerType(value: string): SkillTriggerRule['type'] {
@@ -314,4 +424,71 @@ function sha256(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isSkillPackage(value: SkillPackage | SkillLike): value is SkillPackage {
+  return isRecord(value) && typeof value.packageHash === 'string' && Array.isArray(value.files);
+}
+
+function toPackageManifest(pkg: SkillPackage): Record<string, unknown> {
+  return {
+    schemaVersion: 'skill-package/v1',
+    id: pkg.id,
+    namespace: pkg.namespace,
+    name: pkg.name,
+    version: pkg.version,
+    description: pkg.description,
+    domain: pkg.domain,
+    subDomain: pkg.subDomain,
+    abilityName: pkg.abilityName,
+    entrypoint: 'SKILL.md',
+    packageHash: pkg.packageHash,
+    triggers: pkg.triggers,
+    dependencies: pkg.dependencies,
+    permissions: pkg.permissions,
+    maxRounds: pkg.maxRounds,
+    files: pkg.files.map(toManifestFile),
+  };
+}
+
+function toManifestFile(file: SkillPackageFile): Record<string, unknown> {
+  return {
+    path: file.path,
+    name: file.name,
+    type: file.type,
+    encoding: file.encoding,
+    mimeType: file.mimeType,
+  };
+}
+
+function normalizeBundleFilePath(file: SkillPackageFile): string {
+  const path = sanitizePath(file.path);
+  return isReservedBundlePath(path) ? `references/${sanitizeSegment(file.name || path)}` : path;
+}
+
+function fileContentToBuffer(file: SkillPackageFile): Buffer {
+  const content = file.content ?? '';
+  if (file.encoding === 'base64') {
+    return Buffer.from(stripDataUrlPrefix(content), 'base64');
+  }
+  return Buffer.from(content, 'utf8');
+}
+
+function stripDataUrlPrefix(value: string): string {
+  const marker = ';base64,';
+  const markerIndex = value.indexOf(marker);
+  if (markerIndex >= 0) {
+    return value.slice(markerIndex + marker.length);
+  }
+  return value;
+}
+
+function findZipEntry(entries: JSZip.JSZipObject[], path: string): JSZip.JSZipObject | undefined {
+  const normalized = path.toLowerCase();
+  return entries.find((entry) => entry.name.replace(/\\/g, '/').toLowerCase() === normalized);
+}
+
+function isReservedBundlePath(path: string): boolean {
+  const normalized = sanitizePath(path).toLowerCase();
+  return normalized === 'skill.md' || normalized === 'skill.json' || normalized === 'manifest.json';
 }

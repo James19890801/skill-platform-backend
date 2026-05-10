@@ -1,411 +1,409 @@
-/**
- * KnowledgeManager - 知识库管理页面
- * 管理百炼知识库的连接和文档
- */
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Card,
-  Table,
   Button,
-  Typography,
-  Space,
-  Tag,
-  Modal,
+  Card,
+  Col,
+  Drawer,
+  Empty,
   Form,
   Input,
+  List,
+  Modal,
+  Row,
+  Space,
+  Table,
+  Tag,
+  Typography,
+  Upload,
   message,
-  Empty,
-  Select,
 } from 'antd';
 import {
   DatabaseOutlined,
-  PlusOutlined,
-  LinkOutlined,
-  FileOutlined,
-  SyncOutlined,
   DeleteOutlined,
-  CloudOutlined,
+  FileSearchOutlined,
+  FileTextOutlined,
+  InboxOutlined,
+  PlusOutlined,
+  SearchOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
-import { KnowledgeBase, CreateKnowledgeBaseRequest, UpdateKnowledgeBaseRequest } from '../../services/api';
-import { knowledgeApi } from '../../services/api';
+import {
+  KnowledgeBase,
+  KnowledgeDocument,
+  KnowledgeSearchResult,
+  knowledgeApi,
+} from '../../services/api';
 
-const { Title, Text } = Typography;
+const { Text, Title } = Typography;
+const { TextArea } = Input;
+
+const panelStyle: React.CSSProperties = {
+  borderRadius: 16,
+  border: '1px solid #e5e7eb',
+  boxShadow: '0 10px 30px rgba(15, 23, 42, 0.06)',
+};
 
 const KnowledgeManager: React.FC = () => {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [createModalVisible, setCreateModalVisible] = useState(false);
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [syncModalVisible, setSyncModalVisible] = useState(false);
-  const [editingKnowledgeBase, setEditingKnowledgeBase] = useState<KnowledgeBase | null>(null);
-  const [form] = Form.useForm();
-  const [syncForm] = Form.useForm();
+  const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [searchResults, setSearchResults] = useState<KnowledgeSearchResult[]>([]);
+  const [selectedKb, setSelectedKb] = useState<KnowledgeBase | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [textIndexing, setTextIndexing] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [createForm] = Form.useForm();
+  const [textForm] = Form.useForm();
+  const [searchForm] = Form.useForm();
 
-  // 获取知识库列表
+  const stats = useMemo(() => {
+    const docs = knowledgeBases.reduce((sum, kb) => sum + (kb.documentCount || 0), 0);
+    const chunks = knowledgeBases.reduce((sum, kb) => sum + (kb.chunkCount || 0), 0);
+    return { docs, chunks };
+  }, [knowledgeBases]);
+
   const fetchKnowledgeBases = async () => {
     try {
       setLoading(true);
       const data = await knowledgeApi.list();
       setKnowledgeBases(data || []);
-    } catch (error) {
-      console.error('Error fetching knowledge bases:', error);
-      message.error('获取知识库列表失败');
+    } catch {
+      message.error('知识库加载失败');
     } finally {
       setLoading(false);
     }
+  };
+
+  const refreshSelected = async (kbId: number) => {
+    const [detail, docs] = await Promise.all([
+      knowledgeApi.getById(kbId),
+      knowledgeApi.listDocuments(kbId),
+    ]);
+    setSelectedKb(detail);
+    setDocuments(docs);
+    await fetchKnowledgeBases();
   };
 
   useEffect(() => {
     fetchKnowledgeBases();
   }, []);
 
-  const handleSync = async () => {
+  const handleCreate = async (values: { name: string; description?: string }) => {
     try {
-      const values = await syncForm.validateFields();
-      // 调用知识库同步 API
-      await knowledgeApi.sync({
-        apiKey: values.apiKey,
-        kbId: values.kbId,
+      const kb = await knowledgeApi.create({
+        ...values,
+        source: 'local',
       });
-      message.success('知识库同步任务已提交');
-      setSyncModalVisible(false);
-      syncForm.resetFields();
-      fetchKnowledgeBases();
+      message.success('知识库已创建');
+      setCreateOpen(false);
+      createForm.resetFields();
+      await fetchKnowledgeBases();
+      setSelectedKb(kb);
+      setDrawerOpen(true);
+      await refreshSelected(kb.id);
+    } catch {
+      message.error('创建失败');
+    }
+  };
+
+  const openWorkbench = async (kb: KnowledgeBase) => {
+    setSelectedKb(kb);
+    setDrawerOpen(true);
+    setSearchResults([]);
+    await refreshSelected(kb.id);
+  };
+
+  const handleUpload = async (file: File) => {
+    if (!selectedKb) return false;
+
+    try {
+      setUploading(true);
+      await knowledgeApi.uploadDocument(selectedKb.id, file, {
+        chunkSize: 1000,
+        chunkOverlap: 180,
+      });
+      message.success(`${file.name} 已完成索引`);
+      await refreshSelected(selectedKb.id);
+    } catch {
+      message.error(`${file.name} 索引失败`);
+    } finally {
+      setUploading(false);
+    }
+
+    return false;
+  };
+
+  const handleTextIngest = async () => {
+    if (!selectedKb) return;
+
+    try {
+      const values = await textForm.validateFields();
+      setTextIndexing(true);
+      await knowledgeApi.ingestText(selectedKb.id, {
+        name: values.name || '文本知识.txt',
+        content: values.content,
+        chunkSize: 1000,
+        chunkOverlap: 180,
+      });
+      message.success('文本已完成索引');
+      textForm.resetFields();
+      await refreshSelected(selectedKb.id);
     } catch (error: any) {
-      if (error.errorFields) return; // 表单校验失败
-      message.error('提交同步任务失败');
-      console.error('Sync error:', error);
+      if (!error?.errorFields) message.error('文本索引失败');
+    } finally {
+      setTextIndexing(false);
     }
   };
 
-  const handleCreate = async (values: CreateKnowledgeBaseRequest) => {
-    try {
-      const data = await knowledgeApi.create(values);
-      message.success('创建知识库成功');
-      setCreateModalVisible(false);
-      form.resetFields();
-      fetchKnowledgeBases(); // 刷新列表
-    } catch (error) {
-      console.error('Error creating knowledge base:', error);
-      message.error('创建知识库失败');
-    }
-  };
+  const handleSearch = async () => {
+    if (!selectedKb) return;
 
-  const handleUpdate = async (values: UpdateKnowledgeBaseRequest) => {
-    if (!editingKnowledgeBase) return;
-    
     try {
-      const data = await knowledgeApi.update(editingKnowledgeBase.id, values);
-      message.success('更新知识库成功');
-      setEditModalVisible(false);
-      form.resetFields();
-      fetchKnowledgeBases(); // 刷新列表
-    } catch (error) {
-      console.error('Error updating knowledge base:', error);
-      message.error('更新知识库失败');
+      const values = await searchForm.validateFields();
+      setSearching(true);
+      const result = await knowledgeApi.search(selectedKb.id, {
+        query: values.query,
+        topK: 5,
+      });
+      setSearchResults(result.results || []);
+    } catch (error: any) {
+      if (!error?.errorFields) message.error('检索失败');
+    } finally {
+      setSearching(false);
     }
   };
 
   const handleDelete = async (id: number) => {
     Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除这个知识库吗？此操作不可恢复。',
+      title: '删除知识库',
+      content: '知识库、文档和切片都会删除。',
+      okText: '删除',
+      okButtonProps: { danger: true },
       onOk: async () => {
-        try {
-          await knowledgeApi.delete(id);
-          message.success('删除成功');
-          fetchKnowledgeBases(); // 刷新列表
-        } catch (error) {
-          console.error('Error deleting knowledge base:', error);
-          message.error('删除失败');
+        await knowledgeApi.delete(id);
+        message.success('已删除');
+        if (selectedKb?.id === id) {
+          setDrawerOpen(false);
+          setSelectedKb(null);
         }
+        await fetchKnowledgeBases();
       },
     });
   };
 
-  const handleEditClick = (record: KnowledgeBase) => {
-    setEditingKnowledgeBase(record);
-    form.setFieldsValue({
-      name: record.name,
-      description: record.description,
-      source: record.source,
-      status: record.status,
-    });
-    setEditModalVisible(true);
-  };
-
   const columns = [
     {
-      title: 'ID',
-      dataIndex: 'id',
-      key: 'id',
-    },
-    {
-      title: '名称',
+      title: '知识库',
       dataIndex: 'name',
       key: 'name',
       render: (name: string, record: KnowledgeBase) => (
-        <Space>
-          <DatabaseOutlined style={{ color: '#6366f1' }} />
-          <Text strong>{name}</Text>
+        <Space direction="vertical" size={2}>
+          <Space>
+            <DatabaseOutlined style={{ color: '#2563eb' }} />
+            <Text strong>{name}</Text>
+          </Space>
+          <Text type="secondary" style={{ fontSize: 12 }}>{record.description || '本地文档知识库'}</Text>
         </Space>
       ),
     },
     {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      render: (description: string) => description || '-',
-    },
-    {
-      title: '来源',
-      dataIndex: 'source',
-      key: 'source',
-      render: (source: KnowledgeBase['source']) => (
-        <Tag color={
-          source === 'bailian' ? 'purple' :
-          source === 'local' ? 'blue' :
-          source === 'web' ? 'geekblue' : 'orange'
-        }>
-          {source === 'bailian' ? '百炼' : 
-           source === 'local' ? '本地' : 
-           source === 'web' ? '网页' : '文件'}
-        </Tag>
+      title: '索引',
+      key: 'index',
+      render: (_: unknown, record: KnowledgeBase) => (
+        <Space>
+          <Tag color="blue">{record.documentCount || 0} 文档</Tag>
+          <Tag color="green">{record.chunkCount || 0} 切片</Tag>
+        </Space>
       ),
-    },
-    {
-      title: '文档数',
-      dataIndex: 'documentCount',
-      key: 'documentCount',
-      render: (count: number) => `${count} 篇`,
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      render: (status: KnowledgeBase['status']) => {
-        const config = {
-          connected: { color: 'green', text: '已连接' },
-          syncing: { color: 'blue', text: '同步中' },
-          error: { color: 'red', text: '异常' },
-        };
-        return <Tag color={config[status].color}>{config[status].text}</Tag>;
-      },
-    },
-    {
-      title: '创建者',
-      dataIndex: ['user', 'name'],
-      key: 'creator',
+      render: (status: KnowledgeBase['status']) => (
+        <Tag color={status === 'error' ? 'red' : status === 'syncing' ? 'gold' : 'green'}>
+          {status === 'error' ? '异常' : status === 'syncing' ? '处理中' : '可检索'}
+        </Tag>
+      ),
     },
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: KnowledgeBase) => (
+      render: (_: unknown, record: KnowledgeBase) => (
         <Space>
-          <Button 
-            icon={<SyncOutlined />} 
-            size="small" 
-            onClick={() => setSyncModalVisible(true)}
-            disabled={record.source !== 'bailian'}
-          >
-            同步
+          <Button icon={<FileSearchOutlined />} onClick={() => openWorkbench(record)}>
+            管理
           </Button>
-          <Button 
-            icon={<LinkOutlined />} 
-            size="small" 
-            onClick={() => handleEditClick(record)}
-          >
-            编辑
-          </Button>
-          <Button 
-            icon={<DeleteOutlined />} 
-            size="small" 
-            danger 
-            onClick={() => handleDelete(record.id)}
-          />
+          <Button danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)} />
         </Space>
       ),
     },
   ];
 
+  const docColumns = [
+    {
+      title: '文件',
+      dataIndex: 'name',
+      key: 'name',
+      render: (name: string) => <Space><FileTextOutlined />{name}</Space>,
+    },
+    {
+      title: '切片',
+      dataIndex: 'chunkCount',
+      key: 'chunkCount',
+      width: 90,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 110,
+      render: (status: KnowledgeDocument['status']) => (
+        <Tag color={status === 'error' ? 'red' : status === 'processing' ? 'gold' : 'green'}>
+          {status === 'error' ? '失败' : status === 'processing' ? '处理中' : '已索引'}
+        </Tag>
+      ),
+    },
+  ];
+
   return (
-    <div style={{ padding: 24 }}>
-      {/* 头部 */}
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between' }}>
+    <div style={{ padding: 24, background: '#f6f8fb', minHeight: '100%' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <Title level={3}>
-            <DatabaseOutlined style={{ marginRight: 8, color: '#6366f1' }} />
-            知识库管理
-          </Title>
-          <Text type="secondary">连接和管理知识库，为 Agent 提供知识支持</Text>
+          <Title level={3} style={{ margin: 0 }}>知识库</Title>
+          <Text type="secondary">离线文档解析、自动切片、语义检索和 Agent 引用</Text>
         </div>
-        <Space>
-          <Button icon={<LinkOutlined />} onClick={() => setSyncModalVisible(true)}>
-            连接百炼 KB
-          </Button>
-          <Button 
-            type="primary" 
-            icon={<PlusOutlined />} 
-            style={{ background: '#6366f1' }}
-            onClick={() => setCreateModalVisible(true)}
-          >
-            新建知识库
-          </Button>
-        </Space>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+          新建知识库
+        </Button>
       </div>
 
-      {/* 统计卡片 */}
-      <Space style={{ marginBottom: 24 }}>
-        <Card style={{ borderRadius: 12, width: 180 }}>
-          <div style={{ textAlign: 'center' }}>
-            <CloudOutlined style={{ fontSize: 32, color: '#6366f1' }} />
-            <Title level={4} style={{ marginBottom: 0 }}>{knowledgeBases.length}</Title>
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={8}>
+          <Card style={panelStyle}>
             <Text type="secondary">知识库</Text>
-          </div>
-        </Card>
-        <Card style={{ borderRadius: 12, width: 180 }}>
-          <div style={{ textAlign: 'center' }}>
-            <FileOutlined style={{ fontSize: 32, color: '#10b981' }} />
-            <Title level={4} style={{ marginBottom: 0 }}>
-              {knowledgeBases.reduce((sum, kb) => sum + kb.documentCount, 0)}
-            </Title>
-            <Text type="secondary">文档</Text>
-          </div>
-        </Card>
-      </Space>
+            <Title level={2} style={{ margin: '8px 0 0' }}>{knowledgeBases.length}</Title>
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card style={panelStyle}>
+            <Text type="secondary">已索引文档</Text>
+            <Title level={2} style={{ margin: '8px 0 0' }}>{stats.docs}</Title>
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card style={panelStyle}>
+            <Text type="secondary">可检索切片</Text>
+            <Title level={2} style={{ margin: '8px 0 0' }}>{stats.chunks}</Title>
+          </Card>
+        </Col>
+      </Row>
 
-      {/* 知识库列表 */}
-      <Card style={{ borderRadius: 12 }}>
+      <Card style={panelStyle}>
         <Table
           dataSource={knowledgeBases}
           columns={columns}
           rowKey="id"
           loading={loading}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 8 }}
+          locale={{ emptyText: <Empty description="暂无知识库" /> }}
         />
       </Card>
 
-      {/* 创建知识库弹窗 */}
       <Modal
         title="新建知识库"
-        open={createModalVisible}
-        onCancel={() => {
-          setCreateModalVisible(false);
-          form.resetFields();
-        }}
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
         footer={null}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleCreate}
-        >
-          <Form.Item
-            label="名称"
-            name="name"
-            rules={[{ required: true, message: '请输入知识库名称' }]}
-          >
-            <Input placeholder="输入知识库名称" />
+        <Form form={createForm} layout="vertical" onFinish={handleCreate}>
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input placeholder="例如：合同制度库" />
           </Form.Item>
-          <Form.Item
-            label="描述"
-            name="description"
-          >
-            <Input.TextArea placeholder="输入知识库描述" />
+          <Form.Item name="description" label="描述">
+            <TextArea rows={3} placeholder="知识库的覆盖范围" />
           </Form.Item>
-          <Form.Item
-            label="来源"
-            name="source"
-          >
-            <Select defaultValue="local">
-              <Select.Option value="local">本地</Select.Option>
-              <Select.Option value="bailian">百炼</Select.Option>
-              <Select.Option value="web">网页</Select.Option>
-              <Select.Option value="file">文件</Select.Option>
-            </Select>
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" style={{ width: '100%' }}>
-              创建知识库
-            </Button>
-          </Form.Item>
+          <Button type="primary" htmlType="submit" block>创建</Button>
         </Form>
       </Modal>
 
-      {/* 编辑知识库弹窗 */}
-      <Modal
-        title="编辑知识库"
-        open={editModalVisible}
-        onCancel={() => {
-          setEditModalVisible(false);
-          setEditingKnowledgeBase(null);
-          form.resetFields();
-        }}
-        footer={null}
+      <Drawer
+        title={selectedKb?.name || '知识库工作台'}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        width={920}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleUpdate}
-        >
-          <Form.Item
-            label="名称"
-            name="name"
-            rules={[{ required: true, message: '请输入知识库名称' }]}
-          >
-            <Input placeholder="输入知识库名称" />
-          </Form.Item>
-          <Form.Item
-            label="描述"
-            name="description"
-          >
-            <Input.TextArea placeholder="输入知识库描述" />
-          </Form.Item>
-          <Form.Item
-            label="来源"
-            name="source"
-          >
-            <Select>
-              <Select.Option value="local">本地</Select.Option>
-              <Select.Option value="bailian">百炼</Select.Option>
-              <Select.Option value="web">网页</Select.Option>
-              <Select.Option value="file">文件</Select.Option>
-            </Select>
-          </Form.Item>
-          <Form.Item
-            label="状态"
-            name="status"
-          >
-            <Select>
-              <Select.Option value="connected">已连接</Select.Option>
-              <Select.Option value="syncing">同步中</Select.Option>
-              <Select.Option value="error">异常</Select.Option>
-            </Select>
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" style={{ width: '100%' }}>
-              更新知识库
-            </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
+        {selectedKb ? (
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Card title="上传文档" style={panelStyle}>
+              <Upload.Dragger
+                multiple
+                showUploadList={false}
+                beforeUpload={(file) => handleUpload(file as File)}
+                disabled={uploading}
+                accept=".pdf,.docx,.pptx,.xlsx,.xls,.txt,.md,.csv,.json,.html,.xml,.yaml,.yml"
+              >
+                <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+                <p className="ant-upload-text">拖拽或选择文件</p>
+                <p className="ant-upload-hint">支持 Word、PPT、Excel、PDF、Markdown、纯文本和结构化文本</p>
+              </Upload.Dragger>
+            </Card>
 
-      {/* 同步弹窗 */}
-      <Modal
-        title="连接百炼知识库"
-        open={syncModalVisible}
-        onCancel={() => setSyncModalVisible(false)}
-        onOk={handleSync}
-      >
-        <Form form={syncForm} layout="vertical">
-          <Form.Item label="百炼 API Key" name="apiKey">
-            <Input.Password placeholder="输入百炼 API Key" />
-          </Form.Item>
-          <Form.Item label="知识库 ID" name="kbId">
-            <Input placeholder="输入百炼知识库 ID" />
-          </Form.Item>
-        </Form>
-      </Modal>
+            <Card title="写入文本" style={panelStyle}>
+              <Form form={textForm} layout="vertical">
+                <Form.Item name="name" label="标题">
+                  <Input placeholder="例如：客服 SOP" />
+                </Form.Item>
+                <Form.Item name="content" label="内容" rules={[{ required: true, message: '请输入内容' }]}>
+                  <TextArea rows={5} placeholder="粘贴制度、FAQ、流程说明或业务资料" />
+                </Form.Item>
+                <Button icon={<UploadOutlined />} loading={textIndexing} onClick={handleTextIngest}>
+                  写入知识库
+                </Button>
+              </Form>
+            </Card>
+
+            <Card title="检索测试" style={panelStyle}>
+              <Form form={searchForm} layout="inline" style={{ marginBottom: 16 }}>
+                <Form.Item name="query" rules={[{ required: true, message: '请输入问题' }]} style={{ flex: 1 }}>
+                  <Input placeholder="输入一个问题，检查召回内容" />
+                </Form.Item>
+                <Button type="primary" icon={<SearchOutlined />} loading={searching} onClick={handleSearch}>
+                  检索
+                </Button>
+              </Form>
+              {searchResults.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无检索结果" />
+              ) : (
+                <List
+                  dataSource={searchResults}
+                  renderItem={(item) => (
+                    <List.Item>
+                      <List.Item.Meta
+                        title={<Space><Tag color="blue">{item.score.toFixed(3)}</Tag><Text>切片 #{item.id}</Text></Space>}
+                        description={<Text style={{ whiteSpace: 'pre-wrap' }}>{item.content}</Text>}
+                      />
+                    </List.Item>
+                  )}
+                />
+              )}
+            </Card>
+
+            <Card title="文档索引" style={panelStyle}>
+              <Table
+                dataSource={documents}
+                columns={docColumns}
+                rowKey="id"
+                size="small"
+                pagination={{ pageSize: 6 }}
+                locale={{ emptyText: <Empty description="暂无文档" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+              />
+            </Card>
+          </Space>
+        ) : null}
+      </Drawer>
     </div>
   );
 };

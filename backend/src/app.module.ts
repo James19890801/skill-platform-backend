@@ -16,6 +16,7 @@ import { AgentsModule } from './agents/agents.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { MemoryModule } from './memory/memory.module';
 import { WorkspaceModule } from './workspace/workspace.module';
+import { LlmModule } from './llm/llm.module';
 import {
   User,
   Skill,
@@ -27,7 +28,11 @@ import {
   SkillUsageStat,
   UserSkillClaim,
   Agent,
+  LlmProvider,
+  LlmModel,
   KnowledgeBase,
+  KnowledgeDocument,
+  KnowledgeChunk,
   Memory,
   SkillRuntimeArtifact,
   SkillRuntimeEvent,
@@ -94,7 +99,11 @@ backupDatabaseIfPresent(resolvedDatabasePath);
         SkillUsageStat,
         UserSkillClaim,
         Agent,
+        LlmProvider,
+        LlmModel,
         KnowledgeBase,
+        KnowledgeDocument,
+        KnowledgeChunk,
         Memory,
         SkillExecution,
         SkillRuntimeArtifact,
@@ -114,6 +123,7 @@ backupDatabaseIfPresent(resolvedDatabasePath);
     KnowledgeModule,
     MemoryModule,
     WorkspaceModule,
+    LlmModule,
   ],
   controllers: [AppController],
   providers: [],

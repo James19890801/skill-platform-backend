@@ -20,6 +20,8 @@ import {
   Tag,
   Checkbox,
   Empty,
+  Upload,
+  Avatar,
 } from 'antd';
 import { useAuthStore } from '../../stores/useAuthStore';
 import {
@@ -27,9 +29,17 @@ import {
   SaveOutlined,
   PlayCircleOutlined,
   FolderOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { SkillDomain, DomainLabels } from '../../types';
+import { LlmModel, llmApi, knowledgeApi } from '../../services/api';
+import {
+  AGENT_ICON_LIBRARY,
+  getAgentAvatarSrc,
+  getAgentAvatarStyle,
+  renderAgentAvatarContent,
+} from '../../utils/agentAvatars';
 
 const { Title, Text } = Typography;
 
@@ -47,23 +57,9 @@ interface AgentCreateProps {
     temperature: number;
     maxTokens?: number;
     status: string;
+    avatar?: string;
   };
 }
-
-// 可用模型列表
-const availableModels = [
-  { value: 'qwen-turbo', label: '通义千问 Turbo (快速)' },
-  { value: 'qwen-plus', label: '通义千问 Plus (推荐)' },
-  { value: 'qwen-max', label: '通义千问 Max (最强)' },
-  { value: 'deepseek-chat', label: 'DeepSeek Chat' },
-];
-
-// 可用知识库
-const availableKnowledgeBases = [
-  { id: 'kb-1', name: '流程知识库', documents: 120 },
-  { id: 'kb-2', name: '产品文档库', documents: 85 },
-  { id: 'kb-3', name: '规章制度库', documents: 45 },
-];
 
 const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
   const navigate = useNavigate();
@@ -81,6 +77,9 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
     subDomain?: string;
     abilityName?: string;
   }>>([]);
+  const [availableModels, setAvailableModels] = useState<LlmModel[]>([]);
+  const [availableKnowledgeBases, setAvailableKnowledgeBases] = useState<Array<{ id: number; name: string; documentCount: number }>>([]);
+  const [avatar, setAvatar] = useState<string>('icon:01');
 
   // 从后端加载 Skills 列表
   useEffect(() => {
@@ -109,6 +108,22 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
     loadSkills();
   }, []);
 
+  useEffect(() => {
+    llmApi.listModels()
+      .then((data) => setAvailableModels(data.filter((model) => model.capability === 'chat')))
+      .catch(() => setAvailableModels([
+        { code: 'qwen-plus', model: 'qwen-plus', label: '通义千问 Plus', capability: 'chat', enabled: true },
+      ]));
+
+    knowledgeApi.list()
+      .then((data) => setAvailableKnowledgeBases(data.map((kb) => ({
+        id: kb.id,
+        name: kb.name,
+        documentCount: kb.documentCount || 0,
+      }))))
+      .catch(() => setAvailableKnowledgeBases([]));
+  }, []);
+
   // 编辑模式：回填已有数据
   useEffect(() => {
     if (editId && initialData) {
@@ -123,8 +138,20 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
         temperature: initialData.temperature,
         maxTokens: initialData.maxTokens || 2048,
       });
+      setAvatar((initialData as any).avatar || 'icon:01');
     }
   }, [editId, initialData, form]);
+
+  const readAvatarFile = (file: File): false => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAvatar(String(reader.result || 'icon:01'));
+      message.success('头像已上传');
+    };
+    reader.onerror = () => message.error('头像读取失败');
+    reader.readAsDataURL(file);
+    return false;
+  };
 
   const handleFinish = async (values: any) => {
     setLoading(true);
@@ -142,6 +169,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
         name: values.name,
         description: values.description,
         model: values.model,
+        avatar,
         systemPrompt: values.systemPrompt,
         skills: values.skills || [],
         knowledgeBases: values.knowledgeBases || [],
@@ -196,7 +224,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
           layout="vertical"
           onFinish={handleFinish}
           initialValues={{
-            model: 'qwen-plus',
+            model: availableModels[0]?.code || 'qwen-plus',
             memoryEnabled: true,
             temperature: 0.7,
           }}
@@ -223,12 +251,58 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
                 />
               </Form.Item>
 
+              <Form.Item label="头像">
+                <Space align="start" size={16}>
+                  <Avatar
+                    size={64}
+                    src={getAgentAvatarSrc(avatar)}
+                    style={getAgentAvatarStyle(avatar)}
+                  >
+                    {renderAgentAvatarContent(avatar, 'AI')}
+                  </Avatar>
+                  <Space direction="vertical" style={{ flex: 1 }}>
+                    <Upload beforeUpload={readAvatarFile} showUploadList={false} accept="image/*">
+                      <Button icon={<UploadOutlined />}>上传本地图片</Button>
+                    </Upload>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 28px)', gap: 6, maxWidth: 340 }}>
+                      {AGENT_ICON_LIBRARY.map((icon) => (
+                        <button
+                          key={icon.token}
+                          type="button"
+                          onClick={() => setAvatar(icon.token)}
+                          style={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: 8,
+                            border: avatar === icon.token ? '2px solid #111827' : '1px solid #e5e7eb',
+                            background: icon.background,
+                            color: '#fff',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                          title={`图标 ${icon.label}`}
+                        >
+                          {icon.label}
+                        </button>
+                      ))}
+                    </div>
+                  </Space>
+                </Space>
+              </Form.Item>
+
               <Form.Item
                 name="model"
                 label="模型选择"
                 rules={[{ required: true }]}
               >
-                <Select options={availableModels} size="large" />
+                <Select
+                  size="large"
+                  options={availableModels.map((model) => ({
+                    value: model.code,
+                    label: model.label,
+                  }))}
+                />
               </Form.Item>
 
               <Form.Item
@@ -387,7 +461,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
                   placeholder="选择知识库（可选，可多选）"
                   options={availableKnowledgeBases.map(kb => ({
                     value: kb.id,
-                    label: `${kb.name} (${kb.documents} 文档)`,
+                    label: `${kb.name} (${kb.documentCount} 文档)`,
                   }))}
                 />
               </Form.Item>

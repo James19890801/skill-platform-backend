@@ -5,6 +5,8 @@ import { ExecutionService } from './execution.service';
 import { ToolBridgeService } from './tool-bridge.service';
 import { SkillExecutorService } from './skill-executor.service';
 import { WorkspaceModule } from '../workspace/workspace.module';
+import { KnowledgeModule } from '../knowledge/knowledge.module';
+import { LlmModule } from '../llm/llm.module';
 import { AiController } from './ai.controller';
 import { Agent } from '../entities/agent.entity';
 import { Skill } from '../entities/skill.entity';
@@ -26,6 +28,8 @@ import { SkillRuntimeQueueService } from '../skill-runtime/skill-runtime-queue.s
       SkillRuntimeStep,
     ]),
     WorkspaceModule,
+    KnowledgeModule,
+    LlmModule,
   ],
   providers: [
     AiService,

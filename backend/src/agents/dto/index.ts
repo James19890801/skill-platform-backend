@@ -11,6 +11,11 @@ export class CreateAgentDto {
   @IsOptional()
   description?: string;
 
+  @ApiPropertyOptional({ description: '头像：dataURL 或内置图标 token' })
+  @IsString()
+  @IsOptional()
+  avatar?: string;
+
   @ApiPropertyOptional({ description: '模型', default: 'qwen-plus' })
   @IsString()
   @IsOptional()
@@ -57,6 +62,11 @@ export class UpdateAgentDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @ApiPropertyOptional({ description: '头像：dataURL 或内置图标 token' })
+  @IsString()
+  @IsOptional()
+  avatar?: string;
 
   @ApiPropertyOptional({ description: '模型' })
   @IsString()

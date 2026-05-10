@@ -77,6 +77,22 @@ export const skillsApi = {
   
   create: (data: Partial<ISkill>): Promise<ISkill> =>
     apiClient.post('/skills', data),
+
+  importPackage: (file: File, data?: Partial<ISkill>): Promise<ISkill> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    Object.entries(data || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        formData.append(key, String(value));
+      }
+    });
+    return apiClient.post('/skills/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  packageDownloadUrl: (id: number): string =>
+    `${String(apiClient.defaults.baseURL || '').replace(/\/$/, '')}/skills/${id}/package.zip`,
   
   update: (id: number, data: Partial<ISkill>): Promise<ISkill> =>
     apiClient.put(`/skills/${id}`, data),
@@ -182,6 +198,40 @@ export const modelsApi = {
     apiClient.get('/models'),
 };
 
+export interface LlmProvider {
+  id: number;
+  name: string;
+  provider: string;
+  baseUrl: string;
+  enabled: boolean;
+  models?: LlmModel[];
+}
+
+export interface LlmModel {
+  id?: number;
+  code: string;
+  model: string;
+  label: string;
+  provider?: string;
+  providerName?: string;
+  capability: string;
+  enabled: boolean;
+}
+
+export const llmApi = {
+  listProviders: (): Promise<LlmProvider[]> =>
+    apiClient.get('/llm/providers'),
+
+  createProvider: (data: { name: string; provider: string; baseUrl?: string; apiKey: string }): Promise<LlmProvider> =>
+    apiClient.post('/llm/providers', data),
+
+  scanProvider: (id: number): Promise<{ providerId: number; models: LlmModel[] }> =>
+    apiClient.post(`/llm/providers/${id}/scan`),
+
+  listModels: (): Promise<LlmModel[]> =>
+    apiClient.get('/llm/models'),
+};
+
 // ============================================
 // Dashboard API
 // ============================================
@@ -248,9 +298,32 @@ export interface KnowledgeBase {
   source: 'bailian' | 'local' | 'web' | 'file';
   status: 'connected' | 'syncing' | 'error';
   documentCount: number;
+  chunkCount?: number;
+  indexedDocuments?: KnowledgeDocument[];
   user?: IUser;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface KnowledgeDocument {
+  id: number;
+  knowledgeBaseId: number;
+  name: string;
+  mimeType?: string;
+  size: number;
+  status: 'processing' | 'indexed' | 'error';
+  textPreview?: string;
+  chunkCount: number;
+  error?: string;
+  createdAt?: string;
+}
+
+export interface KnowledgeSearchResult {
+  id: number;
+  documentId: number;
+  content: string;
+  score: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreateKnowledgeBaseRequest {
@@ -276,6 +349,26 @@ export const knowledgeApi = {
   create: (data: CreateKnowledgeBaseRequest): Promise<KnowledgeBase> =>
     apiClient.post('/knowledge-bases', data),
 
+  uploadDocument: (id: number, file: File, options?: { chunkSize?: number; chunkOverlap?: number }): Promise<KnowledgeDocument> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (options?.chunkSize) formData.append('chunkSize', String(options.chunkSize));
+    if (options?.chunkOverlap) formData.append('chunkOverlap', String(options.chunkOverlap));
+    return apiClient.post(`/knowledge-bases/${id}/documents`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
+  },
+
+  ingestText: (id: number, data: { name?: string; content: string; chunkSize?: number; chunkOverlap?: number }): Promise<KnowledgeDocument> =>
+    apiClient.post(`/knowledge-bases/${id}/text`, data),
+
+  listDocuments: (id: number): Promise<KnowledgeDocument[]> =>
+    apiClient.get(`/knowledge-bases/${id}/documents`),
+
+  search: (id: number, data: { query: string; topK?: number }): Promise<{ query: string; topK: number; results: KnowledgeSearchResult[]; context: string }> =>
+    apiClient.post(`/knowledge-bases/${id}/search`, data),
+
   update: (id: number, data: UpdateKnowledgeBaseRequest): Promise<KnowledgeBase> =>
     apiClient.put(`/knowledge-bases/${id}`, data),
 
@@ -293,6 +386,7 @@ export interface AgentDTO {
   id: number;
   name: string;
   description?: string;
+  avatar?: string;
   model: string;
   systemPrompt?: string;
   skills: string[];

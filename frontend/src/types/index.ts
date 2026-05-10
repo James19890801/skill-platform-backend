@@ -163,7 +163,10 @@ export interface ISkillFile {
   name: string;
   path: string;
   type: 'script' | 'template' | 'reference' | 'asset' | 'data';
-  content: string;
+  content?: string;
+  encoding?: 'utf8' | 'base64';
+  mimeType?: string;
+  size?: number;
   description?: string;
 }
 

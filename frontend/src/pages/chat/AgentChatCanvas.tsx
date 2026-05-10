@@ -55,6 +55,12 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import MermaidRenderer from '../../components/MermaidRenderer';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { LlmModel, llmApi } from '../../services/api';
+import {
+  getAgentAvatarSrc,
+  getAgentAvatarStyle,
+  renderAgentAvatarContent,
+} from '../../utils/agentAvatars';
 
 const { TextArea } = Input;
 const { Text, Title } = Typography;
@@ -133,6 +139,7 @@ const AgentChatCanvas: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState('qwen-plus');
+  const [availableModels, setAvailableModels] = useState<LlmModel[]>([]);
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [currentArtifact, setCurrentArtifact] = useState<Artifact | null>(null);
   const [canvasViewMode, setCanvasViewMode] = useState<'preview' | 'code'>('preview');
@@ -160,11 +167,30 @@ const AgentChatCanvas: React.FC = () => {
 
   // Agent 名称
   const [agentName, setAgentName] = useState<string>('');
+  const [agentAvatar, setAgentAvatar] = useState<string>('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartX = useRef(0);
   const dragStartLeftWidth = useRef(0);
+
+  useEffect(() => {
+    llmApi.listModels()
+      .then((data) => {
+        const chatModels = data.filter((model) => model.capability === 'chat');
+        setAvailableModels(chatModels);
+        if (chatModels.length > 0 && !chatModels.some((model) => model.code === selectedModel)) {
+          setSelectedModel(chatModels[0].code);
+        }
+      })
+      .catch(() => {
+        setAvailableModels([
+          { code: 'qwen-plus', model: 'qwen-plus', label: 'Plus', capability: 'chat', enabled: true },
+          { code: 'qwen-turbo', model: 'qwen-turbo', label: 'Turbo', capability: 'chat', enabled: true },
+          { code: 'qwen-max', model: 'qwen-max', label: 'Max', capability: 'chat', enabled: true },
+        ]);
+      });
+  }, []);
 
   // 添加悬停效果的样式
   useEffect(() => {
@@ -1230,6 +1256,7 @@ const AgentChatCanvas: React.FC = () => {
       .then(data => {
         const agent = data?.data || data;
         if (agent?.name) setAgentName(agent.name);
+        if (agent?.avatar) setAgentAvatar(agent.avatar);
       })
       .catch(() => {});
   }, [agentId]);
@@ -1648,11 +1675,14 @@ const AgentChatCanvas: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{
               width: 26, height: 26, borderRadius: 7,
-              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              background: getAgentAvatarSrc(agentAvatar) ? '#eef2ff' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              backgroundImage: getAgentAvatarSrc(agentAvatar) ? `url(${getAgentAvatarSrc(agentAvatar)})` : undefined,
+              backgroundSize: 'cover',
+              ...getAgentAvatarStyle(agentAvatar),
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0,
             }}>
-              <RobotOutlined style={{ color: '#fff', fontSize: 13 }} />
+              {renderAgentAvatarContent(agentAvatar, <RobotOutlined style={{ color: '#fff', fontSize: 13 }} />)}
             </div>
             <div>
               <Text strong style={{ fontSize: 14, display: 'block', lineHeight: 1.3 }}>
@@ -1805,12 +1835,15 @@ const AgentChatCanvas: React.FC = () => {
               }}>
                 <div style={{
                   width: 56, height: 56, borderRadius: 14,
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                  background: getAgentAvatarSrc(agentAvatar) ? '#eef2ff' : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                  backgroundImage: getAgentAvatarSrc(agentAvatar) ? `url(${getAgentAvatarSrc(agentAvatar)})` : undefined,
+                  backgroundSize: 'cover',
+                  ...getAgentAvatarStyle(agentAvatar),
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   margin: '0 auto 20px',
                   boxShadow: '0 4px 20px rgba(99,102,241,0.15)',
                 }}>
-                  <RobotOutlined style={{ color: '#fff', fontSize: 26 }} />
+                  {renderAgentAvatarContent(agentAvatar, <RobotOutlined style={{ color: '#fff', fontSize: 26 }} />)}
                 </div>
                 <Title level={4} style={{ marginBottom: 6, fontWeight: 600, fontSize: 18 }}>
                   {agentName || 'AI 对话'}
@@ -1835,15 +1868,18 @@ const AgentChatCanvas: React.FC = () => {
                     }}
                   >
                     <Avatar
-                      src={msg.role === 'user' ? undefined : "/logo.png"}
+                      src={msg.role === 'user' ? undefined : getAgentAvatarSrc(agentAvatar) || "/logo.png"}
                       icon={msg.role === 'user' ? <UserOutlined /> : undefined}
                       className={msg.role !== 'user' ? 'agent-avatar-logo' : undefined}
                       size={32}
                       style={{
                         backgroundColor: msg.role === 'user' ? '#10b981' : '#1a237e',
+                        ...getAgentAvatarStyle(msg.role === 'user' ? undefined : agentAvatar),
                         flexShrink: 0,
                       }}
-                    />
+                    >
+                      {msg.role === 'user' ? null : renderAgentAvatarContent(agentAvatar)}
+                    </Avatar>
                     <div
                       style={{
                         maxWidth: '82%',
@@ -1913,11 +1949,13 @@ const AgentChatCanvas: React.FC = () => {
             {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
               <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '4px 0' }}>
                 <Avatar
-                  src="/logo.png"
+                  src={getAgentAvatarSrc(agentAvatar) || "/logo.png"}
                   className="agent-avatar-logo"
                   size={32}
-                  style={{ backgroundColor: '#1a237e', flexShrink: 0 }}
-                />
+                  style={{ backgroundColor: '#1a237e', ...getAgentAvatarStyle(agentAvatar), flexShrink: 0 }}
+                >
+                  {renderAgentAvatarContent(agentAvatar)}
+                </Avatar>
                 <div style={{
                   padding: '6px 12px',
                   background: '#f8f9fb',
@@ -2000,11 +2038,10 @@ const AgentChatCanvas: React.FC = () => {
                     size="small"
                     style={{ width: 110, fontSize: 12 }}
                     bordered={false}
-                    options={[
-                      { value: 'qwen-turbo', label: 'Turbo' },
-                      { value: 'qwen-plus', label: 'Plus' },
-                      { value: 'qwen-max', label: 'Max' },
-                    ]}
+                    options={availableModels.map((model) => ({
+                      value: model.code,
+                      label: model.label.replace(/^.* \/ /, ''),
+                    }))}
                   />
                 </Space>
                 <Space size={2}>

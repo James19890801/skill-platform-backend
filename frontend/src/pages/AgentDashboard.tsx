@@ -46,6 +46,11 @@ import { useNavigate } from 'react-router-dom';
 import { agentsApi, AgentDTO, skillRuntimeApi } from '../services/api';
 import { useAuthStore } from '../stores/useAuthStore';
 import LoginModal from '../components/LoginModal';
+import {
+  getAgentAvatarSrc,
+  getAgentAvatarStyle,
+  renderAgentAvatarContent,
+} from '../utils/agentAvatars';
 
 const { useBreakpoint } = Grid;
 const { Title, Text, Paragraph } = Typography;
@@ -286,7 +291,13 @@ const AgentDashboard: React.FC = () => {
         tabIndex={0}
       >
         <div className="agent-op-card-head">
-          <Avatar className="agent-op-avatar">{getAgentInitials(agent.name)}</Avatar>
+          <Avatar
+            className="agent-op-avatar"
+            src={getAgentAvatarSrc(agent.avatar)}
+            style={getAgentAvatarStyle(agent.avatar)}
+          >
+            {renderAgentAvatarContent(agent.avatar, getAgentInitials(agent.name))}
+          </Avatar>
           <div className="agent-op-title">
             <div className="agent-op-name">{agent.name}</div>
             <div className="agent-op-model">{agent.model || '未配置模型'}</div>

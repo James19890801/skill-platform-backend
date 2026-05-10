@@ -7,7 +7,11 @@ import {
   Body,
   Param,
   ParseIntPipe,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { KnowledgeService } from './knowledge.service';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
@@ -30,10 +34,67 @@ export class KnowledgeController {
     return this.knowledgeService.findOne(id);
   }
 
+  @Get(':id/documents')
+  @ApiOperation({ summary: '获取知识库文档列表' })
+  async listDocuments(@Param('id', ParseIntPipe) id: number) {
+    return this.knowledgeService.listDocuments(id);
+  }
+
   @Post()
   @ApiOperation({ summary: '创建知识库' })
   async create(@Body() dto: CreateKnowledgeBaseDto) {
     return this.knowledgeService.create(dto, 1);
+  }
+
+  @Post(':id/documents')
+  @UseInterceptors(FileInterceptor('file', {
+    limits: { fileSize: 50 * 1024 * 1024 },
+  }))
+  @ApiOperation({ summary: '上传离线文档并构建知识库索引' })
+  async uploadDocument(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: any,
+    @Body() body: { chunkSize?: string; chunkOverlap?: string },
+  ) {
+    if (!file?.buffer) {
+      throw new BadRequestException('请上传文件');
+    }
+
+    return this.knowledgeService.uploadDocument(id, file, {
+      chunkSize: body.chunkSize ? Number(body.chunkSize) : undefined,
+      chunkOverlap: body.chunkOverlap ? Number(body.chunkOverlap) : undefined,
+    });
+  }
+
+  @Post(':id/text')
+  @ApiOperation({ summary: '写入纯文本并构建知识库索引' })
+  async ingestText(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { name?: string; content: string; chunkSize?: number; chunkOverlap?: number },
+  ) {
+    if (!body.content?.trim()) {
+      throw new BadRequestException('请输入文本内容');
+    }
+
+    return this.knowledgeService.ingestText(id, {
+      name: body.name || '文本知识.txt',
+      content: body.content,
+      chunkSize: body.chunkSize,
+      chunkOverlap: body.chunkOverlap,
+    });
+  }
+
+  @Post(':id/search')
+  @ApiOperation({ summary: '检索知识库切片' })
+  async search(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { query: string; topK?: number },
+  ) {
+    if (!body.query?.trim()) {
+      throw new BadRequestException('请输入检索问题');
+    }
+
+    return this.knowledgeService.search(id, body.query, body.topK || 5);
   }
 
   @Put(':id')
