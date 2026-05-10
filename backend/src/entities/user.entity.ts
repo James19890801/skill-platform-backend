@@ -14,7 +14,7 @@ export class User {
   @Column({ unique: true })
   email: string;
 
-  @Column({ unique: true, nullable: true, default: null })
+  @Column({ type: 'varchar', unique: true, nullable: true, default: null })
   phone: string | null;
 
   @Column({ default: false })
