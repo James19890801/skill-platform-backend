@@ -1,20 +1,29 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter, TransformInterceptor } from './common';
-import { getRepository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { User } from './entities/user.entity';
 import * as bodyParser from 'body-parser';
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '494161546@qq.com';
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '13136092523';
 
-async function ensureAdmin() {
+async function ensureAdmin(app: INestApplication) {
   try {
-    const userRepo = getRepository(User);
+    const dataSource = app.get(DataSource);
+    const userRepo = dataSource.getRepository(User);
     let admin = await userRepo.findOne({ where: { email: ADMIN_EMAIL } });
+
+    const phoneOwner = await userRepo.findOne({ where: { phone: ADMIN_PHONE } });
+    if (phoneOwner && phoneOwner.email !== ADMIN_EMAIL) {
+      phoneOwner.phone = null;
+      await userRepo.save(phoneOwner);
+      console.log(`✅ 管理员手机号已从其他账号释放: ${ADMIN_PHONE}`);
+    }
+
     if (!admin) {
       admin = userRepo.create({
         email: ADMIN_EMAIL,
@@ -26,15 +35,22 @@ async function ensureAdmin() {
       });
       await userRepo.save(admin);
       console.log(`✅ 管理员账号已创建: ${ADMIN_EMAIL}`);
-    } else if (!admin.isAdmin) {
-      admin.isAdmin = true;
+    } else {
+      let changed = false;
+      if (!admin.isAdmin) {
+        admin.isAdmin = true;
+        changed = true;
+      }
       if (admin.phone !== ADMIN_PHONE) {
         admin.phone = ADMIN_PHONE;
+        changed = true;
       }
-      await userRepo.save(admin);
-      console.log(`✅ 管理员权限已更新: ${ADMIN_EMAIL}`);
-    } else {
-      console.log(`✅ 管理员账号正常: ${ADMIN_EMAIL}`);
+      if (changed) {
+        await userRepo.save(admin);
+        console.log(`✅ 管理员账号已校准: ${ADMIN_EMAIL}`);
+      } else {
+        console.log(`✅ 管理员账号正常: ${ADMIN_EMAIL}`);
+      }
     }
   } catch (err: any) {
     console.error('⚠️ ensureAdmin 失败（非致命），继续启动:', err?.message || err);
@@ -95,7 +111,7 @@ async function bootstrap() {
   }, 1000);
 
   // 启动后自动确保管理员账号存在
-  await ensureAdmin();
+  await ensureAdmin(app);
 }
 
 bootstrap().catch((err) => {

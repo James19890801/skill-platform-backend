@@ -158,7 +158,7 @@ const AgentDashboard: React.FC = () => {
   const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, isAdmin } = useAuthStore();
 
   const fetchAgents = async () => {
     setLoading(true);
@@ -253,6 +253,16 @@ const AgentDashboard: React.FC = () => {
   };
 
   const handleDeleteAgent = async (agentId: number) => {
+    if (!isAuthenticated()) {
+      message.info('请先登录管理员账号后再删除 Agent');
+      setShowLoginModal(true);
+      return;
+    }
+    if (!isAdmin()) {
+      message.warning('删除已有 Agent 需要超级管理员权限');
+      return;
+    }
+
     Modal.confirm({
       title: '确认删除 Agent',
       content: '删除后无法恢复，确定要删除此 Agent 吗？',
@@ -265,8 +275,9 @@ const AgentDashboard: React.FC = () => {
           message.success('Agent 已删除');
           if (selectedAgentId === agentId) setSelectedAgentId(null);
           fetchAgents();
-        } catch {
-          message.error('删除失败');
+        } catch (error: any) {
+          const detail = error?.response?.data?.message || error?.message || '删除失败';
+          message.error(detail);
         }
       },
     });

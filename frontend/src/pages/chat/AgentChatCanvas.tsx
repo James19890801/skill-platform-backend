@@ -49,13 +49,15 @@ import {
   FileOutlined,
   ReloadOutlined,
   PlusOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
 import MermaidRenderer from '../../components/MermaidRenderer';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { LlmModel, llmApi } from '../../services/api';
+import { LlmModel, llmApi, skillsApi } from '../../services/api';
+import type { ISkill } from '../../types';
 import {
   getAgentAvatarSrc,
   getAgentAvatarStyle,
@@ -161,6 +163,8 @@ const AgentChatCanvas: React.FC = () => {
 
   // 附件上传状态
   const [attachments, setAttachments] = useState<Array<{ name: string; type: string; dataUrl: string }>>([]);
+  const [chatSkills, setChatSkills] = useState<ISkill[]>([]);
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
 
   // Skill 执行状态
   const [executionState, setExecutionState] = useState<ExecutionState | null>(null);
@@ -173,6 +177,48 @@ const AgentChatCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartX = useRef(0);
   const dragStartLeftWidth = useRef(0);
+
+  const getSkillCommand = useCallback((value: string) => {
+    const slashIndex = value.lastIndexOf('/');
+    if (slashIndex < 0) return null;
+    const beforeSlash = slashIndex > 0 ? value[slashIndex - 1] : '';
+    if (beforeSlash && !/\s/.test(beforeSlash)) return null;
+    const query = value.slice(slashIndex + 1);
+    if (/[\n\r]/.test(query) || query.includes(' ')) return null;
+    return { slashIndex, query: query.trim().toLowerCase() };
+  }, []);
+
+  const skillCommand = useMemo(() => getSkillCommand(inputValue), [getSkillCommand, inputValue]);
+
+  const filteredCommandSkills = useMemo(() => {
+    if (!skillCommand) return [];
+    const q = skillCommand.query;
+    return chatSkills
+      .filter((skill) => {
+        if (!q) return true;
+        return [
+          skill.name,
+          skill.namespace,
+          skill.description,
+          skill.domain,
+          skill.subDomain,
+          skill.abilityName,
+        ]
+          .filter(Boolean)
+          .some((text) => String(text).toLowerCase().includes(q));
+      })
+      .slice(0, 8);
+  }, [chatSkills, skillCommand]);
+
+  const insertSkillCommand = useCallback((skill: ISkill) => {
+    const command = getSkillCommand(inputValue);
+    if (!command) return;
+    const prefix = inputValue.slice(0, command.slashIndex);
+    const suffix = inputValue.slice(command.slashIndex + command.query.length + 1).trimStart();
+    const inserted = `使用技能「${skill.name}」：`;
+    setInputValue(`${prefix}${inserted}${suffix ? ` ${suffix}` : ''}`);
+    setSkillPickerOpen(false);
+  }, [getSkillCommand, inputValue]);
 
   useEffect(() => {
     llmApi.listModels()
@@ -190,6 +236,12 @@ const AgentChatCanvas: React.FC = () => {
           { code: 'qwen-max', model: 'qwen-max', label: 'Max', capability: 'chat', enabled: true },
         ]);
       });
+  }, []);
+
+  useEffect(() => {
+    skillsApi.list({ limit: 100 } as any)
+      .then((data) => setChatSkills(data?.items || []))
+      .catch(() => setChatSkills([]));
   }, []);
 
   // 添加悬停效果的样式
@@ -1997,6 +2049,82 @@ const AgentChatCanvas: React.FC = () => {
               </div>
             )}
 
+            {skillPickerOpen && skillCommand && (
+              <div style={{
+                marginBottom: 8,
+                border: '1px solid #dbeafe',
+                background: '#fff',
+                borderRadius: 10,
+                boxShadow: '0 10px 24px rgba(37, 99, 235, 0.12)',
+                overflow: 'hidden',
+              }}>
+                <div style={{
+                  padding: '8px 12px',
+                  borderBottom: '1px solid #eef2ff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}>
+                  <ThunderboltOutlined style={{ color: '#2563eb' }} />
+                  <Text strong style={{ fontSize: 13 }}>选择 Skill</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>/ 后输入名称可筛选，Enter 选择第一项</Text>
+                </div>
+                {filteredCommandSkills.length > 0 ? (
+                  <div style={{ maxHeight: 240, overflow: 'auto' }}>
+                    {filteredCommandSkills.map((skill) => (
+                      <button
+                        key={skill.id}
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          insertSkillCommand(skill);
+                        }}
+                        style={{
+                          width: '100%',
+                          border: 0,
+                          background: 'transparent',
+                          padding: '10px 12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          borderBottom: '1px solid #f1f5f9',
+                        }}
+                      >
+                        <span style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 7,
+                          background: '#eff6ff',
+                          color: '#2563eb',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}>
+                          <ThunderboltOutlined />
+                        </span>
+                        <span style={{ minWidth: 0, flex: 1 }}>
+                          <Text strong style={{ display: 'block', fontSize: 13 }} ellipsis>{skill.name}</Text>
+                          <Text type="secondary" style={{ display: 'block', fontSize: 12 }} ellipsis>
+                            {skill.namespace} · {skill.description || '暂无描述'}
+                          </Text>
+                        </span>
+                        <Tag color={skill.status === 'published' ? 'green' : 'blue'} style={{ marginRight: 0 }}>
+                          {skill.status || 'draft'}
+                        </Tag>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding: 14 }}>
+                    <Text type="secondary">没有匹配的 Skill</Text>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* 输入框容器 */}
             <div style={{
               borderRadius: 12,
@@ -2007,10 +2135,20 @@ const AgentChatCanvas: React.FC = () => {
             }}>
               <TextArea
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setInputValue(nextValue);
+                  setSkillPickerOpen(!!getSkillCommand(nextValue));
+                }}
+                onFocus={() => setSkillPickerOpen(!!getSkillCommand(inputValue))}
                 placeholder="输入消息，@添加上下文，/使用命令"
                 autoSize={{ minRows: isMobile ? 1 : 2, maxRows: 6 }}
                 onPressEnter={(e) => {
+                  if (skillPickerOpen && filteredCommandSkills[0]) {
+                    e.preventDefault();
+                    insertSkillCommand(filteredCommandSkills[0]);
+                    return;
+                  }
                   if (!e.shiftKey) {
                     e.preventDefault();
                     sendMessage();

@@ -222,6 +222,29 @@ export class AiService {
     setTimeout(() => this.warmup(), 2000);
   }
 
+  private buildRuntimeContext(): string {
+    const now = new Date();
+    const timeZone = process.env.APP_TIMEZONE || 'America/Los_Angeles';
+    const localizedNow = new Intl.DateTimeFormat('zh-CN', {
+      timeZone,
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(now);
+
+    return [
+      '当前时间与实时信息规则：',
+      `- 当前日期时间：${localizedNow}（${timeZone}）`,
+      `- 当前 UTC 时间：${now.toISOString()}`,
+      '- 当用户问“今天、现在、最新、近期、今年、昨天、明天、价格、新闻、政策、版本、排名”等可能变化的信息时，必须优先调用联网搜索工具确认最新信息，再给出答案。',
+      '- 如果没有调用搜索工具，不要声称自己知道最新情况；应明确说明需要联网确认。',
+    ].join('\n');
+  }
+
   /**
    * AI 服务预热 — 建立与 DashScope 的连接，大幅缩短首次响应时间
    */
@@ -357,14 +380,13 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
   }
 
   /**
-   * 获取已发布 Skills 作为 AI 可调用的工具定义
+   * 获取 Skills 作为 AI 可调用的工具定义
    * 使用一个通用工具 `execute_skill`，AI 通过参数指定要执行的 Skill
    */
   private async getSkillTool(): Promise<any | null> {
     try {
       const skills = await this.skillRepository.find({
-        where: { status: 'published' },
-        select: ['id', 'namespace', 'name', 'description', 'domain', 'subDomain', 'abilityName'],
+        select: ['id', 'namespace', 'name', 'description', 'domain', 'subDomain', 'abilityName', 'status'],
         take: 50,
       });
 
@@ -372,14 +394,14 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
 
       // 生成 Skill 列表描述
       const skillListStr = skills.map(s =>
-        `- ${s.name} (${s.namespace}): ${s.description || '无描述'} — 领域: ${s.domain}/${s.subDomain}`
+        `- ${s.name} (${s.namespace}): ${s.description || '无描述'} — 领域: ${s.domain}/${s.subDomain}，状态: ${s.status}`
       ).join('\n');
 
       return {
         type: 'function',
         function: {
           name: 'execute_skill',
-          description: `执行一个已发布的 AI Skill。可用的 Skills 列表：\n${skillListStr}\n\n根据用户的需求选择合适的 Skill 来执行。Skill 会自动完成多步骤操作并生成交付物。`,
+          description: `执行一个 AI Skill。可用的 Skills 列表：\n${skillListStr}\n\n根据用户的需求选择合适的 Skill 来执行。Skill 会自动完成多步骤操作并生成交付物。`,
           parameters: {
             type: 'object',
             properties: {
@@ -535,9 +557,10 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       }
     } else {
       systemPrompt = `你是一个智能流程自动化助手，具备规划、分析和执行能力。
-
-当前日期：${new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}`;
+你可以调用平台工具、联网搜索、文档生成和已发布 Skill 来完成任务。`;
     }
+
+    systemPrompt = `${systemPrompt}\n\n${this.buildRuntimeContext()}`;
 
     // ===== 2. 加载对话历史 =====
     const threadKey = threadId || 'default';
