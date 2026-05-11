@@ -7,6 +7,8 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+const nullableDateColumnType = process.env.DATABASE_URL || process.env.POSTGRES_DATABASE_URL ? 'timestamp' : 'datetime';
+
 @Entity('skill_runtime_steps')
 @Index(['executionId', 'stepKey'])
 export class SkillRuntimeStep {
@@ -40,10 +42,10 @@ export class SkillRuntimeStep {
   @Column({ type: 'text', nullable: true })
   error: string | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: nullableDateColumnType, nullable: true })
   startedAt: Date | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: nullableDateColumnType, nullable: true })
   completedAt: Date | null;
 
   @Column({ default: 0 })

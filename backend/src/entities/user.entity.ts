@@ -20,10 +20,10 @@ export class User {
   @Column({ default: false })
   isAdmin: boolean;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ nullable: true })
   firstLoginAt: Date;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ nullable: true })
   lastLoginAt: Date;
 
   @Column({ default: 0 })

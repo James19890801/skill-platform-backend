@@ -7,6 +7,7 @@
     "build": "tsc",
     "test:runtime": "node -r ts-node/register/transpile-only --test test/skill-runtime.package.test.ts",
     "test:tools": "node -r ts-node/register/transpile-only --test test/runtime-tools.completeness.test.ts",
+    "migrate:postgres": "ts-node --transpile-only -r tsconfig-paths/register scripts/migrate-sqlite-to-postgres.ts",
     "start": "node dist/main.js",
     "start:dev": "ts-node -r tsconfig-paths/register src/main.ts",
     "start:watch": "nodemon --exec ts-node -r tsconfig-paths/register src/main.ts"

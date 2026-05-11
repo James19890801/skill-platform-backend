@@ -126,16 +126,32 @@ deploy_to_railway() {
 generate_env_files() {
     print_info "生成环境变量配置文件..."
 
-    # 后端环境变量模板
-    cat > backend/.env.production << EOF
+    # 后端环境变量模板：生产优先 PostgreSQL；没有 DATABASE_URL 时才保留 SQLite。
+    if [ -n "${DATABASE_URL:-}" ]; then
+        cat > backend/.env.production << EOF
 NODE_ENV=production
 PORT=3000
-DATABASE_PATH=/app/data/database.sqlite
+DATABASE_URL=${DATABASE_URL}
+DATABASE_SSL=${DATABASE_SSL:-true}
+TYPEORM_SYNCHRONIZE=${TYPEORM_SYNCHRONIZE:-true}
 WORKSPACE_DIR=/app/data/workspaces
 JWT_SECRET=${JWT_SECRET:-skill-platform-production-secret-$(date +%s)}
 QWEN_API_KEY=${QWEN_API_KEY:-}
 AGENT_RUNTIME_URL=${AGENT_RUNTIME_URL:-http://agent-runtime:8001}
 EOF
+    else
+        print_warning "未检测到 DATABASE_URL，后端生产环境仍会使用 SQLite。正式上线前建议先接 PostgreSQL。"
+        cat > backend/.env.production << EOF
+NODE_ENV=production
+PORT=3000
+DATABASE_PATH=/app/data/database.sqlite
+TYPEORM_SYNCHRONIZE=${TYPEORM_SYNCHRONIZE:-true}
+WORKSPACE_DIR=/app/data/workspaces
+JWT_SECRET=${JWT_SECRET:-skill-platform-production-secret-$(date +%s)}
+QWEN_API_KEY=${QWEN_API_KEY:-}
+AGENT_RUNTIME_URL=${AGENT_RUNTIME_URL:-http://agent-runtime:8001}
+EOF
+    fi
 
     # Agent Runtime 环境变量模板
     cat > agent-runtime/.env.production << EOF
