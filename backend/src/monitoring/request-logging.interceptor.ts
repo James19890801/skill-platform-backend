@@ -27,14 +27,17 @@ export class RequestLoggingInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       tap(() => {
-        void this.observability.recordHttpRequest({
+        const event = {
           requestId,
           method,
           path,
           statusCode: response.statusCode || 200,
           durationMs: Date.now() - startedAt,
           userId,
-        });
+        };
+        if (shouldRecordHttpRequest(event)) {
+          void this.observability.recordHttpRequest(event);
+        }
       }),
       catchError((error) => {
         const statusCode = Number(error?.status || error?.statusCode || error?.response?.statusCode || 500);
@@ -43,7 +46,7 @@ export class RequestLoggingInterceptor implements NestInterceptor {
           error?.code === 'LIMIT_FILE_SIZE' || rawMessage.toLowerCase() === 'file too large'
             ? '文件超过当前上传上限，请压缩或拆分后重试'
             : rawMessage;
-        void this.observability.recordHttpRequest({
+        const event = {
           requestId,
           method,
           path,
@@ -51,9 +54,25 @@ export class RequestLoggingInterceptor implements NestInterceptor {
           durationMs: Date.now() - startedAt,
           userId,
           errorMessage,
-        });
+        };
+        if (shouldRecordHttpRequest(event)) {
+          void this.observability.recordHttpRequest(event);
+        }
         return throwError(() => error);
       }),
     );
   }
+}
+
+export function shouldRecordHttpRequest(input: {
+  path: string;
+  statusCode: number;
+  durationMs: number;
+  slowRequestMs?: number;
+}) {
+  const slowRequestMs = input.slowRequestMs ?? Number(process.env.SLOW_REQUEST_MS || 8000);
+  const pathOnly = String(input.path || '').split('?')[0];
+  const isMonitoringRead = pathOnly === '/api/monitoring/summary' || pathOnly === '/api/monitoring/events';
+  if (!isMonitoringRead) return true;
+  return input.statusCode >= 400 || input.durationMs >= slowRequestMs;
 }

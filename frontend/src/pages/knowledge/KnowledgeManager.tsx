@@ -60,16 +60,26 @@ function getUploadErrorMessage(error: any) {
   const status = error?.response?.status || error?.response?.data?.statusCode;
   const serverMessage = error?.response?.data?.message;
   const messageText = Array.isArray(serverMessage) ? serverMessage.join('；') : serverMessage;
+  const requestId = error?.response?.data?.requestId || error?.response?.headers?.['x-request-id'];
+  const suffix = requestId ? `（requestId ${requestId}）` : '';
   if (status === 413) {
-    return messageText || `文件超过当前 ${formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)} 上限，请压缩或拆分后重试`;
+    return `${messageText || `文件超过当前 ${formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)} 上限，请压缩或拆分后重试`}${suffix}`;
   }
   if (error?.code === 'ECONNABORTED' || String(error?.message || '').includes('timeout')) {
-    return '上传或索引超过 10 分钟仍未完成，请先拆分文档后重试';
+    return `上传或索引超过 10 分钟仍未完成，请先拆分文档后重试${suffix}`;
   }
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return '当前网络已断开，请恢复网络后重试';
   }
-  return messageText || error?.message || '服务暂时没有返回明确原因';
+  return `${messageText || error?.message || '服务暂时没有返回明确原因'}${suffix}`;
+}
+
+function getApiErrorMessage(error: any, fallback: string) {
+  const serverMessage = error?.response?.data?.message;
+  const messageText = Array.isArray(serverMessage) ? serverMessage.join('；') : serverMessage;
+  const requestId = error?.response?.data?.requestId || error?.response?.headers?.['x-request-id'];
+  const suffix = requestId ? `（requestId ${requestId}）` : '';
+  return `${messageText || error?.message || fallback}${suffix}`;
 }
 
 const panelStyle: React.CSSProperties = {
@@ -110,8 +120,8 @@ const KnowledgeManager: React.FC = () => {
       setLoading(true);
       const data = await knowledgeApi.list();
       setKnowledgeBases(data || []);
-    } catch {
-      message.error('知识库加载失败');
+    } catch (error) {
+      message.error(`知识库加载失败：${getApiErrorMessage(error, '服务暂时没有返回明确原因')}`);
     } finally {
       setLoading(false);
     }
@@ -147,8 +157,8 @@ const KnowledgeManager: React.FC = () => {
       setSelectedKb(kb);
       setDrawerOpen(true);
       await refreshSelected(kb.id);
-    } catch {
-      message.error('创建失败');
+    } catch (error) {
+      message.error(`创建失败：${getApiErrorMessage(error, '服务暂时没有返回明确原因')}`);
     }
   };
 
@@ -226,7 +236,7 @@ const KnowledgeManager: React.FC = () => {
       textForm.resetFields();
       await refreshSelected(selectedKb.id);
     } catch (error: any) {
-      if (!error?.errorFields) message.error('文本索引失败');
+      if (!error?.errorFields) message.error(`文本索引失败：${getApiErrorMessage(error, '服务暂时没有返回明确原因')}`);
     } finally {
       setTextIndexing(false);
     }
@@ -253,7 +263,7 @@ const KnowledgeManager: React.FC = () => {
         metadata: item.metadata || { sectionTitle: item.sectionTitle },
       })));
     } catch (error: any) {
-      if (!error?.errorFields) message.error('检索失败');
+      if (!error?.errorFields) message.error(`检索失败：${getApiErrorMessage(error, '服务暂时没有返回明确原因')}`);
     } finally {
       setSearching(false);
     }
@@ -266,13 +276,18 @@ const KnowledgeManager: React.FC = () => {
       okText: '删除',
       okButtonProps: { danger: true },
       onOk: async () => {
-        await knowledgeApi.delete(id);
-        message.success('已删除');
-        if (selectedKb?.id === id) {
-          setDrawerOpen(false);
-          setSelectedKb(null);
+        try {
+          await knowledgeApi.delete(id);
+          message.success('已删除');
+          if (selectedKb?.id === id) {
+            setDrawerOpen(false);
+            setSelectedKb(null);
+          }
+          await fetchKnowledgeBases();
+        } catch (error) {
+          message.error(`删除失败：${getApiErrorMessage(error, '服务暂时没有返回明确原因')}`);
+          throw error;
         }
-        await fetchKnowledgeBases();
       },
     });
   };

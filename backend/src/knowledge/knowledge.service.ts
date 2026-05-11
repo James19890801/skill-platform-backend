@@ -155,6 +155,8 @@ export class KnowledgeService {
 
   async removeForUser(id: number, userId: number): Promise<void> {
     const knowledgeBase = await this.findOneForUser(id, userId);
+    await this.chunkRepository.delete({ knowledgeBaseId: id });
+    await this.documentRepository.delete({ knowledgeBaseId: id });
     await this.knowledgeRepository.remove(knowledgeBase);
   }
 

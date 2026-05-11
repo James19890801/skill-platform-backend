@@ -64,6 +64,26 @@ const typeLabels: Record<string, string> = {
   [SkillType.HEAVY_TECH]: '重技术型',
 };
 
+function safeJson<T>(value: unknown, fallback: T): T {
+  if (value && typeof value === 'object') return value as T;
+  if (typeof value !== 'string' || !value.trim()) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeTags(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  const parsed = safeJson<unknown>(value, []);
+  if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+  if (typeof value === 'string' && value.trim()) {
+    return value.split(/[,，\s]+/).map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 // 执行方式标签
 const executionTypeLabels: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   api: { label: 'API 调用', color: 'blue', icon: <ApiOutlined /> },
@@ -99,7 +119,7 @@ const SkillDetail: React.FC = () => {
           ownerName: data.ownerName || '',
           currentVersion: data.currentVersion || '1.0.0',
           usageCount: data.usageCount || 0,
-          tags: data.tags || [],
+          tags: normalizeTags(data.tags),
           createdAt: data.createdAt || new Date().toISOString(),
           updatedAt: data.updatedAt || new Date().toISOString(),
         });
@@ -159,11 +179,8 @@ const SkillDetail: React.FC = () => {
     { title: '要求掌握度', dataIndex: 'level', key: 'level', render: (l: number) => <span style={{ color: l >= 80 ? colors.green : l >= 60 ? colors.amber : colors.textSecondary }}>{l}%</span> },
   ];
 
-  // ★ 安全解析 JSON
-  const safeJson = (str: string | undefined, fallback: unknown = {}) => {
-    if (!str) return fallback;
-    try { return JSON.parse(str); } catch { return fallback; }
-  };
+  const authConfig = safeJson<{ type?: string }>(skill.authConfig, {});
+  const errorHandling = safeJson<{ retryCount?: number; retryInterval?: number; fallback?: string }>(skill.errorHandling, {});
 
   const tabItems = [
     {
@@ -313,7 +330,7 @@ const SkillDetail: React.FC = () => {
                   <Tag color="blue">{skill.httpMethod || 'POST'}</Tag>
                 </Descriptions.Item>
                 <Descriptions.Item label="认证方式">
-                  {skill.authConfig ? JSON.parse(skill.authConfig)?.type || '-' : '-'}
+                  {authConfig.type || '-'}
                 </Descriptions.Item>
                 <Descriptions.Item label="请求模板">
                   <pre style={{ 
@@ -380,9 +397,9 @@ const SkillDetail: React.FC = () => {
               <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
                 <Text strong style={{ display: 'block', marginBottom: 8 }}>错误处理策略</Text>
                 <Space size={24}>
-                  <span><Text type="secondary">重试次数：</Text>{JSON.parse(skill.errorHandling)?.retryCount || 3} 次</span>
-                  <span><Text type="secondary">重试间隔：</Text>{JSON.parse(skill.errorHandling)?.retryInterval || 1000} ms</span>
-                  <span><Text type="secondary">降级方式：</Text>{JSON.parse(skill.errorHandling)?.fallback || '默认值'}</span>
+                  <span><Text type="secondary">重试次数：</Text>{errorHandling.retryCount || 3} 次</span>
+                  <span><Text type="secondary">重试间隔：</Text>{errorHandling.retryInterval || 1000} ms</span>
+                  <span><Text type="secondary">降级方式：</Text>{errorHandling.fallback || '默认值'}</span>
                 </Space>
               </div>
             )}
