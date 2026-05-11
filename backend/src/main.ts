@@ -4,6 +4,8 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter, TransformInterceptor } from './common';
+import { ObservabilityService } from './monitoring/observability.service';
+import { RequestLoggingInterceptor } from './monitoring/request-logging.interceptor';
 import { DataSource } from 'typeorm';
 import { User } from './entities/user.entity';
 import * as bodyParser from 'body-parser';
@@ -77,8 +79,12 @@ async function bootstrap() {
     maxAge: 3600,
   });
 
-  app.useGlobalFilters(new AllExceptionsFilter());
-  app.useGlobalInterceptors(new TransformInterceptor());
+  const observability = app.get(ObservabilityService);
+  app.useGlobalFilters(new AllExceptionsFilter(observability));
+  app.useGlobalInterceptors(
+    new RequestLoggingInterceptor(observability),
+    new TransformInterceptor(),
+  );
 
   app.useGlobalPipes(
     new ValidationPipe({

@@ -11,12 +11,20 @@ import {
   UploadedFile,
   UseInterceptors,
   BadRequestException,
+  PayloadTooLargeException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { KnowledgeService } from './knowledge.service';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto';
+import {
+  formatBytes,
+  getKnowledgeUploadLimitBytes,
+  KNOWLEDGE_SUPPORTED_EXTENSIONS,
+} from './upload-policy';
+
+const KNOWLEDGE_UPLOAD_LIMIT_BYTES = getKnowledgeUploadLimitBytes();
 
 @ApiTags('Knowledge Base 管理')
 @Controller('api/knowledge-bases')
@@ -27,6 +35,16 @@ export class KnowledgeController {
   @ApiOperation({ summary: '获取知识库列表' })
   async findAll() {
     return this.knowledgeService.findAll();
+  }
+
+  @Get('upload-policy')
+  @ApiOperation({ summary: '获取知识库上传限制' })
+  async uploadPolicy() {
+    return {
+      maxFileSize: KNOWLEDGE_UPLOAD_LIMIT_BYTES,
+      maxFileSizeLabel: formatBytes(KNOWLEDGE_UPLOAD_LIMIT_BYTES),
+      supportedExtensions: KNOWLEDGE_SUPPORTED_EXTENSIONS,
+    };
   }
 
   @Get(':id')
@@ -73,7 +91,7 @@ export class KnowledgeController {
 
   @Post(':id/documents')
   @UseInterceptors(FileInterceptor('file', {
-    limits: { fileSize: 50 * 1024 * 1024 },
+    limits: { fileSize: KNOWLEDGE_UPLOAD_LIMIT_BYTES },
   }))
   @ApiOperation({ summary: '上传离线文档并构建知识库索引' })
   async uploadDocument(
@@ -83,6 +101,12 @@ export class KnowledgeController {
   ) {
     if (!file?.buffer) {
       throw new BadRequestException('请上传文件');
+    }
+    const size = file.size || file.buffer.length;
+    if (size > KNOWLEDGE_UPLOAD_LIMIT_BYTES) {
+      throw new PayloadTooLargeException(
+        `文件大小 ${formatBytes(size)} 超过当前单文件上限 ${formatBytes(KNOWLEDGE_UPLOAD_LIMIT_BYTES)}，请压缩或拆分后重试`,
+      );
     }
 
     return this.knowledgeService.uploadDocument(id, file, {

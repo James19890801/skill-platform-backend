@@ -21,6 +21,7 @@ import { LlmModule } from './llm/llm.module';
 import { ProtocolModule } from './protocol/protocol.module';
 import { OpenAiCompatibleModule } from './openai-compatible/openai-compatible.module';
 import { McpModule } from './mcp/mcp.module';
+import { MonitoringModule } from './monitoring/monitoring.module';
 import {
   User,
   Skill,
@@ -44,6 +45,7 @@ import {
   ThreadEntity,
   MessageEntity,
   RunEntity,
+  OperationalEvent,
 } from './entities';
 
 const configuredDatabasePath = process.env.DATABASE_PATH?.trim() || 'database.sqlite';
@@ -107,6 +109,7 @@ const entities = [
   ThreadEntity,
   MessageEntity,
   RunEntity,
+  OperationalEvent,
 ];
 
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
@@ -163,6 +166,7 @@ function buildTypeOrmOptions(): TypeOrmModuleOptions {
     WorkspaceModule,
     LlmModule,
     McpModule,
+    MonitoringModule,
     ProtocolModule,
     OpenAiCompatibleModule,
   ],

@@ -20,3 +20,4 @@ export { Memory } from './memory.entity';
 export { ThreadEntity } from './thread.entity';
 export { MessageEntity } from './message.entity';
 export { RunEntity } from './run.entity';
+export { OperationalEvent } from './operational-event.entity';

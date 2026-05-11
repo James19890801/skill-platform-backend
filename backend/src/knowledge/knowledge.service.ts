@@ -7,6 +7,7 @@ import { KnowledgeDocument } from '../entities/knowledge-document.entity';
 import { KnowledgeChunk } from '../entities/knowledge-chunk.entity';
 import { CreateKnowledgeBaseDto, KnowledgeSource, KnowledgeStatus } from './dto/create-knowledge-base.dto';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto';
+import { ObservabilityService } from '../monitoring/observability.service';
 import {
   chunkText,
   extractTextFromDocument,
@@ -45,6 +46,7 @@ export class KnowledgeService {
     private documentRepository: Repository<KnowledgeDocument>,
     @InjectRepository(KnowledgeChunk)
     private chunkRepository: Repository<KnowledgeChunk>,
+    private observability: ObservabilityService,
   ) {
     this.embeddingClient = new OpenAI({
       apiKey: process.env.QWEN_API_KEY || '',
@@ -179,9 +181,21 @@ export class KnowledgeService {
       status: 'processing',
       chunkCount: 0,
     }));
+    await this.recordKnowledgeEvent('info', 'knowledge.upload.received', `${displayName} 已接收，开始解析`, {
+      knowledgeBaseId,
+      documentId: document.id,
+      fileName: displayName,
+      mimeType: file.mimetype,
+      size: file.size || file.buffer.length,
+    });
 
     try {
       const text = await extractTextFromDocument(file.buffer, displayName, file.mimetype);
+      await this.recordKnowledgeEvent('info', 'knowledge.upload.extracted', `${displayName} 文本解析完成`, {
+        knowledgeBaseId,
+        documentId: document.id,
+        textLength: text.length,
+      });
       const allChunks = chunkText(text, {
         chunkSize: options.chunkSize,
         chunkOverlap: options.chunkOverlap,
@@ -192,6 +206,13 @@ export class KnowledgeService {
         },
       });
       const chunks = allChunks.slice(0, this.maxChunksPerDocument);
+      await this.recordKnowledgeEvent('info', 'knowledge.upload.chunked', `${displayName} 已生成 ${chunks.length} 个切片`, {
+        knowledgeBaseId,
+        documentId: document.id,
+        chunkCount: chunks.length,
+        totalChunks: allChunks.length,
+        maxChunksPerDocument: this.maxChunksPerDocument,
+      });
 
       if (chunks.length === 0) {
         throw new Error('文档没有可索引文本');
@@ -219,12 +240,24 @@ export class KnowledgeService {
       knowledgeBase.documentCount = await this.documentRepository.count({ where: { knowledgeBaseId } });
       knowledgeBase.status = KnowledgeStatus.CONNECTED;
       await this.knowledgeRepository.save(knowledgeBase);
+      await this.recordKnowledgeEvent('info', 'knowledge.upload.indexed', `${displayName} 已完成索引`, {
+        knowledgeBaseId,
+        documentId: document.id,
+        chunkCount: chunks.length,
+      });
 
       return savedDocument;
     } catch (err) {
       document.status = 'error';
       document.error = err instanceof Error ? err.message : String(err);
       await this.documentRepository.save(document);
+      await this.recordKnowledgeEvent('error', 'knowledge.upload.failed', `${displayName} 索引失败`, {
+        knowledgeBaseId,
+        documentId: document.id,
+        fileName: displayName,
+        size: file.size || file.buffer.length,
+        error: document.error,
+      });
       throw err;
     }
   }
@@ -491,6 +524,19 @@ export class KnowledgeService {
         content: chunk.content,
       };
     });
+  }
+
+  private async recordKnowledgeEvent(
+    level: 'info' | 'warn' | 'error',
+    category: string,
+    message: string,
+    details: Record<string, unknown>,
+  ) {
+    try {
+      await this.observability.record({ level, category, message, details });
+    } catch {
+      // Monitoring must never break the knowledge indexing path.
+    }
   }
 }
 

@@ -3,7 +3,7 @@ import { Layout, Menu, Typography, Breadcrumb, Button, Space, Drawer, Grid, Drop
 import {
   DashboardOutlined, RobotOutlined, PlusOutlined, MessageOutlined,
   ShopOutlined, DatabaseOutlined, CloudOutlined, SettingOutlined, ApiOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, LogoutOutlined, LoginOutlined, TeamOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, LogoutOutlined, LoginOutlined, TeamOutlined, MonitorOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -15,7 +15,7 @@ const { useBreakpoint } = Grid;
 const breadcrumbMap: Record<string, string> = {
   '/dashboard': 'Agent 工作台', '/agents/create': '创建 Agent', '/agents/edit': '编辑 Agent',
   '/chat': '对话 Canvas', '/skills': 'Skill 市场', '/knowledge': '知识库', '/memory': '记忆管理', '/settings': '设置',
-  '/integrations': '调用中心',
+  '/integrations': '调用中心', '/monitoring': '监控看板',
 };
 
 const MainLayout: React.FC = () => {
@@ -39,7 +39,10 @@ const MainLayout: React.FC = () => {
     ];
 
     // 仅管理员显示用户管理
-    const systemItems = [{ key: '/settings', icon: <SettingOutlined />, label: '设置' }];
+    const systemItems = [
+      { key: '/monitoring', icon: <MonitorOutlined />, label: '监控看板' },
+      { key: '/settings', icon: <SettingOutlined />, label: '设置' },
+    ];
     if (isAdmin) {
       systemItems.unshift({ key: '/users', icon: <TeamOutlined />, label: '用户管理' });
     }

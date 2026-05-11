@@ -369,9 +369,25 @@ export interface UpdateKnowledgeBaseRequest {
   status?: string;
 }
 
+export interface KnowledgeUploadProgress {
+  loaded: number;
+  total?: number;
+  percent?: number;
+}
+
+export interface KnowledgeUploadOptions {
+  chunkSize?: number;
+  chunkOverlap?: number;
+  timeoutMs?: number;
+  onUploadProgress?: (progress: KnowledgeUploadProgress) => void;
+}
+
 export const knowledgeApi = {
   list: (): Promise<KnowledgeBase[]> =>
     apiClient.get('/knowledge-bases'),
+
+  uploadPolicy: (): Promise<{ maxFileSize: number; maxFileSizeLabel: string; supportedExtensions: string[] }> =>
+    apiClient.get('/knowledge-bases/upload-policy'),
 
   getById: (id: number): Promise<KnowledgeBase> =>
     apiClient.get(`/knowledge-bases/${id}`),
@@ -379,14 +395,21 @@ export const knowledgeApi = {
   create: (data: CreateKnowledgeBaseRequest): Promise<KnowledgeBase> =>
     apiClient.post('/knowledge-bases', data),
 
-  uploadDocument: (id: number, file: File, options?: { chunkSize?: number; chunkOverlap?: number }): Promise<KnowledgeDocument> => {
+  uploadDocument: (id: number, file: File, options?: KnowledgeUploadOptions): Promise<KnowledgeDocument> => {
     const formData = new FormData();
     formData.append('file', file, file.name);
-    if (options?.chunkSize) formData.append('chunkSize', String(options.chunkSize));
-    if (options?.chunkOverlap) formData.append('chunkOverlap', String(options.chunkOverlap));
+    if (options?.chunkSize !== undefined) formData.append('chunkSize', String(options.chunkSize));
+    if (options?.chunkOverlap !== undefined) formData.append('chunkOverlap', String(options.chunkOverlap));
     return apiClient.post(`/knowledge-bases/${id}/documents`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000,
+      timeout: options?.timeoutMs ?? 600000,
+      onUploadProgress: (event) => {
+        options?.onUploadProgress?.({
+          loaded: event.loaded,
+          total: event.total,
+          percent: event.total ? Math.min(100, Math.round((event.loaded / event.total) * 100)) : undefined,
+        });
+      },
     });
   },
 
@@ -516,6 +539,48 @@ export const memoriesApi = {
 
   delete: (id: number): Promise<void> =>
     apiClient.delete(`/memories/${id}`),
+};
+
+// ============================================
+// Monitoring API
+// ============================================
+export interface OperationalEventDTO {
+  id: number;
+  level: 'info' | 'warn' | 'error';
+  category: string;
+  message: string;
+  requestId?: string;
+  method?: string;
+  path?: string;
+  statusCode?: number;
+  durationMs?: number;
+  userId?: number;
+  details?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface MonitoringSummaryDTO {
+  status: 'ok' | 'degraded';
+  uptimeSeconds: number;
+  emailAlertConfigured: boolean;
+  alertEmail: string;
+  counters: {
+    events24h: number;
+    errors24h: number;
+    warnings24h: number;
+    errors1h: number;
+  };
+  recentErrors: OperationalEventDTO[];
+  slowRequests: OperationalEventDTO[];
+  generatedAt: string;
+}
+
+export const monitoringApi = {
+  summary: (): Promise<MonitoringSummaryDTO> =>
+    apiClient.get('/monitoring/summary'),
+
+  events: (params?: { level?: string; category?: string; limit?: number }): Promise<OperationalEventDTO[]> =>
+    apiClient.get('/monitoring/events', { params }),
 };
 
 // ============================================

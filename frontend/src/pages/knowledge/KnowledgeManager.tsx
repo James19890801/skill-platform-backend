@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -9,6 +10,7 @@ import {
   Input,
   List,
   Modal,
+  Progress,
   Row,
   Space,
   Table,
@@ -38,6 +40,38 @@ import {
 const { Text, Title } = Typography;
 const { TextArea } = Input;
 
+const MAX_KNOWLEDGE_UPLOAD_BYTES = 80 * 1024 * 1024;
+const LARGE_FILE_WARNING_BYTES = 30 * 1024 * 1024;
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(precision)}${units[unitIndex]}`;
+}
+
+function getUploadErrorMessage(error: any) {
+  const status = error?.response?.status || error?.response?.data?.statusCode;
+  const serverMessage = error?.response?.data?.message;
+  const messageText = Array.isArray(serverMessage) ? serverMessage.join('；') : serverMessage;
+  if (status === 413) {
+    return messageText || `文件超过当前 ${formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)} 上限，请压缩或拆分后重试`;
+  }
+  if (error?.code === 'ECONNABORTED' || String(error?.message || '').includes('timeout')) {
+    return '上传或索引超过 10 分钟仍未完成，请先拆分文档后重试';
+  }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return '当前网络已断开，请恢复网络后重试';
+  }
+  return messageText || error?.message || '服务暂时没有返回明确原因';
+}
+
 const panelStyle: React.CSSProperties = {
   borderRadius: 16,
   border: '1px solid #e5e7eb',
@@ -56,6 +90,9 @@ const KnowledgeManager: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadPhase, setUploadPhase] = useState('');
+  const [uploadFileName, setUploadFileName] = useState('');
   const [textIndexing, setTextIndexing] = useState(false);
   const [searching, setSearching] = useState(false);
   const [createForm] = Form.useForm();
@@ -123,23 +160,54 @@ const KnowledgeManager: React.FC = () => {
   };
 
   const handleUpload = async (file: File) => {
-    if (!selectedKb) return false;
+    if (!selectedKb) return Upload.LIST_IGNORE;
+    if (file.size > MAX_KNOWLEDGE_UPLOAD_BYTES) {
+      message.error(
+        `${file.name} 是 ${formatBytes(file.size)}，超过当前单文件上限 ${formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)}，请压缩或拆分后上传`,
+      );
+      return Upload.LIST_IGNORE;
+    }
 
+    const messageKey = `knowledge-upload-${file.name}-${file.size}`;
     try {
+      setUploadProgress(0);
+      setUploadFileName(file.name);
+      setUploadPhase('正在上传文件');
       setUploading(true);
+      if (file.size >= LARGE_FILE_WARNING_BYTES) {
+        message.warning(
+          `${file.name} 较大（${formatBytes(file.size)}），支持上传，但解析、切片和向量化可能需要几分钟，请保持页面打开。`,
+          8,
+        );
+      }
+      message.loading({ key: messageKey, content: `${file.name} 正在上传...`, duration: 0 });
       await knowledgeApi.uploadDocument(selectedKb.id, file, {
         chunkSize: 1000,
         chunkOverlap: 180,
+        timeoutMs: 600000,
+        onUploadProgress: ({ percent }) => {
+          if (percent !== undefined) {
+            setUploadProgress(percent);
+            setUploadPhase(percent >= 100 ? '上传完成，正在解析、切片和构建索引' : `正在上传 ${percent}%`);
+          }
+        },
       });
-      message.success(`${file.name} 已完成索引`);
+      message.success({ key: messageKey, content: `${file.name} 已完成索引`, duration: 4 });
       await refreshSelected(selectedKb.id);
-    } catch {
-      message.error(`${file.name} 索引失败`);
+    } catch (error) {
+      message.error({
+        key: messageKey,
+        content: `${file.name} 索引失败：${getUploadErrorMessage(error)}`,
+        duration: 8,
+      });
     } finally {
       setUploading(false);
+      setUploadProgress(null);
+      setUploadPhase('');
+      setUploadFileName('');
     }
 
-    return false;
+    return Upload.LIST_IGNORE;
   };
 
   const handleTextIngest = async () => {
@@ -402,8 +470,26 @@ const KnowledgeManager: React.FC = () => {
               >
                 <p className="ant-upload-drag-icon"><InboxOutlined /></p>
                 <p className="ant-upload-text">拖拽或选择文件</p>
-                <p className="ant-upload-hint">支持 Word、PPT、Excel、PDF、Markdown、纯文本和结构化文本</p>
+                <p className="ant-upload-hint">
+                  支持 Word、PPT、Excel、PDF、Markdown、纯文本和结构化文本；单文件上限 {formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)}
+                </p>
               </Upload.Dragger>
+              <Alert
+                style={{ marginTop: 12 }}
+                type="info"
+                showIcon
+                message="大文件会先上传，再解析、切片和向量化"
+                description={`30MB 以上文件会显示进度；上传到 100% 后仍需等待索引完成。超过 ${formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)} 会在本地直接拦截并提示。`}
+              />
+              {uploading ? (
+                <div style={{ marginTop: 12 }}>
+                  <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                    <Text strong>{uploadFileName}</Text>
+                    <Progress percent={uploadProgress ?? 0} status="active" />
+                    <Text type="secondary">{uploadPhase || '正在处理'}</Text>
+                  </Space>
+                </div>
+              ) : null}
             </Card>
 
             <Card title="写入文本" style={panelStyle}>

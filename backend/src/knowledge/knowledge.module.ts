@@ -5,9 +5,10 @@ import { KnowledgeDocument } from '../entities/knowledge-document.entity';
 import { KnowledgeChunk } from '../entities/knowledge-chunk.entity';
 import { KnowledgeController } from './knowledge.controller';
 import { KnowledgeService } from './knowledge.service';
+import { MonitoringModule } from '../monitoring/monitoring.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([KnowledgeBase, KnowledgeDocument, KnowledgeChunk])],
+  imports: [TypeOrmModule.forFeature([KnowledgeBase, KnowledgeDocument, KnowledgeChunk]), MonitoringModule],
   controllers: [KnowledgeController],
   providers: [KnowledgeService],
   exports: [KnowledgeService],
