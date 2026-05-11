@@ -17,3 +17,6 @@ export { KnowledgeBase } from './knowledge-base.entity';
 export { KnowledgeDocument } from './knowledge-document.entity';
 export { KnowledgeChunk } from './knowledge-chunk.entity';
 export { Memory } from './memory.entity';
+export { ThreadEntity } from './thread.entity';
+export { MessageEntity } from './message.entity';
+export { RunEntity } from './run.entity';

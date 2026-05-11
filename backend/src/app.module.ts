@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { dirname, isAbsolute, join } from 'path';
 import { AppController } from './app.controller';
@@ -17,6 +18,8 @@ import { KnowledgeModule } from './knowledge/knowledge.module';
 import { MemoryModule } from './memory/memory.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { LlmModule } from './llm/llm.module';
+import { ProtocolModule } from './protocol/protocol.module';
+import { OpenAiCompatibleModule } from './openai-compatible/openai-compatible.module';
 import {
   User,
   Skill,
@@ -37,6 +40,9 @@ import {
   SkillRuntimeArtifact,
   SkillRuntimeEvent,
   SkillRuntimeStep,
+  ThreadEntity,
+  MessageEntity,
+  RunEntity,
 } from './entities';
 
 const configuredDatabasePath = process.env.DATABASE_PATH?.trim() || 'database.sqlite';
@@ -77,40 +83,71 @@ function backupDatabaseIfPresent(databasePath: string) {
 
 backupDatabaseIfPresent(resolvedDatabasePath);
 
+const entities = [
+  User,
+  Skill,
+  SkillVersion,
+  JobModel,
+  JobModelSkill,
+  SkillReview,
+  SkillUsageStat,
+  UserSkillClaim,
+  Agent,
+  LlmProvider,
+  LlmModel,
+  KnowledgeBase,
+  KnowledgeDocument,
+  KnowledgeChunk,
+  Memory,
+  SkillExecution,
+  SkillRuntimeArtifact,
+  SkillRuntimeEvent,
+  SkillRuntimeStep,
+  ThreadEntity,
+  MessageEntity,
+  RunEntity,
+];
+
+function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
+function buildTypeOrmOptions(): TypeOrmModuleOptions {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  const synchronize = parseBooleanEnv(process.env.TYPEORM_SYNCHRONIZE, true);
+
+  if (databaseUrl) {
+    return {
+      type: 'postgres',
+      url: databaseUrl,
+      ssl: parseBooleanEnv(process.env.DATABASE_SSL, databaseUrl.includes('sslmode=require'))
+        ? { rejectUnauthorized: false }
+        : false,
+      synchronize,
+      autoLoadEntities: true,
+      logging: process.env.NODE_ENV !== 'production',
+      entities,
+    };
+  }
+
+  return {
+    type: 'better-sqlite3',
+    database: resolvedDatabasePath,
+    synchronize,
+    autoLoadEntities: true,
+    logging: process.env.NODE_ENV !== 'production',
+    entities,
+  };
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
     }),
-    TypeOrmModule.forRoot({
-      type: 'better-sqlite3',
-      database: resolvedDatabasePath,
-      synchronize: true,
-      autoLoadEntities: true,
-      logging: process.env.NODE_ENV !== 'production',
-      entities: [
-        User,
-        Skill,
-        SkillVersion,
-        JobModel,
-        JobModelSkill,
-        SkillReview,
-        SkillUsageStat,
-        UserSkillClaim,
-        Agent,
-        LlmProvider,
-        LlmModel,
-        KnowledgeBase,
-        KnowledgeDocument,
-        KnowledgeChunk,
-        Memory,
-        SkillExecution,
-        SkillRuntimeArtifact,
-        SkillRuntimeEvent,
-        SkillRuntimeStep,
-      ],
-    }),
+    TypeOrmModule.forRoot(buildTypeOrmOptions()),
     AuthModule,
     SkillsModule,
     ReviewsModule,
@@ -124,6 +161,8 @@ backupDatabaseIfPresent(resolvedDatabasePath);
     MemoryModule,
     WorkspaceModule,
     LlmModule,
+    ProtocolModule,
+    OpenAiCompatibleModule,
   ],
   controllers: [AppController],
   providers: [],

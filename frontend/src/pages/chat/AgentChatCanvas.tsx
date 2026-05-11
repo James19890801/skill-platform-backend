@@ -1126,18 +1126,32 @@ const AgentChatCanvas: React.FC = () => {
     }]);
 
     try {
-      const response = await fetch(`${API_BASE}/ai/chat`, {
+      let response = await fetch(`${API_BASE}/threads/${encodeURIComponent(currentThreadId)}/runs/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          thread_id: currentThreadId,
-          message: userMessage.content,
+          input: userMessage.content,
           model: selectedModel,
-          agentId: agentId ? Number(agentId) : undefined,
+          agent_id: agentId ? Number(agentId) : undefined,
           stream: true,
           attachments: attachments.length > 0 ? attachments.map(a => ({ name: a.name, type: a.type, dataUrl: a.dataUrl })) : undefined,
         }),
       });
+
+      if (response.status === 404) {
+        response = await fetch(`${API_BASE}/ai/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            thread_id: currentThreadId,
+            message: userMessage.content,
+            model: selectedModel,
+            agentId: agentId ? Number(agentId) : undefined,
+            stream: true,
+            attachments: attachments.length > 0 ? attachments.map(a => ({ name: a.name, type: a.type, dataUrl: a.dataUrl })) : undefined,
+          }),
+        });
+      }
 
       if (!response.ok) {
         throw new Error(`API 响应失败: ${response.status}`);
@@ -1342,11 +1356,24 @@ const AgentChatCanvas: React.FC = () => {
   const loadConversations = useCallback(async () => {
     setLoadingHistory(true);
     try {
-      const resp = await fetch(`${API_BASE}/ai/conversations`);
+      let resp = await fetch(`${API_BASE}/threads`);
+      if (resp.status === 404) {
+        resp = await fetch(`${API_BASE}/ai/conversations`);
+      }
       if (resp.ok) {
         const data = await resp.json();
         // 兼容全局拦截器包装格式 {success, data, timestamp}
-        const list = Array.isArray(data) ? data : (data?.data || []);
+        const raw = data?.data || data;
+        const list = Array.isArray(raw)
+          ? raw
+          : Array.isArray(raw?.items)
+            ? raw.items.map((thread: any) => ({
+              threadId: thread.id,
+              messageCount: thread.messageCount || 0,
+              firstMessage: thread.firstMessage || thread.title || '(空对话)',
+              lastMessageTime: thread.updatedAt || thread.createdAt,
+            }))
+            : [];
         setConversations(list);
       }
     } catch {
@@ -1365,7 +1392,10 @@ const AgentChatCanvas: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const resp = await fetch(`${API_BASE}/ai/conversations/${encodeURIComponent(threadId)}`);
+      let resp = await fetch(`${API_BASE}/threads/${encodeURIComponent(threadId)}/messages`);
+      if (resp.status === 404) {
+        resp = await fetch(`${API_BASE}/ai/conversations/${encodeURIComponent(threadId)}`);
+      }
       if (resp.ok) {
         const data = await resp.json();
         // 兼容全局拦截器包装格式 {success, data, timestamp}
@@ -2680,9 +2710,15 @@ const AgentChatCanvas: React.FC = () => {
                   onClick={async (e) => {
                     e.stopPropagation();
                     try {
-                      await fetch(`${API_BASE}/ai/conversations/${encodeURIComponent(item.threadId)}`, {
+                      let resp = await fetch(`${API_BASE}/threads/${encodeURIComponent(item.threadId)}`, {
                         method: 'DELETE',
                       });
+                      if (resp.status === 404) {
+                        resp = await fetch(`${API_BASE}/ai/conversations/${encodeURIComponent(item.threadId)}`, {
+                          method: 'DELETE',
+                        });
+                      }
+                      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                       message.success('已删除');
                       loadConversations();
                     } catch {
