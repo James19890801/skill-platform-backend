@@ -22,7 +22,7 @@ export class AgentsService {
       order: { updatedAt: 'DESC' },
     });
     return {
-      items: items.map(this.parseAgent),
+      items: items.map((agent) => this.parseAgent(agent)),
       total,
     };
   }
