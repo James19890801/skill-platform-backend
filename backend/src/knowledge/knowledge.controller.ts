@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   ParseIntPipe,
+  Query,
   UploadedFile,
   UseInterceptors,
   BadRequestException,
@@ -38,6 +39,30 @@ export class KnowledgeController {
   @ApiOperation({ summary: '获取知识库文档列表' })
   async listDocuments(@Param('id', ParseIntPipe) id: number) {
     return this.knowledgeService.listDocuments(id);
+  }
+
+  @Get(':id/chunks')
+  @ApiOperation({ summary: '查看知识库切片内容' })
+  async listChunks(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('documentId') documentId?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.knowledgeService.listChunks(id, {
+      documentId: documentId ? Number(documentId) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+  }
+
+  @Get(':id/chunks/:chunkId')
+  @ApiOperation({ summary: '查看单个知识库切片详情' })
+  async getChunk(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('chunkId', ParseIntPipe) chunkId: number,
+  ) {
+    return this.knowledgeService.getChunk(id, chunkId);
   }
 
   @Post()

@@ -42,4 +42,7 @@ export class KnowledgeBase {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  chunkCount?: number;
+  indexedDocuments?: unknown[];
 }

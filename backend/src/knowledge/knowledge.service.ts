@@ -14,6 +14,20 @@ import {
 } from './knowledge-pipeline';
 import { normalizeUploadedFilename } from './filename';
 
+export interface KnowledgeSourceReference {
+  id: string;
+  knowledgeBaseId: number;
+  knowledgeBaseName: string;
+  documentId: number;
+  documentName: string;
+  chunkId: number;
+  chunkIndex: number;
+  score: number;
+  sectionTitle?: string;
+  preview: string;
+  content?: string;
+}
+
 @Injectable()
 export class KnowledgeService {
   private readonly logger = new Logger(KnowledgeService.name);
@@ -57,7 +71,7 @@ export class KnowledgeService {
     const knowledgeBases = await this.knowledgeRepository.find({
       order: { createdAt: 'DESC' },
     });
-    return knowledgeBases.map((knowledgeBase) => this.normalizeKnowledgeBaseDisplay(knowledgeBase));
+    return this.attachIndexStats(knowledgeBases);
   }
 
   async findAllByUserId(userId: number): Promise<KnowledgeBase[]> {
@@ -65,7 +79,7 @@ export class KnowledgeService {
       where: { userId },
       order: { createdAt: 'DESC' },
     });
-    return knowledgeBases.map((knowledgeBase) => this.normalizeKnowledgeBaseDisplay(knowledgeBase));
+    return this.attachIndexStats(knowledgeBases);
   }
 
   async findOne(id: number): Promise<KnowledgeBase> {
@@ -239,6 +253,44 @@ export class KnowledgeService {
     return documents.map((document) => this.normalizeDocumentDisplay(document));
   }
 
+  async listChunks(
+    knowledgeBaseId: number,
+    options: { documentId?: number; limit?: number; offset?: number } = {},
+  ): Promise<{ items: Array<KnowledgeChunk & { documentName?: string; knowledgeBaseName?: string }>; total: number }> {
+    const knowledgeBase = await this.findOne(knowledgeBaseId);
+    const where: { knowledgeBaseId: number; documentId?: number } = { knowledgeBaseId };
+    if (options.documentId) where.documentId = options.documentId;
+    const take = Math.min(Math.max(1, options.limit || 100), 500);
+    const skip = Math.max(0, options.offset || 0);
+    const [chunks, total] = await this.chunkRepository.findAndCount({
+      where,
+      order: { documentId: 'ASC', chunkIndex: 'ASC' },
+      take,
+      skip,
+    });
+    const documentNames = await this.getDocumentNameMap(chunks.map((chunk) => chunk.documentId));
+    return {
+      total,
+      items: chunks.map((chunk) => Object.assign(chunk, {
+        documentName: documentNames.get(chunk.documentId),
+        knowledgeBaseName: knowledgeBase.name,
+      })),
+    };
+  }
+
+  async getChunk(knowledgeBaseId: number, chunkId: number): Promise<KnowledgeChunk & { documentName?: string; knowledgeBaseName?: string }> {
+    const knowledgeBase = await this.findOne(knowledgeBaseId);
+    const chunk = await this.chunkRepository.findOne({ where: { id: chunkId, knowledgeBaseId } });
+    if (!chunk) {
+      throw new NotFoundException(`KnowledgeChunk with ID ${chunkId} not found`);
+    }
+    const document = await this.documentRepository.findOne({ where: { id: chunk.documentId } });
+    return Object.assign(chunk, {
+      documentName: document?.name ? normalizeUploadedFilename(document.name) : undefined,
+      knowledgeBaseName: knowledgeBase.name,
+    });
+  }
+
   async search(
     knowledgeBaseId: number,
     query: string,
@@ -248,8 +300,9 @@ export class KnowledgeService {
     topK: number;
     results: Array<KnowledgeChunk & { score: number }>;
     context: string;
+    sources: KnowledgeSourceReference[];
   }> {
-    await this.ensureKnowledgeBaseExists(knowledgeBaseId);
+    const knowledgeBase = await this.findOne(knowledgeBaseId);
     const normalizedTopK = Math.min(Math.max(1, topK || 5), this.maxSearchTopK);
     const chunks = await this.chunkRepository.find({
       where: { knowledgeBaseId },
@@ -257,37 +310,60 @@ export class KnowledgeService {
       order: { id: 'DESC' },
     });
     if (chunks.length === 0) {
-      return { query, topK: normalizedTopK, results: [], context: '' };
+      return { query, topK: normalizedTopK, results: [], context: '', sources: [] };
     }
 
     const [queryEmbedding] = await this.embedTexts([query]);
-    const ranked = rankKnowledgeChunks(chunks, queryEmbedding || createLocalEmbedding(query), normalizedTopK);
+    const ranked = rankKnowledgeChunks(chunks, queryEmbedding || createLocalEmbedding(query), normalizedTopK, { queryText: query });
+    const sources = await this.buildSourceReferences(ranked, new Map([[knowledgeBase.id, knowledgeBase.name]]));
     const context = ranked
-      .map((chunk, index) => `[${index + 1}] ${chunk.content}`)
+      .map((chunk, index) => {
+        const source = sources[index];
+        const label = source
+          ? `[KB:${source.knowledgeBaseName} | Doc:${source.documentName} | Chunk:${source.chunkIndex + 1} | Source:${source.id}]`
+          : `[${index + 1}]`;
+        return `${label}\n${chunk.content}`;
+      })
       .join('\n\n---\n\n');
 
-    return { query, topK: normalizedTopK, results: ranked, context };
+    return { query, topK: normalizedTopK, results: ranked, context, sources };
   }
 
   async searchMany(
     knowledgeBaseIds: number[],
     query: string,
     topK = 5,
-  ): Promise<{ context: string; results: Array<KnowledgeChunk & { score: number }> }> {
+  ): Promise<{ context: string; results: Array<KnowledgeChunk & { score: number }>; sources: KnowledgeSourceReference[] }> {
     const ids = knowledgeBaseIds.filter((id) => Number.isInteger(id) && id > 0);
     const results: Array<KnowledgeChunk & { score: number }> = [];
+    const sources: KnowledgeSourceReference[] = [];
 
     const searchResults = await Promise.all(ids.map((id) => this.search(id, query, topK)));
-    for (const searchResult of searchResults) results.push(...searchResult.results);
+    for (const searchResult of searchResults) {
+      results.push(...searchResult.results);
+      sources.push(...searchResult.sources);
+    }
 
     const ranked = results
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(1, topK));
+    const rankedIds = new Set(ranked.map((chunk) => chunk.id));
+    const rankedSources = sources
+      .filter((source) => rankedIds.has(source.chunkId))
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.max(1, topK));
 
     return {
       results: ranked,
+      sources: rankedSources,
       context: ranked
-        .map((chunk, index) => `[知识 ${index + 1}] ${chunk.content}`)
+        .map((chunk, index) => {
+          const source = rankedSources.find((item) => item.chunkId === chunk.id);
+          const label = source
+            ? `[知识 ${index + 1} | KB:${source.knowledgeBaseName} | Doc:${source.documentName} | Chunk:${source.chunkIndex + 1} | Source:${source.id}]`
+            : `[知识 ${index + 1}]`;
+          return `${label}\n${chunk.content}`;
+        })
         .join('\n\n---\n\n'),
     };
   }
@@ -330,6 +406,91 @@ export class KnowledgeService {
   private normalizeDocumentDisplay(document: KnowledgeDocument): KnowledgeDocument {
     document.name = normalizeUploadedFilename(document.name);
     return document;
+  }
+
+  private async attachIndexStats(knowledgeBases: KnowledgeBase[]): Promise<KnowledgeBase[]> {
+    if (knowledgeBases.length === 0) return [];
+    const ids = knowledgeBases.map((knowledgeBase) => knowledgeBase.id);
+    const [documentRows, chunkRows] = await Promise.all([
+      this.documentRepository
+        .createQueryBuilder('document')
+        .select('document.knowledgeBaseId', 'knowledgeBaseId')
+        .addSelect('COUNT(document.id)', 'count')
+        .where('document.knowledgeBaseId IN (:...ids)', { ids })
+        .groupBy('document.knowledgeBaseId')
+        .getRawMany(),
+      this.chunkRepository
+        .createQueryBuilder('chunk')
+        .select('chunk.knowledgeBaseId', 'knowledgeBaseId')
+        .addSelect('COUNT(chunk.id)', 'count')
+        .where('chunk.knowledgeBaseId IN (:...ids)', { ids })
+        .groupBy('chunk.knowledgeBaseId')
+        .getRawMany(),
+    ]);
+    const documentCounts = new Map<number, number>(
+      documentRows.map((row) => [Number(row.knowledgeBaseId), Number(row.count)]),
+    );
+    const chunkCounts = new Map<number, number>(
+      chunkRows.map((row) => [Number(row.knowledgeBaseId), Number(row.count)]),
+    );
+
+    return knowledgeBases.map((knowledgeBase) => {
+      const normalized = this.normalizeKnowledgeBaseDisplay(knowledgeBase);
+      normalized.documentCount = documentCounts.get(normalized.id) ?? normalized.documentCount ?? 0;
+      normalized.chunkCount = chunkCounts.get(normalized.id) ?? 0;
+      return normalized;
+    });
+  }
+
+  private async getDocumentNameMap(documentIds: number[]): Promise<Map<number, string>> {
+    const ids = Array.from(new Set(documentIds.filter((id) => Number.isInteger(id) && id > 0)));
+    if (ids.length === 0) return new Map();
+    const documents = await this.documentRepository
+      .createQueryBuilder('document')
+      .where('document.id IN (:...ids)', { ids })
+      .getMany();
+    return new Map(documents.map((document) => [document.id, normalizeUploadedFilename(document.name)]));
+  }
+
+  private async buildSourceReferences(
+    chunks: Array<KnowledgeChunk & { score: number }>,
+    knownKnowledgeBases = new Map<number, string>(),
+  ): Promise<KnowledgeSourceReference[]> {
+    const documentNames = await this.getDocumentNameMap(chunks.map((chunk) => chunk.documentId));
+    const missingKnowledgeBaseIds = Array.from(new Set(
+      chunks
+        .map((chunk) => chunk.knowledgeBaseId)
+        .filter((id) => !knownKnowledgeBases.has(id)),
+    ));
+    if (missingKnowledgeBaseIds.length > 0) {
+      const bases = await this.knowledgeRepository
+        .createQueryBuilder('knowledgeBase')
+        .where('knowledgeBase.id IN (:...ids)', { ids: missingKnowledgeBaseIds })
+        .getMany();
+      for (const base of bases) knownKnowledgeBases.set(base.id, base.name);
+    }
+
+    return chunks.map((chunk) => {
+      const metadata = chunk.metadata || {};
+      const documentName = documentNames.get(chunk.documentId)
+        || (typeof metadata.documentName === 'string' ? metadata.documentName : `文档 ${chunk.documentId}`);
+      const knowledgeBaseName = knownKnowledgeBases.get(chunk.knowledgeBaseId) || `知识库 ${chunk.knowledgeBaseId}`;
+      const sectionTitle = typeof metadata.sectionTitle === 'string' ? metadata.sectionTitle : undefined;
+      const id = `kb${chunk.knowledgeBaseId}-doc${chunk.documentId}-c${chunk.chunkIndex + 1}`;
+      return {
+        id,
+        knowledgeBaseId: chunk.knowledgeBaseId,
+        knowledgeBaseName,
+        documentId: chunk.documentId,
+        documentName,
+        chunkId: chunk.id,
+        chunkIndex: chunk.chunkIndex,
+        score: Number(chunk.score.toFixed(4)),
+        sectionTitle,
+        preview: chunk.content.slice(0, 220),
+        content: chunk.content,
+      };
+    });
   }
 }
 

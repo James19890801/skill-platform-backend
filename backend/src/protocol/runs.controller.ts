@@ -113,11 +113,19 @@ export class RunsController {
         input,
         (chunk) => {
           if (!chunk) return;
-          if (chunk.startsWith('{"type"') && chunk.includes('execution_')) {
-            res.write(`data: ${chunk.trim()}\n\n`);
-          } else {
-            res.write(`data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`);
+          const trimmed = chunk.trim();
+          if (trimmed.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(trimmed);
+              if (parsed && typeof parsed === 'object' && typeof parsed.type === 'string') {
+                res.write(`data: ${trimmed}\n\n`);
+                return;
+              }
+            } catch {
+              // fall through and stream as text
+            }
           }
+          res.write(`data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`);
         },
         body.model,
         agentId,

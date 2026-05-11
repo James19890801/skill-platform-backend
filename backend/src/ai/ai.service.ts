@@ -9,7 +9,7 @@ import { ToolBridgeService } from './tool-bridge.service';
 import { SkillExecutorService } from './skill-executor.service';
 import { WorkspaceService } from '../workspace/workspace.service';
 import { SkillResolverService } from '../skill-runtime/skill-resolver.service';
-import { KnowledgeService } from '../knowledge/knowledge.service';
+import { KnowledgeService, KnowledgeSourceReference } from '../knowledge/knowledge.service';
 import { LlmService } from '../llm/llm.service';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
@@ -527,6 +527,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
 
     // ===== 1. 构建系统提示词 =====
     let systemPrompt: string;
+    let knowledgeSources: KnowledgeSourceReference[] = [];
 
     if (agentId) {
       try {
@@ -539,7 +540,8 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
             try {
               const knowledge = await this.knowledgeService.searchMany(agentKnowledgeBaseIds, message, 5);
               if (knowledge.context) {
-                systemPrompt += `\n\n以下是已关联知识库检索结果。回答时优先参考这些内容；如果内容不足，请说明缺口。\n\n${knowledge.context}`;
+                knowledgeSources = knowledge.sources;
+                systemPrompt += `\n\n以下是已关联知识库检索结果。回答时优先参考这些内容；如果内容不足，请说明缺口。引用知识库内容时，请在相关句子后标注 Source 编号，例如「〔${knowledgeSources[0]?.id || 'kb1-doc1-c1'}〕」。\n\n${knowledge.context}`;
               }
             } catch (err) {
               this.logger.warn(`知识库检索失败，继续常规对话: ${err instanceof Error ? err.message : String(err)}`);
@@ -597,6 +599,10 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       ...history,
       { role: 'user', content: processedMessage },
     ];
+
+    if (onChunk && knowledgeSources.length > 0) {
+      onChunk(JSON.stringify({ type: 'knowledge_sources', data: knowledgeSources }));
+    }
 
     // 记录用户消息到历史（记录原始消息，不含附件内容，避免历史累积过大）
     history.push({ role: 'user', content: message });

@@ -305,6 +305,19 @@ export interface KnowledgeBase {
   updatedAt?: string;
 }
 
+export interface KnowledgeChunk {
+  id: number;
+  knowledgeBaseId: number;
+  documentId: number;
+  documentName?: string;
+  knowledgeBaseName?: string;
+  chunkIndex: number;
+  content: string;
+  score?: number;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+}
+
 export interface KnowledgeDocument {
   id: number;
   knowledgeBaseId: number;
@@ -321,9 +334,26 @@ export interface KnowledgeDocument {
 export interface KnowledgeSearchResult {
   id: number;
   documentId: number;
+  documentName?: string;
+  knowledgeBaseName?: string;
+  chunkIndex?: number;
   content: string;
   score: number;
   metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeSourceReference {
+  id: string;
+  knowledgeBaseId: number;
+  knowledgeBaseName: string;
+  documentId: number;
+  documentName: string;
+  chunkId: number;
+  chunkIndex: number;
+  score: number;
+  sectionTitle?: string;
+  preview: string;
+  content?: string;
 }
 
 export interface CreateKnowledgeBaseRequest {
@@ -366,7 +396,13 @@ export const knowledgeApi = {
   listDocuments: (id: number): Promise<KnowledgeDocument[]> =>
     apiClient.get(`/knowledge-bases/${id}/documents`),
 
-  search: (id: number, data: { query: string; topK?: number }): Promise<{ query: string; topK: number; results: KnowledgeSearchResult[]; context: string }> =>
+  listChunks: (id: number, params?: { documentId?: number; limit?: number; offset?: number }): Promise<{ items: KnowledgeChunk[]; total: number }> =>
+    apiClient.get(`/knowledge-bases/${id}/chunks`, { params }),
+
+  getChunk: (id: number, chunkId: number): Promise<KnowledgeChunk> =>
+    apiClient.get(`/knowledge-bases/${id}/chunks/${chunkId}`),
+
+  search: (id: number, data: { query: string; topK?: number }): Promise<{ query: string; topK: number; results: KnowledgeSearchResult[]; context: string; sources?: KnowledgeSourceReference[] }> =>
     apiClient.post(`/knowledge-bases/${id}/search`, data),
 
   update: (id: number, data: UpdateKnowledgeBaseRequest): Promise<KnowledgeBase> =>

@@ -28,35 +28,34 @@ export interface RankedKnowledgeChunk extends RankableKnowledgeChunk {
 const DEFAULT_CHUNK_SIZE = 1000;
 const DEFAULT_CHUNK_OVERLAP = 180;
 const TEXT_EXTENSIONS = /\.(txt|md|markdown|csv|json|yaml|yml|xml|html|htm|log|sql|py|js|ts|tsx|jsx|css)$/i;
+const SENTENCE_BOUNDARY = /(?<=[。！？!?；;.!?])\s*|\n+/u;
 
 export function chunkText(text: string, options: ChunkTextOptions = {}): KnowledgeTextChunk[] {
   const normalized = normalizeText(text);
   if (!normalized) return [];
 
-  const chunkSize = Math.max(32, options.chunkSize ?? DEFAULT_CHUNK_SIZE);
+  const chunkSize = Math.max(80, options.chunkSize ?? DEFAULT_CHUNK_SIZE);
   const chunkOverlap = Math.min(Math.max(0, options.chunkOverlap ?? DEFAULT_CHUNK_OVERLAP), Math.floor(chunkSize / 2));
+  const sections = splitIntoSections(normalized);
   const chunks: KnowledgeTextChunk[] = [];
-  let start = 0;
 
-  while (start < normalized.length) {
-    const targetEnd = Math.min(start + chunkSize, normalized.length);
-    const end = findChunkEnd(normalized, start, targetEnd, chunkSize);
-    const content = normalized.slice(start, end).trim();
-
-    if (content) {
+  for (const section of sections) {
+    const sectionChunks = chunkSection(section.text, chunkSize, chunkOverlap);
+    for (const chunk of sectionChunks) {
       chunks.push({
         index: chunks.length,
-        content,
+        content: chunk.content,
         metadata: {
           ...(options.metadata ?? {}),
-          start,
-          end,
+          sectionTitle: section.title,
+          sectionIndex: section.index,
+          start: section.start + chunk.start,
+          end: section.start + chunk.end,
+          tokenEstimate: Math.ceil(chunk.content.length / 4),
+          splitMethod: chunk.method,
         },
       });
     }
-
-    if (end >= normalized.length) break;
-    start = Math.max(end - chunkOverlap, start + 1);
   }
 
   return chunks;
@@ -104,11 +103,18 @@ export function rankKnowledgeChunks<T extends RankableKnowledgeChunk>(
   chunks: T[],
   queryEmbedding: number[],
   topK = 5,
+  options: { queryText?: string; vectorWeight?: number } = {},
 ): Array<T & { score: number }> {
+  const vectorWeight = clamp(options.vectorWeight ?? 0.78, 0, 1);
+  const queryTerms = tokenizeForRetrieval(options.queryText || '');
+
   return chunks
     .map((chunk) => ({
       ...chunk,
-      score: cosineSimilarity(queryEmbedding, chunk.embedding),
+      score: (
+        cosineSimilarity(queryEmbedding, chunk.embedding) * vectorWeight
+        + lexicalOverlapScore(queryTerms, chunk.content) * (1 - vectorWeight)
+      ),
     }))
     .filter((chunk) => Number.isFinite(chunk.score))
     .sort((a, b) => b.score - a.score)
@@ -153,7 +159,7 @@ async function extractPptxText(buffer: Buffer): Promise<string> {
       .join('\n');
 
     if (slideText) {
-      texts.push(slideText);
+      texts.push(`### Slide ${texts.length + 1}\n${slideText}`);
     }
   }
 
@@ -171,6 +177,162 @@ function extractWorkbookText(buffer: Buffer): string {
   return normalizeText(sections.join('\n\n'));
 }
 
+function splitIntoSections(text: string): Array<{ index: number; title: string; text: string; start: number }> {
+  const lines = text.split('\n');
+  const sections: Array<{ index: number; title: string; text: string; start: number }> = [];
+  let currentTitle = '全文';
+  let currentLines: string[] = [];
+  let currentStart = 0;
+  let cursor = 0;
+
+  const flush = () => {
+    const body = currentLines.join('\n').trim();
+    if (!body) return;
+    sections.push({
+      index: sections.length,
+      title: currentTitle,
+      text: body,
+      start: currentStart,
+    });
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const heading = parseHeading(trimmed);
+    if (heading && currentLines.length > 0) {
+      flush();
+      currentTitle = heading;
+      currentLines = [line];
+      currentStart = cursor;
+    } else {
+      if (heading) currentTitle = heading;
+      if (currentLines.length === 0) currentStart = cursor;
+      currentLines.push(line);
+    }
+    cursor += line.length + 1;
+  }
+
+  flush();
+  return sections.length > 0 ? sections : [{ index: 0, title: '全文', text, start: 0 }];
+}
+
+function parseHeading(line: string): string | null {
+  if (!line) return null;
+  const markdown = line.match(/^#{1,6}\s+(.{1,120})$/);
+  if (markdown) return markdown[1].trim();
+  if (/^(第[一二三四五六七八九十百千万0-9]+[章节条部分]|[一二三四五六七八九十]+、|\d+(\.\d+)*[、.])/.test(line) && line.length <= 120) {
+    return line;
+  }
+  return null;
+}
+
+function chunkSection(
+  sectionText: string,
+  chunkSize: number,
+  chunkOverlap: number,
+): Array<{ content: string; start: number; end: number; method: string }> {
+  const blocks = splitBlocks(sectionText, chunkSize);
+  const chunks: Array<{ content: string; start: number; end: number; method: string }> = [];
+  let current = '';
+  let currentStart = 0;
+
+  for (const block of blocks) {
+    const separator = current ? '\n\n' : '';
+    if (current && current.length + separator.length + block.content.length > chunkSize) {
+      const content = current.trim();
+      if (content) {
+        chunks.push({
+          content,
+          start: currentStart,
+          end: currentStart + current.length,
+          method: block.method,
+        });
+      }
+
+      const overlap = buildOverlap(current, chunkOverlap);
+      current = overlap ? `${overlap}\n\n${block.content}` : block.content;
+      currentStart = overlap ? Math.max(block.start - overlap.length, 0) : block.start;
+    } else {
+      if (!current) currentStart = block.start;
+      current = `${current}${separator}${block.content}`;
+    }
+  }
+
+  if (current.trim()) {
+    chunks.push({
+      content: current.trim(),
+      start: currentStart,
+      end: currentStart + current.length,
+      method: 'section',
+    });
+  }
+
+  return chunks;
+}
+
+function splitBlocks(text: string, chunkSize: number): Array<{ content: string; start: number; method: string }> {
+  const blocks: Array<{ content: string; start: number; method: string }> = [];
+  const paragraphRegex = /\S[\s\S]*?(?=\n{2,}|$)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = paragraphRegex.exec(text)) !== null) {
+    const paragraph = match[0].trim();
+    if (!paragraph) continue;
+
+    const start = match.index + match[0].indexOf(paragraph);
+    if (paragraph.length <= chunkSize) {
+      blocks.push({ content: paragraph, start, method: 'paragraph' });
+      continue;
+    }
+
+    for (const part of splitLongBlock(paragraph, chunkSize)) {
+      blocks.push({ content: part.content, start: start + part.start, method: part.method });
+    }
+  }
+
+  return blocks;
+}
+
+function splitLongBlock(text: string, chunkSize: number): Array<{ content: string; start: number; method: string }> {
+  const sentences = text
+    .split(SENTENCE_BOUNDARY)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (sentences.length > 1) {
+    const parts: Array<{ content: string; start: number; method: string }> = [];
+    let current = '';
+    let currentStart = 0;
+    let cursor = 0;
+
+    for (const sentence of sentences) {
+      const sentenceStart = text.indexOf(sentence, cursor);
+      cursor = sentenceStart >= 0 ? sentenceStart + sentence.length : cursor;
+      if (current && current.length + sentence.length + 1 > chunkSize) {
+        parts.push({ content: current.trim(), start: currentStart, method: 'sentence' });
+        current = sentence;
+        currentStart = Math.max(sentenceStart, 0);
+      } else {
+        if (!current) currentStart = Math.max(sentenceStart, 0);
+        current = current ? `${current}${sentence}` : sentence;
+      }
+    }
+    if (current.trim()) parts.push({ content: current.trim(), start: currentStart, method: 'sentence' });
+    return parts;
+  }
+
+  const parts: Array<{ content: string; start: number; method: string }> = [];
+  let start = 0;
+  while (start < text.length) {
+    const targetEnd = Math.min(start + chunkSize, text.length);
+    const end = findChunkEnd(text, start, targetEnd, chunkSize);
+    parts.push({ content: text.slice(start, end).trim(), start, method: 'recursive' });
+    if (end >= text.length) break;
+    start = end;
+  }
+  return parts;
+}
+
 function findChunkEnd(text: string, start: number, targetEnd: number, chunkSize: number): number {
   if (targetEnd >= text.length) return text.length;
 
@@ -185,6 +347,50 @@ function findChunkEnd(text: string, start: number, targetEnd: number, chunkSize:
   }
 
   return targetEnd;
+}
+
+function buildOverlap(content: string, maxLength: number): string {
+  if (maxLength <= 0 || content.length <= maxLength) return maxLength > 0 ? content : '';
+  const tail = content.slice(-maxLength);
+  const paragraphIndex = tail.indexOf('\n\n');
+  if (paragraphIndex > 0 && paragraphIndex < tail.length - 20) {
+    return tail.slice(paragraphIndex + 2).trim();
+  }
+  const sentenceIndex = Math.max(
+    tail.lastIndexOf('。'),
+    tail.lastIndexOf('！'),
+    tail.lastIndexOf('？'),
+    tail.lastIndexOf('.'),
+    tail.lastIndexOf(';'),
+  );
+  if (sentenceIndex > 10 && sentenceIndex < tail.length - 10) {
+    return tail.slice(sentenceIndex + 1).trim();
+  }
+  return tail.trim();
+}
+
+function tokenizeForRetrieval(text: string): Set<string> {
+  const words = text
+    .toLowerCase()
+    .split(/[^\p{Letter}\p{Number}]+/u)
+    .filter((token) => token.length >= 2);
+  const chars = Array.from(text.replace(/\s+/g, '')).filter((char) => /\p{Letter}|\p{Number}/u.test(char));
+  return new Set([...words, ...chars]);
+}
+
+function lexicalOverlapScore(queryTerms: Set<string>, content: string): number {
+  if (queryTerms.size === 0) return 0;
+  const contentTerms = tokenizeForRetrieval(content);
+  if (contentTerms.size === 0) return 0;
+  let overlap = 0;
+  for (const term of queryTerms) {
+    if (contentTerms.has(term)) overlap += 1;
+  }
+  return overlap / Math.sqrt(queryTerms.size * contentTerms.size);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function normalizeText(value: string): string {

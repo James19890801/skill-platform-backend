@@ -29,6 +29,7 @@ import {
 } from '@ant-design/icons';
 import {
   KnowledgeBase,
+  KnowledgeChunk,
   KnowledgeDocument,
   KnowledgeSearchResult,
   knowledgeApi,
@@ -46,7 +47,10 @@ const panelStyle: React.CSSProperties = {
 const KnowledgeManager: React.FC = () => {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [chunks, setChunks] = useState<KnowledgeChunk[]>([]);
+  const [chunkTotal, setChunkTotal] = useState(0);
   const [searchResults, setSearchResults] = useState<KnowledgeSearchResult[]>([]);
+  const [activeChunk, setActiveChunk] = useState<KnowledgeChunk | KnowledgeSearchResult | null>(null);
   const [selectedKb, setSelectedKb] = useState<KnowledgeBase | null>(null);
   const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -77,12 +81,15 @@ const KnowledgeManager: React.FC = () => {
   };
 
   const refreshSelected = async (kbId: number) => {
-    const [detail, docs] = await Promise.all([
+    const [detail, docs, chunkPage] = await Promise.all([
       knowledgeApi.getById(kbId),
       knowledgeApi.listDocuments(kbId),
+      knowledgeApi.listChunks(kbId, { limit: 200 }),
     ]);
     setSelectedKb(detail);
     setDocuments(docs);
+    setChunks(chunkPage.items || []);
+    setChunkTotal(chunkPage.total || 0);
     await fetchKnowledgeBases();
   };
 
@@ -167,7 +174,16 @@ const KnowledgeManager: React.FC = () => {
         query: values.query,
         topK: 5,
       });
-      setSearchResults(result.results || []);
+      setSearchResults((result.sources || result.results || []).map((item: any) => ({
+        id: item.chunkId || item.id,
+        documentId: item.documentId,
+        documentName: item.documentName,
+        knowledgeBaseName: item.knowledgeBaseName,
+        chunkIndex: item.chunkIndex,
+        content: item.content || item.preview,
+        score: item.score,
+        metadata: item.metadata || { sectionTitle: item.sectionTitle },
+      })));
     } catch (error: any) {
       if (!error?.errorFields) message.error('检索失败');
     } finally {
@@ -264,6 +280,45 @@ const KnowledgeManager: React.FC = () => {
         <Tag color={status === 'error' ? 'red' : status === 'processing' ? 'gold' : 'green'}>
           {status === 'error' ? '失败' : status === 'processing' ? '处理中' : '已索引'}
         </Tag>
+      ),
+    },
+  ];
+
+  const chunkColumns = [
+    {
+      title: '切片',
+      key: 'chunk',
+      render: (_: unknown, record: KnowledgeChunk) => (
+        <Space direction="vertical" size={3} style={{ maxWidth: 520 }}>
+          <Space wrap>
+            <Tag color="blue">#{(record.chunkIndex ?? 0) + 1}</Tag>
+            <Text strong>{record.documentName || `文档 ${record.documentId}`}</Text>
+            {record.metadata?.sectionTitle ? <Tag>{String(record.metadata.sectionTitle)}</Tag> : null}
+          </Space>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {record.content.slice(0, 140)}{record.content.length > 140 ? '...' : ''}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: '范围',
+      key: 'range',
+      width: 120,
+      render: (_: unknown, record: KnowledgeChunk) => (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {record.metadata?.start ?? '-'} - {record.metadata?.end ?? '-'}
+        </Text>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 92,
+      render: (_: unknown, record: KnowledgeChunk) => (
+        <Button size="small" icon={<FileSearchOutlined />} onClick={() => setActiveChunk(record)}>
+          查看
+        </Button>
       ),
     },
   ];
@@ -382,8 +437,22 @@ const KnowledgeManager: React.FC = () => {
                   renderItem={(item) => (
                     <List.Item>
                       <List.Item.Meta
-                        title={<Space><Tag color="blue">{item.score.toFixed(3)}</Tag><Text>切片 #{item.id}</Text></Space>}
-                        description={<Text style={{ whiteSpace: 'pre-wrap' }}>{item.content}</Text>}
+                        title={(
+                          <Space wrap>
+                            <Tag color="blue">{item.score.toFixed(3)}</Tag>
+                            <Text>{item.knowledgeBaseName || selectedKb.name}</Text>
+                            <Text type="secondary">{item.documentName || `文档 ${item.documentId}`}</Text>
+                            <Tag>#{(item.chunkIndex ?? 0) + 1}</Tag>
+                          </Space>
+                        )}
+                        description={(
+                          <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                            <Text style={{ whiteSpace: 'pre-wrap' }}>{item.content}</Text>
+                            <Button size="small" icon={<FileSearchOutlined />} onClick={() => setActiveChunk(item)}>
+                              查看切片详情
+                            </Button>
+                          </Space>
+                        )}
                       />
                     </List.Item>
                   )}
@@ -401,9 +470,57 @@ const KnowledgeManager: React.FC = () => {
                 locale={{ emptyText: <Empty description="暂无文档" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
               />
             </Card>
+
+            <Card
+              title="切片内容"
+              extra={<Tag color="green">{chunkTotal} 片</Tag>}
+              style={panelStyle}
+            >
+              <Table
+                dataSource={chunks}
+                columns={chunkColumns}
+                rowKey="id"
+                size="small"
+                pagination={{ pageSize: 8 }}
+                locale={{ emptyText: <Empty description="暂无切片" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+              />
+            </Card>
           </Space>
         ) : null}
       </Drawer>
+
+      <Modal
+        title={activeChunk ? `切片 #${((activeChunk as any).chunkIndex ?? 0) + 1}` : '切片详情'}
+        open={Boolean(activeChunk)}
+        onCancel={() => setActiveChunk(null)}
+        footer={null}
+        width={760}
+      >
+        {activeChunk ? (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Space wrap>
+              <Tag color="blue">{(activeChunk as any).knowledgeBaseName || selectedKb?.name || '知识库'}</Tag>
+              <Tag>{(activeChunk as any).documentName || `文档 ${(activeChunk as any).documentId}`}</Tag>
+              {(activeChunk as any).metadata?.sectionTitle ? <Tag>{String((activeChunk as any).metadata.sectionTitle)}</Tag> : null}
+              {typeof (activeChunk as any).score === 'number' ? <Tag color="green">score {(activeChunk as any).score.toFixed(3)}</Tag> : null}
+            </Space>
+            <div
+              style={{
+                whiteSpace: 'pre-wrap',
+                background: '#f8fafc',
+                border: '1px solid #e5e7eb',
+                borderRadius: 12,
+                padding: 16,
+                maxHeight: 420,
+                overflow: 'auto',
+                lineHeight: 1.7,
+              }}
+            >
+              {(activeChunk as any).content || (activeChunk as any).preview}
+            </div>
+          </Space>
+        ) : null}
+      </Modal>
     </div>
   );
 };

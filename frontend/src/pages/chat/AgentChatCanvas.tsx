@@ -23,6 +23,7 @@ import {
   Tooltip,
   Drawer,
   List,
+  Modal,
   message,
   Grid,
   Upload,
@@ -62,7 +63,7 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import MermaidRenderer from '../../components/MermaidRenderer';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { LlmModel, llmApi, skillsApi } from '../../services/api';
+import { KnowledgeSourceReference, LlmModel, llmApi, skillsApi } from '../../services/api';
 import type { ISkill } from '../../types';
 import {
   getAgentAvatarSrc,
@@ -80,6 +81,7 @@ interface Message {
   content: string;
   timestamp: Date;
   artifacts?: Artifact[];
+  knowledgeSources?: KnowledgeSourceReference[];
 }
 
 interface Artifact {
@@ -244,6 +246,7 @@ const AgentChatCanvas: React.FC = () => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const [messages, setMessages] = useState<Message[]>([]);
+  const [activeKnowledgeSource, setActiveKnowledgeSource] = useState<KnowledgeSourceReference | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState('qwen-plus');
@@ -1162,18 +1165,20 @@ const AgentChatCanvas: React.FC = () => {
       let assistantContent = '';
       let hasAssistantContent = false;
       let pendingBuffer = '';
+      let knowledgeSources: KnowledgeSourceReference[] = [];
 
       const updateAssistantMessage = (content: string) => {
         setMessages((prev) => {
           const lastMsg = prev[prev.length - 1];
           if (lastMsg?.role === 'assistant' && lastMsg.id.startsWith('msg-assistant')) {
-            return [...prev.slice(0, -1), { ...lastMsg, content }];
+            return [...prev.slice(0, -1), { ...lastMsg, content, knowledgeSources }];
           }
           return [...prev, {
             id: `msg-assistant-${Date.now()}`,
             role: 'assistant',
             content,
             timestamp: new Date(),
+            knowledgeSources,
           }];
         });
       };
@@ -1258,6 +1263,12 @@ const AgentChatCanvas: React.FC = () => {
                   continue;
                 }
 
+                if (data.type === 'knowledge_sources' && Array.isArray(data.data)) {
+                  knowledgeSources = data.data;
+                  updateAssistantMessage(assistantContent || '正在检索知识库...');
+                  continue;
+                }
+
                 if (data.type === 'content' && data.content) {
                   if (!hasAssistantContent) {
                     hasAssistantContent = true;
@@ -1281,7 +1292,7 @@ const AgentChatCanvas: React.FC = () => {
         const lastMsg = prev[prev.length - 1];
         if (lastMsg?.role === 'assistant') {
           const artifacts = parseArtifacts(lastMsg.content);
-          return [...prev.slice(0, -1), { ...lastMsg, artifacts }];
+          return [...prev.slice(0, -1), { ...lastMsg, artifacts, knowledgeSources: lastMsg.knowledgeSources || knowledgeSources }];
         }
         return prev;
       });
@@ -2337,6 +2348,36 @@ const AgentChatCanvas: React.FC = () => {
                       ) : (
                         renderMessageContent(msg.content, msg.artifacts, isLastAssistant ? executionState : null)
                       )}
+
+                      {msg.role === 'assistant' && msg.knowledgeSources && msg.knowledgeSources.length > 0 && (
+                        <div
+                          style={{
+                            marginTop: 12,
+                            paddingTop: 10,
+                            borderTop: '1px solid #eef2f7',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: 8,
+                          }}
+                        >
+                          <Text type="secondary" style={{ fontSize: 12, width: '100%' }}>引用知识库</Text>
+                          {msg.knowledgeSources.map((source) => (
+                            <Button
+                              key={source.id}
+                              size="small"
+                              onClick={() => setActiveKnowledgeSource(source)}
+                              style={{
+                                borderRadius: 999,
+                                height: 28,
+                                paddingInline: 10,
+                                background: '#f8fafc',
+                              }}
+                            >
+                              {source.knowledgeBaseName} · {source.documentName} · #{source.chunkIndex + 1}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
                       
                       {/* 助手回复的 hover 操作按钮 */}
                       {msg.role === 'assistant' && (
@@ -2812,6 +2853,40 @@ const AgentChatCanvas: React.FC = () => {
           </div>
         )}
       </Drawer>
+
+      <Modal
+        title="知识库引用"
+        open={Boolean(activeKnowledgeSource)}
+        onCancel={() => setActiveKnowledgeSource(null)}
+        footer={null}
+        width={760}
+      >
+        {activeKnowledgeSource ? (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Space wrap>
+              <Tag color="blue">{activeKnowledgeSource.knowledgeBaseName}</Tag>
+              <Tag>{activeKnowledgeSource.documentName}</Tag>
+              <Tag>切片 #{activeKnowledgeSource.chunkIndex + 1}</Tag>
+              <Tag color="green">score {activeKnowledgeSource.score.toFixed(3)}</Tag>
+              {activeKnowledgeSource.sectionTitle ? <Tag>{activeKnowledgeSource.sectionTitle}</Tag> : null}
+            </Space>
+            <div
+              style={{
+                whiteSpace: 'pre-wrap',
+                background: '#f8fafc',
+                border: '1px solid #e5e7eb',
+                borderRadius: 12,
+                padding: 16,
+                maxHeight: 420,
+                overflow: 'auto',
+                lineHeight: 1.7,
+              }}
+            >
+              {activeKnowledgeSource.content || activeKnowledgeSource.preview}
+            </div>
+          </Space>
+        ) : null}
+      </Modal>
     </div>
   );
 };
