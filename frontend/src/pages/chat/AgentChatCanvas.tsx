@@ -1121,7 +1121,7 @@ const AgentChatCanvas: React.FC = () => {
     setMessages((prev) => [...prev, {
       id: placeholderId,
       role: 'assistant',
-      content: '▍',
+      content: '正在准备回答...',
       timestamp: new Date(),
     }]);
 
@@ -1160,14 +1160,39 @@ const AgentChatCanvas: React.FC = () => {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let assistantContent = '';
+      let hasAssistantContent = false;
+      let pendingBuffer = '';
+
+      const updateAssistantMessage = (content: string) => {
+        setMessages((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg?.role === 'assistant' && lastMsg.id.startsWith('msg-assistant')) {
+            return [...prev.slice(0, -1), { ...lastMsg, content }];
+          }
+          return [...prev, {
+            id: `msg-assistant-${Date.now()}`,
+            role: 'assistant',
+            content,
+            timestamp: new Date(),
+          }];
+        });
+      };
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            if (pendingBuffer.trim()) {
+              pendingBuffer += '\n';
+            } else {
+              break;
+            }
+          } else {
+            pendingBuffer += decoder.decode(value, { stream: true });
+          }
 
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
+          const lines = pendingBuffer.split('\n');
+          pendingBuffer = lines.pop() || '';
 
           for (const line of lines) {
             if (line.startsWith('data:')) {
@@ -1228,27 +1253,26 @@ const AgentChatCanvas: React.FC = () => {
                   continue;
                 }
 
-                if (data.type === 'content' && data.content) {
-                  assistantContent += data.content;
+                if (data.type === 'status' && data.content && !hasAssistantContent) {
+                  updateAssistantMessage(data.content);
+                  continue;
+                }
 
-                  setMessages((prev) => {
-                    const lastMsg = prev[prev.length - 1];
-                    if (lastMsg?.role === 'assistant' && lastMsg.id.startsWith('msg-assistant')) {
-                      return [...prev.slice(0, -1), { ...lastMsg, content: assistantContent }];
-                    }
-                    return [...prev, {
-                      id: `msg-assistant-${Date.now()}`,
-                      role: 'assistant',
-                      content: assistantContent,
-                      timestamp: new Date(),
-                    }];
-                  });
+                if (data.type === 'content' && data.content) {
+                  if (!hasAssistantContent) {
+                    hasAssistantContent = true;
+                    assistantContent = '';
+                  }
+                  assistantContent += data.content;
+                  updateAssistantMessage(assistantContent);
                 }
               } catch (e) {
                 // 忽略解析错误
               }
             }
           }
+
+          if (done) break;
         }
       }
 

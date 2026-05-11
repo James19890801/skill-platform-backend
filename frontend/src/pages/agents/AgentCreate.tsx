@@ -22,6 +22,9 @@ import {
   Empty,
   Upload,
   Avatar,
+  Alert,
+  Modal,
+  Tooltip,
 } from 'antd';
 import { useAuthStore } from '../../stores/useAuthStore';
 import {
@@ -30,10 +33,16 @@ import {
   PlayCircleOutlined,
   FolderOutlined,
   UploadOutlined,
+  ApiOutlined,
+  CodeOutlined,
+  DeleteOutlined,
+  LinkOutlined,
+  ShoppingOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { SkillDomain, DomainLabels } from '../../types';
-import { LlmModel, llmApi, knowledgeApi } from '../../services/api';
+import { LlmModel, McpServerConfig, llmApi, knowledgeApi, mcpApi } from '../../services/api';
 import {
   AGENT_ICON_LIBRARY,
   DEFAULT_AGENT_ICON,
@@ -54,6 +63,7 @@ interface AgentCreateProps {
     systemPrompt?: string;
     skills: string[];
     knowledgeBases: string[];
+    mcpServers?: McpServerConfig[];
     memoryEnabled: boolean;
     temperature: number;
     maxTokens?: number;
@@ -66,6 +76,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const selectedSkillIds = Form.useWatch('skills', form);
+  const selectedMcpServers = (Form.useWatch('mcpServers', form) || []) as McpServerConfig[];
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
@@ -80,6 +91,10 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
   }>>([]);
   const [availableModels, setAvailableModels] = useState<LlmModel[]>([]);
   const [availableKnowledgeBases, setAvailableKnowledgeBases] = useState<Array<{ id: number; name: string; documentCount: number }>>([]);
+  const [mcpMarketplace, setMcpMarketplace] = useState<McpServerConfig[]>([]);
+  const [mcpJsonOpen, setMcpJsonOpen] = useState(false);
+  const [mcpJson, setMcpJson] = useState('');
+  const [mcpParsing, setMcpParsing] = useState(false);
   const [avatar, setAvatar] = useState<string>(DEFAULT_AGENT_ICON);
 
   // 从后端加载 Skills 列表
@@ -123,6 +138,10 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
         documentCount: kb.documentCount || 0,
       }))))
       .catch(() => setAvailableKnowledgeBases([]));
+
+    mcpApi.marketplace()
+      .then((data) => setMcpMarketplace(data.items || []))
+      .catch(() => setMcpMarketplace([]));
   }, []);
 
   // 编辑模式：回填已有数据
@@ -135,6 +154,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
         systemPrompt: initialData.systemPrompt || '',
         skills: initialData.skills || [],
         knowledgeBases: initialData.knowledgeBases || [],
+        mcpServers: initialData.mcpServers || [],
         memoryEnabled: initialData.memoryEnabled,
         temperature: initialData.temperature,
         maxTokens: initialData.maxTokens || 2048,
@@ -174,6 +194,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
         systemPrompt: values.systemPrompt,
         skills: values.skills || [],
         knowledgeBases: values.knowledgeBases || [],
+        mcpServers: form.getFieldValue('mcpServers') || [],
         memoryEnabled: values.memoryEnabled,
         temperature: values.temperature,
         maxTokens: values.maxTokens,
@@ -200,6 +221,58 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
     }
   };
 
+  const setMcpServers = (servers: McpServerConfig[]) => {
+    form.setFieldValue('mcpServers', servers);
+  };
+
+  const addMcpServer = (server: McpServerConfig) => {
+    const current = (form.getFieldValue('mcpServers') || []) as McpServerConfig[];
+    const exists = current.some((item) => (item.id || item.name) === (server.id || server.name));
+    if (exists) {
+      message.info('这个 MCP 已经添加过了');
+      return;
+    }
+    setMcpServers([...current, { ...server, source: server.source || 'marketplace' }]);
+  };
+
+  const removeMcpServer = (server: McpServerConfig) => {
+    const current = (form.getFieldValue('mcpServers') || []) as McpServerConfig[];
+    setMcpServers(current.filter((item) => (item.id || item.name) !== (server.id || server.name)));
+  };
+
+  const applyMcpJson = async () => {
+    if (!mcpJson.trim()) {
+      message.warning('请先粘贴 MCP JSON 配置');
+      return;
+    }
+    setMcpParsing(true);
+    try {
+      const result = await mcpApi.normalize({ json: mcpJson });
+      const current = (form.getFieldValue('mcpServers') || []) as McpServerConfig[];
+      const merged = [...current];
+      for (const server of result.servers || []) {
+        const key = server.id || server.name;
+        const idx = merged.findIndex((item) => (item.id || item.name) === key);
+        if (idx >= 0) merged[idx] = server;
+        else merged.push(server);
+      }
+      setMcpServers(merged);
+      setMcpJsonOpen(false);
+      message.success(`已导入 ${result.servers.length} 个 MCP Server`);
+    } catch (error: any) {
+      message.error(error?.response?.data?.message || error.message || 'MCP JSON 解析失败');
+    } finally {
+      setMcpParsing(false);
+    }
+  };
+
+  const getMcpEndpoint = (server: McpServerConfig) => {
+    if (server.transport === 'stdio') {
+      return [server.command, ...(server.args || [])].filter(Boolean).join(' ');
+    }
+    return server.url || '';
+  };
+
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: 24 }}>
       <Title level={3} style={{ textAlign: 'center', marginBottom: 24 }}>
@@ -214,7 +287,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
         style={{ marginBottom: 32 }}
         items={[
           { title: '基础配置', description: '名称和模型' },
-          { title: '能力配置', description: 'Skills 和知识库' },
+          { title: '能力配置', description: 'Skills、知识库和 MCP' },
           { title: '高级设置', description: '记忆和参数' },
         ]}
       />
@@ -228,6 +301,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
             model: availableModels[0]?.code || 'qwen-plus',
             memoryEnabled: true,
             temperature: 0.7,
+            mcpServers: [],
           }}
         >
           {/* Step 1: 基础配置 */}
@@ -323,6 +397,129 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
                   rows={4}
                 />
               </Form.Item>
+
+              <Divider />
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <Title level={5} style={{ margin: 0 }}>
+                      <ApiOutlined style={{ color: '#2563eb', marginRight: 8 }} />
+                      MCP Server
+                    </Title>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      从市场添加，或粘贴 Claude / Cursor 风格的 mcpServers JSON。
+                    </Text>
+                  </div>
+                  <Button icon={<CodeOutlined />} onClick={() => setMcpJsonOpen(true)}>
+                    粘贴 JSON
+                  </Button>
+                </div>
+
+                <Alert
+                  type="info"
+                  showIcon
+                  icon={<SafetyCertificateOutlined />}
+                  message="兼容 stdio、Streamable HTTP 和 SSE。配置会随 Agent 保存，运行时执行前仍会做权限和环境校验。"
+                  style={{ borderRadius: 10, marginBottom: 14 }}
+                />
+
+                {selectedMcpServers.length > 0 && (
+                  <div style={{
+                    border: '1px solid #dbe4f0',
+                    background: '#f8fbff',
+                    borderRadius: 12,
+                    padding: 12,
+                    marginBottom: 14,
+                  }}>
+                    <Text strong style={{ fontSize: 13 }}>已装配 {selectedMcpServers.length} 个 MCP</Text>
+                    <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 10 }}>
+                      {selectedMcpServers.map((server) => (
+                        <div
+                          key={server.id || server.name}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr auto',
+                            gap: 12,
+                            alignItems: 'center',
+                            padding: '10px 12px',
+                            border: '1px solid #e5ebf3',
+                            background: '#fff',
+                            borderRadius: 10,
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <Space size={6} wrap>
+                              <Text strong>{server.name}</Text>
+                              <Tag color={server.transport === 'stdio' ? 'geekblue' : 'cyan'}>{server.transport}</Tag>
+                              {server.source && <Tag>{server.source}</Tag>}
+                            </Space>
+                            <Tooltip title={getMcpEndpoint(server)}>
+                              <Text type="secondary" ellipsis style={{ display: 'block', maxWidth: 520, fontSize: 12 }}>
+                                <LinkOutlined /> {getMcpEndpoint(server) || '未填写连接信息'}
+                              </Text>
+                            </Tooltip>
+                          </div>
+                          <Button
+                            type="text"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => removeMcpServer(server)}
+                            aria-label={`移除 ${server.name}`}
+                          />
+                        </div>
+                      ))}
+                    </Space>
+                  </div>
+                )}
+
+                <Row gutter={[12, 12]}>
+                  {mcpMarketplace.map((server) => {
+                    const active = selectedMcpServers.some((item) => (item.id || item.name) === (server.id || server.name));
+                    return (
+                      <Col span={12} key={server.id || server.name}>
+                        <div style={{
+                          border: active ? '1px solid #2563eb' : '1px solid #e5eaf2',
+                          background: active ? '#f5f9ff' : '#fff',
+                          borderRadius: 12,
+                          padding: 14,
+                          minHeight: 152,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          boxShadow: active ? '0 12px 30px rgba(37, 99, 235, 0.10)' : '0 8px 22px rgba(15, 23, 42, 0.05)',
+                        }}>
+                          <div>
+                            <Space size={8} style={{ marginBottom: 8 }} wrap>
+                              <ShoppingOutlined style={{ color: '#2563eb' }} />
+                              <Text strong>{server.name}</Text>
+                              <Tag color={server.transport === 'stdio' ? 'geekblue' : 'cyan'}>{server.transport}</Tag>
+                            </Space>
+                            <Text type="secondary" style={{ fontSize: 12, display: 'block', minHeight: 36 }}>
+                              {server.description}
+                            </Text>
+                            {(server.capabilities || []).length > 0 && (
+                              <Space wrap size={[4, 4]} style={{ marginTop: 8 }}>
+                                {(server.capabilities || []).slice(0, 3).map((cap) => (
+                                  <Tag key={cap} style={{ marginRight: 0 }}>{cap}</Tag>
+                                ))}
+                              </Space>
+                            )}
+                          </div>
+                          <Button
+                            size="small"
+                            type={active ? 'default' : 'primary'}
+                            onClick={() => active ? removeMcpServer(server) : addMcpServer(server)}
+                            style={{ marginTop: 12, borderRadius: 8, alignSelf: 'flex-start' }}
+                          >
+                            {active ? '移除' : '添加'}
+                          </Button>
+                        </div>
+                      </Col>
+                    );
+                  })}
+                </Row>
+              </div>
             </>
           </div>
 
@@ -414,23 +611,24 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
                   </Text>
 
                   {/* === Skill 卡片列表 === */}
-                  <Row gutter={[12, 12]}>
+                  <div style={{ maxHeight: 300, overflowY: 'auto', overflowX: 'hidden', paddingRight: 4, marginRight: -4 }}>
+                    <Row gutter={[12, 12]}>
                     {(() => {
                       let filtered = availableSkills;
                       if (selectedDomain) filtered = filtered.filter(s => s.domain === selectedDomain);
                       if (selectedSubDomain) filtered = filtered.filter(s => s.subDomain === selectedSubDomain);
                       return filtered.length > 0 ? filtered.map((skill) => (
-                        <Col span={12} key={skill.id}>
+                        <Col xs={24} md={12} key={skill.id}>
                           <Card
                             hoverable
-                            style={{ borderRadius: 10, border: '1px solid #e8e8e8' }}
-                            bodyStyle={{ padding: 12 }}
+                            style={{ borderRadius: 10, border: '1px solid #e8e8e8', height: 118, overflow: 'hidden' }}
+                            bodyStyle={{ padding: 12, height: '100%' }}
                           >
                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                               <Checkbox value={skill.id} style={{ marginTop: 3 }} />
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
-                                  <Text strong style={{ fontSize: 14 }}>{skill.name}</Text>
+                                  <Text strong style={{ fontSize: 14, maxWidth: 180 }} ellipsis>{skill.name}</Text>
                                   {skill.abilityName && (
                                     <Tag style={{ fontSize: 10, lineHeight: '18px', marginRight: 0 }}>{skill.abilityName}</Tag>
                                   )}
@@ -440,7 +638,13 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
                                     </Tag>
                                   )}
                                 </div>
-                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                <Text type="secondary" style={{
+                                  fontSize: 12,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                }}>
                                   {skill.description}
                                 </Text>
                               </div>
@@ -455,7 +659,8 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
                         </Col>
                       );
                     })()}
-                  </Row>
+                    </Row>
+                  </div>
                 </Checkbox.Group>
               </Form.Item>
 
@@ -567,6 +772,41 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
           </Space>
         </Form>
       </Card>
+
+      <Modal
+        title="粘贴 MCP JSON 配置"
+        open={mcpJsonOpen}
+        onCancel={() => setMcpJsonOpen(false)}
+        onOk={applyMcpJson}
+        okText="解析并添加"
+        cancelText="取消"
+        confirmLoading={mcpParsing}
+        width={720}
+      >
+        <Text type="secondary" style={{ display: 'block', marginBottom: 10 }}>
+          支持 <code>mcpServers</code> 对象、数组，或单个 Server 配置。敏感 Key 建议写成环境变量占位符。
+        </Text>
+        <Input.TextArea
+          value={mcpJson}
+          onChange={(event) => setMcpJson(event.target.value)}
+          rows={14}
+          spellCheck={false}
+          placeholder={`{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+    },
+    "remoteSearch": {
+      "transport": "streamable_http",
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer \${TOKEN}" }
+    }
+  }
+}`}
+          style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+        />
+      </Modal>
     </div>
   );
 };

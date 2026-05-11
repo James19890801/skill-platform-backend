@@ -32,6 +32,9 @@ export class Agent {
   @Column({ type: 'text', nullable: true })
   knowledgeBases: string; // JSON: ['kb-1', 'kb-2']
 
+  @Column({ type: 'text', nullable: true })
+  mcpServers: string; // JSON: [{ name, transport, command/url, args, env, headers }]
+
   @Column({ default: true })
   memoryEnabled: boolean;
 

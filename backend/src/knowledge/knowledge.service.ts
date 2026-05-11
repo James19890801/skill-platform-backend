@@ -19,6 +19,10 @@ export class KnowledgeService {
   private readonly logger = new Logger(KnowledgeService.name);
   private readonly embeddingClient: OpenAI;
   private readonly embeddingModel = process.env.EMBEDDING_MODEL || 'text-embedding-v4';
+  private readonly embeddingBatchSize = positiveIntegerEnv('KNOWLEDGE_EMBEDDING_BATCH_SIZE', 16, 1);
+  private readonly maxChunksPerDocument = positiveIntegerEnv('KNOWLEDGE_MAX_CHUNKS_PER_DOCUMENT', 500, 1);
+  private readonly maxSearchTopK = positiveIntegerEnv('KNOWLEDGE_MAX_TOP_K', 20, 1);
+  private readonly maxSearchChunks = positiveIntegerEnv('KNOWLEDGE_MAX_SEARCH_CHUNKS', 5000, 100);
 
   constructor(
     @InjectRepository(KnowledgeBase)
@@ -164,7 +168,7 @@ export class KnowledgeService {
 
     try {
       const text = await extractTextFromDocument(file.buffer, displayName, file.mimetype);
-      const chunks = chunkText(text, {
+      const allChunks = chunkText(text, {
         chunkSize: options.chunkSize,
         chunkOverlap: options.chunkOverlap,
         metadata: {
@@ -173,6 +177,7 @@ export class KnowledgeService {
           knowledgeBaseId,
         },
       });
+      const chunks = allChunks.slice(0, this.maxChunksPerDocument);
 
       if (chunks.length === 0) {
         throw new Error('文档没有可索引文本');
@@ -191,7 +196,9 @@ export class KnowledgeService {
       document.status = 'indexed';
       document.textPreview = text.slice(0, 800);
       document.chunkCount = chunks.length;
-      document.error = undefined;
+      document.error = allChunks.length > chunks.length
+        ? `文档较大，已索引前 ${chunks.length} 个切片（共 ${allChunks.length} 个）`
+        : undefined;
       const savedDocument = await this.documentRepository.save(document);
 
       knowledgeBase.documents = Array.from(new Set([...(knowledgeBase.documents || []), displayName]));
@@ -242,19 +249,24 @@ export class KnowledgeService {
     results: Array<KnowledgeChunk & { score: number }>;
     context: string;
   }> {
-    await this.findOne(knowledgeBaseId);
-    const chunks = await this.chunkRepository.find({ where: { knowledgeBaseId } });
+    await this.ensureKnowledgeBaseExists(knowledgeBaseId);
+    const normalizedTopK = Math.min(Math.max(1, topK || 5), this.maxSearchTopK);
+    const chunks = await this.chunkRepository.find({
+      where: { knowledgeBaseId },
+      take: this.maxSearchChunks,
+      order: { id: 'DESC' },
+    });
     if (chunks.length === 0) {
-      return { query, topK, results: [], context: '' };
+      return { query, topK: normalizedTopK, results: [], context: '' };
     }
 
     const [queryEmbedding] = await this.embedTexts([query]);
-    const ranked = rankKnowledgeChunks(chunks, queryEmbedding || createLocalEmbedding(query), topK);
+    const ranked = rankKnowledgeChunks(chunks, queryEmbedding || createLocalEmbedding(query), normalizedTopK);
     const context = ranked
       .map((chunk, index) => `[${index + 1}] ${chunk.content}`)
       .join('\n\n---\n\n');
 
-    return { query, topK, results: ranked, context };
+    return { query, topK: normalizedTopK, results: ranked, context };
   }
 
   async searchMany(
@@ -265,10 +277,8 @@ export class KnowledgeService {
     const ids = knowledgeBaseIds.filter((id) => Number.isInteger(id) && id > 0);
     const results: Array<KnowledgeChunk & { score: number }> = [];
 
-    for (const id of ids) {
-      const searchResult = await this.search(id, query, topK);
-      results.push(...searchResult.results);
-    }
+    const searchResults = await Promise.all(ids.map((id) => this.search(id, query, topK)));
+    for (const searchResult of searchResults) results.push(...searchResult.results);
 
     const ranked = results
       .sort((a, b) => b.score - a.score)
@@ -287,16 +297,28 @@ export class KnowledgeService {
       return texts.map(createLocalEmbedding);
     }
 
-    try {
-      const response = await this.embeddingClient.embeddings.create({
-        model: this.embeddingModel,
-        input: texts.map((text) => text.slice(0, 6000)),
-      });
+    const embeddings: number[][] = [];
+    for (let start = 0; start < texts.length; start += this.embeddingBatchSize) {
+      const batch = texts.slice(start, start + this.embeddingBatchSize);
+      try {
+        const response = await this.embeddingClient.embeddings.create({
+          model: this.embeddingModel,
+          input: batch.map((text) => text.slice(0, 6000)),
+        });
 
-      return response.data.map((item) => item.embedding as number[]);
-    } catch (err) {
-      this.logger.warn(`Embedding API 不可用，已降级为本地检索: ${err instanceof Error ? err.message : String(err)}`);
-      return texts.map(createLocalEmbedding);
+        embeddings.push(...response.data.map((item) => item.embedding as number[]));
+      } catch (err) {
+        this.logger.warn(`Embedding API 不可用，当前批次已降级为本地检索: ${err instanceof Error ? err.message : String(err)}`);
+        embeddings.push(...batch.map(createLocalEmbedding));
+      }
+    }
+    return embeddings;
+  }
+
+  private async ensureKnowledgeBaseExists(id: number): Promise<void> {
+    const exists = await this.knowledgeRepository.exist({ where: { id } });
+    if (!exists) {
+      throw new NotFoundException(`KnowledgeBase with ID ${id} not found`);
     }
   }
 
@@ -330,4 +352,10 @@ function createLocalEmbedding(text: string, dimensions = 384): number[] {
 
   const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
   return norm > 0 ? vector.map((value) => value / norm) : vector;
+}
+
+function positiveIntegerEnv(name: string, fallback: number, min: number): number {
+  const parsed = Number(process.env[name]);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.floor(parsed));
 }

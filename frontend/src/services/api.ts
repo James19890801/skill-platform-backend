@@ -382,6 +382,44 @@ export const knowledgeApi = {
 // ============================================
 // Agents API
 // ============================================
+export type McpTransport = 'stdio' | 'streamable_http' | 'sse';
+
+export interface McpServerConfig {
+  id?: string;
+  name: string;
+  transport: McpTransport;
+  description?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  source?: 'marketplace' | 'json' | 'manual';
+  package?: string;
+  referenceUrl?: string;
+  capabilities?: string[];
+  disabled?: boolean;
+  category?: string;
+  requires?: string[];
+}
+
+export interface McpMarketplaceResponse {
+  items: McpServerConfig[];
+  transports: McpTransport[];
+  jsonExample: Record<string, unknown>;
+}
+
+export const mcpApi = {
+  marketplace: (): Promise<McpMarketplaceResponse> =>
+    apiClient.get('/mcp/marketplace'),
+
+  normalize: (data: { json?: string; config?: unknown }): Promise<{ servers: McpServerConfig[] }> =>
+    apiClient.post('/mcp/normalize', data),
+
+  probe: (data: { json?: string; config?: unknown }): Promise<{ ok: boolean; servers: McpServerConfig[]; warnings: string[]; message: string }> =>
+    apiClient.post('/mcp/probe', data),
+};
+
 export interface AgentDTO {
   id: number;
   name: string;
@@ -391,6 +429,7 @@ export interface AgentDTO {
   systemPrompt?: string;
   skills: string[];
   knowledgeBases: string[];
+  mcpServers: McpServerConfig[];
   memoryEnabled: boolean;
   temperature: number;
   maxTokens?: number;

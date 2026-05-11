@@ -219,11 +219,12 @@ deploy_to_cloudflare() {
         exit 1
     fi
 
-    # 部署
+    # 部署。默认沿用当前线上 Cloudflare Pages 项目，避免误发到新域名。
+    local pages_project="${CLOUDFLARE_PAGES_PROJECT:-e2e-ai}"
     cd frontend
-    wrangler pages deploy dist --project-name=skill-platform
+    wrangler pages deploy dist --project-name="$pages_project"
 
-    print_success "前端已部署到 Cloudflare Pages"
+    print_success "前端已部署到 Cloudflare Pages: $pages_project"
     cd ..
 }
 

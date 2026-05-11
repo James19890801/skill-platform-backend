@@ -7,12 +7,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Agent } from '../entities';
 import { CreateAgentDto, UpdateAgentDto } from './dto';
+import { McpService } from '../mcp/mcp.service';
 
 @Injectable()
 export class AgentsService {
   constructor(
     @InjectRepository(Agent)
     private agentRepository: Repository<Agent>,
+    private mcpService: McpService,
   ) {}
 
   async findAll() {
@@ -40,6 +42,7 @@ export class AgentsService {
       ...dto,
       skills: dto.skills ? JSON.stringify(dto.skills) : '[]',
       knowledgeBases: dto.knowledgeBases ? JSON.stringify(dto.knowledgeBases) : '[]',
+      mcpServers: dto.mcpServers ? JSON.stringify(this.mcpService.normalize(dto.mcpServers)) : '[]',
       ownerId,
     });
     const saved = await this.agentRepository.save(agent);
@@ -61,6 +64,9 @@ export class AgentsService {
     if (dto.knowledgeBases !== undefined) {
       updateData.knowledgeBases = JSON.stringify(dto.knowledgeBases);
     }
+    if (dto.mcpServers !== undefined) {
+      updateData.mcpServers = JSON.stringify(this.mcpService.normalize(dto.mcpServers));
+    }
     await this.agentRepository.update(id, updateData);
     return this.findOne(id);
   }
@@ -80,8 +86,19 @@ export class AgentsService {
   private parseAgent(agent: Agent) {
     return {
       ...agent,
-      skills: agent.skills ? JSON.parse(agent.skills) : [],
-      knowledgeBases: agent.knowledgeBases ? JSON.parse(agent.knowledgeBases) : [],
+      skills: this.parseJsonArray(agent.skills),
+      knowledgeBases: this.parseJsonArray(agent.knowledgeBases),
+      mcpServers: this.parseJsonArray(agent.mcpServers),
     };
+  }
+
+  private parseJsonArray(value?: string | null) {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   }
 }

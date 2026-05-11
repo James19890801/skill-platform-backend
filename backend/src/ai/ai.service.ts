@@ -106,7 +106,27 @@ function parseNumericIds(value: unknown): number[] {
 
   return parsed
     .map((item) => Number(item))
-    .filter((item) => Number.isInteger(item) && item > 0);
+      .filter((item) => Number.isInteger(item) && item > 0);
+}
+
+function parseArray(value: unknown): unknown[] {
+  const parsed = typeof value === 'string' ? safeJsonParse(value) : value;
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function formatMcpServers(value: unknown): string | null {
+  const servers = parseArray(value).filter(isRecord);
+  if (servers.length === 0) return null;
+
+  return servers.map((server) => {
+    const name = getOptionalString(server.name) || getOptionalString(server.id) || 'MCP Server';
+    const transport = getOptionalString(server.transport) || (server.url ? 'streamable_http' : 'stdio');
+    const capabilities = Array.isArray(server.capabilities)
+      ? server.capabilities.map(String).join(', ')
+      : '';
+    const endpoint = getOptionalString(server.url) || getOptionalString(server.command) || '';
+    return `- ${name} (${transport})${endpoint ? `: ${endpoint}` : ''}${capabilities ? `；能力: ${capabilities}` : ''}`;
+  }).join('\n');
 }
 
 function safeJsonParse(value: string): unknown {
@@ -547,6 +567,11 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
 
               systemPrompt += `\n\n你拥有以下可用工具技能，根据用户需求选择合适的技能来使用：\n\n${skillsContext}`;
             }
+          }
+
+          const mcpContext = formatMcpServers((agent as any).mcpServers);
+          if (mcpContext) {
+            systemPrompt += `\n\n该智能体已配置以下 MCP Server。若运行时已暴露对应工具，你应优先通过工具调用完成；若当前会话未暴露对应工具，请明确告诉用户需要在运行时启用或授权该 MCP 连接。\n\n${mcpContext}`;
           }
         } else {
           systemPrompt = '你是一个智能助手，帮助用户完成各种任务。';

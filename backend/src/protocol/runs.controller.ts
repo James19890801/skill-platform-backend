@@ -83,9 +83,6 @@ export class RunsController {
   private async streamRun(threadId: string, body: RunBody, res: Response) {
     const input = this.getInput(body);
     const agentId = body.agentId ?? body.agent_id;
-    const run = await this.protocolService.createRun({ threadId, agentId, input: body });
-    await this.protocolService.markRunRunning(run.id);
-    await this.protocolService.appendMessage({ threadId, role: 'user', content: input });
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -100,7 +97,18 @@ export class RunsController {
       if (socket && typeof socket.setNoDelay === 'function') socket.setNoDelay(true);
     } catch { /* ignore */ }
 
+    if (typeof (res as any).flushHeaders === 'function') {
+      (res as any).flushHeaders();
+    }
+
+    res.write(`data: ${JSON.stringify({ type: 'status', content: '正在准备回答...' })}\n\n`);
+
+    let run: Awaited<ReturnType<ProtocolService['createRun']>> | null = null;
     try {
+      run = await this.protocolService.createRun({ threadId, agentId, input: body });
+      await this.protocolService.markRunRunning(run.id);
+      await this.protocolService.appendMessage({ threadId, role: 'user', content: input });
+
       const output = await this.aiService.chatStream(
         input,
         (chunk) => {
@@ -125,8 +133,10 @@ export class RunsController {
       res.end();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Run 执行失败';
-      await this.protocolService.markRunFailed(run.id, message);
-      res.write(`event: error\ndata: ${JSON.stringify({ error: message, run_id: run.id })}\n\n`);
+      if (run) {
+        await this.protocolService.markRunFailed(run.id, message);
+      }
+      res.write(`event: error\ndata: ${JSON.stringify({ error: message, run_id: run?.id })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
     }

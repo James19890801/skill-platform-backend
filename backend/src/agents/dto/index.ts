@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsBoolean, IsArray } from 'class-validator';
+import { Allow, IsString, IsNumber, IsOptional, IsBoolean, IsArray } from 'class-validator';
 
 export class CreateAgentDto {
   @ApiProperty({ description: 'Agent 名称' })
@@ -35,6 +35,11 @@ export class CreateAgentDto {
   @IsArray()
   @IsOptional()
   knowledgeBases?: string[];
+
+  @ApiPropertyOptional({ description: '关联 MCP Servers，兼容 stdio / streamable_http / sse 配置' })
+  @Allow()
+  @IsOptional()
+  mcpServers?: unknown[];
 
   @ApiPropertyOptional({ description: '启用长期记忆', default: true })
   @IsBoolean()
@@ -87,6 +92,11 @@ export class UpdateAgentDto {
   @IsArray()
   @IsOptional()
   knowledgeBases?: string[];
+
+  @ApiPropertyOptional({ description: '关联 MCP Servers，兼容 stdio / streamable_http / sse 配置' })
+  @Allow()
+  @IsOptional()
+  mcpServers?: unknown[];
 
   @ApiPropertyOptional({ description: '启用长期记忆' })
   @IsBoolean()

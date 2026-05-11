@@ -91,24 +91,36 @@ export class ToolBridgeService {
    */
   async getTools(): Promise<OpenAiToolDef[]> {
     if (this.shouldRefreshCache()) {
-      await this.fetchTools();
+      this.refreshToolsInBackground();
     }
     // 始终合并本地工具（Office/HTML/Bing/Python），保证 Agent Runtime 未启动时也有完整 P0 能力。
-    return this.mergeLocalTools(this.cachedTools);
+    return this.mergeLocalTools([...this.cachedTools]);
   }
 
   /**
    * 将本地 NestJS 工具合并到工具列表中
    */
   private mergeLocalTools(remoteTools: OpenAiToolDef[]): OpenAiToolDef[] {
+    const merged = [...remoteTools];
     const existing = new Set(remoteTools.map((t) => t.function.name));
     const localTools = this.getLocalToolDefs();
     for (const t of localTools) {
       if (!existing.has(t.function.name)) {
-        remoteTools.push(t);
+        merged.push(t);
       }
     }
-    return remoteTools;
+    return merged;
+  }
+
+  private refreshPromise: Promise<void> | null = null;
+
+  private refreshToolsInBackground(): void {
+    if (this.refreshPromise) return;
+    this.refreshPromise = this.fetchTools()
+      .catch(() => undefined)
+      .finally(() => {
+        this.refreshPromise = null;
+      });
   }
 
   /**
@@ -170,6 +182,7 @@ export class ToolBridgeService {
       // 如果缓存为空，生成一份本地基础工具保底
       if (this.cachedTools.length === 0) {
         this.cachedTools = this.getFallbackTools();
+        this.lastFetchTime = Date.now();
         this.logger.warn(`已降级到 ${this.cachedTools.length} 个本地基础工具`);
       }
     }

@@ -3,31 +3,39 @@
  * 接收 Mermaid 语法字符串，渲染为可交互的 SVG 流程图
  */
 import React, { useEffect, useRef, useState } from 'react';
-import mermaid from 'mermaid';
 import { Spin } from 'antd';
 
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'default',
-  themeVariables: {
-    primaryColor: '#6366f1',
-    primaryTextColor: '#1e293b',
-    primaryBorderColor: '#6366f1',
-    lineColor: '#94a3b8',
-    secondaryColor: '#f1f5f9',
-    tertiaryColor: '#f8fafc',
-    fontSize: '14px',
-  },
-  flowchart: {
-    useMaxWidth: true,
-    htmlLabels: true,
-    curve: 'basis',
-  },
-  sequence: {
-    showSequenceNumbers: false,
-  },
-  securityLevel: 'loose',
-});
+let mermaidModule: any = null;
+
+async function getMermaid() {
+  if (mermaidModule) return mermaidModule;
+  const module = await import('mermaid');
+  mermaidModule = module.default;
+  mermaidModule.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    themeVariables: {
+      primaryColor: '#6366f1',
+      primaryTextColor: '#1e293b',
+      primaryBorderColor: '#6366f1',
+      lineColor: '#94a3b8',
+      secondaryColor: '#f1f5f9',
+      tertiaryColor: '#f8fafc',
+      fontSize: '14px',
+    },
+    flowchart: {
+      useMaxWidth: true,
+      htmlLabels: true,
+      curve: 'basis',
+    },
+    sequence: {
+      showSequenceNumbers: false,
+    },
+    securityLevel: 'loose',
+  });
+  mermaidModule.parseError = () => {};
+  return mermaidModule;
+}
 
 // 抑制 Mermaid 内部的 console.error 污染（渲染失败已有降级处理）
 const originalError = console.error;
@@ -38,7 +46,6 @@ if (!(window as any).__MERMAID_PATCHED) {
     if (msg.includes('mermaid') || msg.includes('Syntax error') || msg.includes('Parse error')) return;
     originalError.apply(console, args);
   };
-  mermaid.parseError = () => {};
 }
 
 // 定期清理 Mermaid 散落在 body 层的错误 DOM 元素（流式渲染时的累积问题）
@@ -98,6 +105,7 @@ const MermaidRenderer: React.FC<Props> = ({ chart, id: externalId }) => {
             // 移除 node 描述中的多余换行
             .replace(/\[([^\]]*)\n/g, '[$1');
 
+          const mermaid = await getMermaid();
           const { svg } = await mermaid.render(renderId.current, preprocessedChart);
           if (containerRef.current) {
             containerRef.current.innerHTML = svg;

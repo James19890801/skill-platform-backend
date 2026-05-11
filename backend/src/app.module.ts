@@ -20,6 +20,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
 import { LlmModule } from './llm/llm.module';
 import { ProtocolModule } from './protocol/protocol.module';
 import { OpenAiCompatibleModule } from './openai-compatible/openai-compatible.module';
+import { McpModule } from './mcp/mcp.module';
 import {
   User,
   Skill,
@@ -161,6 +162,7 @@ function buildTypeOrmOptions(): TypeOrmModuleOptions {
     MemoryModule,
     WorkspaceModule,
     LlmModule,
+    McpModule,
     ProtocolModule,
     OpenAiCompatibleModule,
   ],
