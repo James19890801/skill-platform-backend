@@ -16,6 +16,20 @@ test('successful monitoring dashboard polling does not create monitoring noise',
     durationMs: 31,
     slowRequestMs: 8000,
   }), false);
+
+  assert.equal(shouldRecordHttpRequest({
+    path: 'https://skill-platform-backend-production.up.railway.app/api/monitoring/summary',
+    statusCode: 200,
+    durationMs: 20,
+    slowRequestMs: 8000,
+  }), false);
+
+  assert.equal(shouldRecordHttpRequest({
+    path: '/monitoring/summary',
+    statusCode: 200,
+    durationMs: 20,
+    slowRequestMs: 8000,
+  }), false);
 });
 
 test('monitoring requests are still recorded when they are slow or failing', () => {

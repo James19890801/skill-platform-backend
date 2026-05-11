@@ -71,8 +71,18 @@ export function shouldRecordHttpRequest(input: {
   slowRequestMs?: number;
 }) {
   const slowRequestMs = input.slowRequestMs ?? Number(process.env.SLOW_REQUEST_MS || 8000);
-  const pathOnly = String(input.path || '').split('?')[0];
-  const isMonitoringRead = pathOnly === '/api/monitoring/summary' || pathOnly === '/api/monitoring/events';
+  const pathOnly = normalizeRequestPath(input.path);
+  const routePath = pathOnly.replace(/^\/api(?=\/)/, '');
+  const isMonitoringRead = routePath === '/monitoring/summary' || routePath === '/monitoring/events';
   if (!isMonitoringRead) return true;
   return input.statusCode >= 400 || input.durationMs >= slowRequestMs;
+}
+
+function normalizeRequestPath(path: string) {
+  const raw = String(path || '');
+  try {
+    return new URL(raw).pathname;
+  } catch {
+    return raw.split('?')[0];
+  }
 }
