@@ -61,7 +61,7 @@ import {
   LinkOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
 import MermaidRenderer from '../../components/MermaidRenderer';
 import ReactMarkdown from 'react-markdown';
@@ -246,6 +246,7 @@ const REPOSITORY_CONTEXTS: RepositoryContext[] = [
 const AgentChatCanvas: React.FC = () => {
   const { agentId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const currentUser = useAuthStore((state) => state.user);
@@ -264,6 +265,7 @@ const AgentChatCanvas: React.FC = () => {
   const [activeWorkbenchApp, setActiveWorkbenchApp] = useState<WorkbenchAppKey>('chat');
   const [browserDraftUrl, setBrowserDraftUrl] = useState('https://e2e-ai.pages.dev/dashboard');
   const [browserPreviewUrl, setBrowserPreviewUrl] = useState('https://e2e-ai.pages.dev/dashboard');
+  const queryThreadId = searchParams.get('threadId') || searchParams.get('thread_id') || '';
 
   // 会话管理状态
   const [currentThreadId, setCurrentThreadId] = useState<string>(
@@ -1472,6 +1474,12 @@ const AgentChatCanvas: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (queryThreadId && queryThreadId !== currentThreadId) {
+      switchConversation(queryThreadId);
+    }
+  }, [queryThreadId]);
 
   // 新建对话
   const newConversation = () => {

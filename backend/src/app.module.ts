@@ -23,6 +23,7 @@ import { OpenAiCompatibleModule } from './openai-compatible/openai-compatible.mo
 import { McpModule } from './mcp/mcp.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { PersonalContextModule } from './personal-context/personal-context.module';
+import { AutomationsModule } from './automations/automations.module';
 import {
   User,
   Skill,
@@ -48,6 +49,8 @@ import {
   MessageEntity,
   RunEntity,
   OperationalEvent,
+  AutomationTask,
+  AutomationRun,
 } from './entities';
 
 const configuredDatabasePath = process.env.DATABASE_PATH?.trim() || 'database.sqlite';
@@ -113,6 +116,8 @@ const entities = [
   MessageEntity,
   RunEntity,
   OperationalEvent,
+  AutomationTask,
+  AutomationRun,
 ];
 
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
@@ -171,6 +176,7 @@ function buildTypeOrmOptions(): TypeOrmModuleOptions {
     McpModule,
     MonitoringModule,
     PersonalContextModule,
+    AutomationsModule,
     ProtocolModule,
     OpenAiCompatibleModule,
   ],

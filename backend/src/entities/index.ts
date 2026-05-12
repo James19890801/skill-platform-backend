@@ -22,3 +22,5 @@ export { ThreadEntity } from './thread.entity';
 export { MessageEntity } from './message.entity';
 export { RunEntity } from './run.entity';
 export { OperationalEvent } from './operational-event.entity';
+export { AutomationTask } from './automation-task.entity';
+export { AutomationRun } from './automation-run.entity';

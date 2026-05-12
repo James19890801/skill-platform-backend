@@ -651,6 +651,65 @@ export const monitoringApi = {
 };
 
 // ============================================
+// Automations API
+// ============================================
+export type AutomationTriggerType = 'time' | 'event' | 'flow';
+export type AutomationRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface AutomationRunDTO {
+  id: number;
+  automationId: number;
+  threadId: string;
+  status: AutomationRunStatus;
+  trigger: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  input?: Record<string, unknown>;
+  outputPreview?: string;
+  error?: string;
+  createdAt: string;
+}
+
+export interface AutomationTaskDTO {
+  id: number;
+  name: string;
+  description?: string;
+  status: 'active' | 'paused' | 'draft';
+  triggerType: AutomationTriggerType;
+  triggerLabel?: string;
+  prompt?: string;
+  skills: string[];
+  agentId?: number;
+  orchestration: Record<string, unknown>;
+  lastRunAt?: string;
+  nextRunAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  runCount: number;
+  latestRun?: AutomationRunDTO | null;
+}
+
+export interface AutomationListResponse {
+  items: AutomationTaskDTO[];
+  runs: AutomationRunDTO[];
+  total: number;
+  summary: {
+    active: number;
+    runsToday: number;
+    failedRuns: number;
+  };
+}
+
+export const automationsApi = {
+  list: (): Promise<AutomationListResponse> =>
+    apiClient.get('/automations'),
+
+  run: (id: number, data?: { trigger?: string; threadId?: string }): Promise<AutomationRunDTO> =>
+    apiClient.post(`/automations/${id}/run`, data || { trigger: 'manual' }),
+};
+
+// ============================================
 // Architecture API
 // ============================================
 export interface IArchFileResponse {

@@ -14,6 +14,7 @@ const SkillEdit = lazy(() => import('./pages/skills/SkillEdit'));
 const KnowledgeManager = lazy(() => import('./pages/knowledge/KnowledgeManager'));
 const MemoryManager = lazy(() => import('./pages/memory/MemoryManager'));
 const IntegrationCenter = lazy(() => import('./pages/integration/IntegrationCenter'));
+const AutomationCenter = lazy(() => import('./pages/automation/AutomationCenter'));
 const MonitoringDashboard = lazy(() => import('./pages/monitoring/MonitoringDashboard'));
 const Settings = lazy(() => import('./pages/settings/Settings'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -47,6 +48,7 @@ function App() {
             <Route path="skills/edit/:id" element={<SkillEdit />} />
             <Route path="knowledge" element={<KnowledgeManager />} />
             <Route path="memory" element={<MemoryManager />} />
+            <Route path="automations" element={<AutomationCenter />} />
             <Route path="integrations" element={<IntegrationCenter />} />
             <Route path="monitoring" element={<MonitoringDashboard />} />
 
