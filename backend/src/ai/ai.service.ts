@@ -11,6 +11,7 @@ import { WorkspaceService } from '../workspace/workspace.service';
 import { SkillResolverService } from '../skill-runtime/skill-resolver.service';
 import { KnowledgeService, KnowledgeSourceReference } from '../knowledge/knowledge.service';
 import { LlmService } from '../llm/llm.service';
+import { PersonalContextService } from '../personal-context/personal-context.service';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -225,6 +226,7 @@ export class AiService {
     private skillResolver: SkillResolverService,
     private knowledgeService: KnowledgeService,
     private llmService: LlmService,
+    private personalContextService: PersonalContextService,
   ) {
     const apiKey = process.env.QWEN_API_KEY;
     if (!apiKey) {
@@ -459,6 +461,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     skills?: string[],
     threadId?: string,
     attachments?: AttachmentInfo[],
+    userId?: number,
   ): Promise<string> {
     // ===== 0. 处理附件 =====
     let processedMessage = message;
@@ -536,16 +539,28 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
           systemPrompt = agent.systemPrompt || `你是一个智能助手，名称是「${agent.name}」，根据用户的指令提供帮助。`;
 
           const agentKnowledgeBaseIds = parseNumericIds(agent.knowledgeBases);
-          if (agentKnowledgeBaseIds.length > 0 && message.trim()) {
+          const personalContext = await this.personalContextService.getRuntimeContext(userId);
+          const knowledgeBaseIds = Array.from(new Set([
+            ...agentKnowledgeBaseIds,
+            ...personalContext.knowledgeBaseIds,
+          ]));
+          if (knowledgeBaseIds.length > 0 && message.trim()) {
             try {
-              const knowledge = await this.knowledgeService.searchMany(agentKnowledgeBaseIds, message, 5);
+              const knowledge = await this.knowledgeService.searchMany(knowledgeBaseIds, message, 5);
               if (knowledge.context) {
                 knowledgeSources = knowledge.sources;
-                systemPrompt += `\n\n以下是已关联知识库检索结果。回答时优先参考这些内容；如果内容不足，请说明缺口。引用知识库内容时，请在相关句子后标注 Source 编号，例如「〔${knowledgeSources[0]?.id || 'kb1-doc1-c1'}〕」。\n\n${knowledge.context}`;
+                const sourceLabel = personalContext.knowledgeBaseIds.length > 0
+                  ? '已关联知识库和用户个人知识库'
+                  : '已关联知识库';
+                systemPrompt += `\n\n以下是${sourceLabel}检索结果。回答时优先参考这些内容；如果内容不足，请说明缺口。引用知识库内容时，请在相关句子后标注 Source 编号，例如「〔${knowledgeSources[0]?.id || 'kb1-doc1-c1'}〕」。\n\n${knowledge.context}`;
               }
             } catch (err) {
               this.logger.warn(`知识库检索失败，继续常规对话: ${err instanceof Error ? err.message : String(err)}`);
             }
+          }
+
+          if (personalContext.memoryContext) {
+            systemPrompt += `\n\n以下是当前用户的个人记忆，仅对该用户生效，不能泄露给其他用户：\n${personalContext.memoryContext}`;
           }
 
           const agentSkills: string[] = agent.skills
@@ -571,9 +586,12 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
             }
           }
 
-          const mcpContext = formatMcpServers((agent as any).mcpServers);
+          const mcpContext = formatMcpServers([
+            ...parseArray((agent as any).mcpServers),
+            ...personalContext.mcpServers,
+          ]);
           if (mcpContext) {
-            systemPrompt += `\n\n该智能体已配置以下 MCP Server。若运行时已暴露对应工具，你应优先通过工具调用完成；若当前会话未暴露对应工具，请明确告诉用户需要在运行时启用或授权该 MCP 连接。\n\n${mcpContext}`;
+            systemPrompt += `\n\n该会话已配置以下 MCP Server（包含 Agent 公共配置与当前用户个人配置）。若运行时已暴露对应工具，你应优先通过工具调用完成；若当前会话未暴露对应工具，请明确告诉用户需要在运行时启用或授权该 MCP 连接。\n\n${mcpContext}`;
           }
         } else {
           systemPrompt = '你是一个智能助手，帮助用户完成各种任务。';

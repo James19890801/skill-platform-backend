@@ -1,7 +1,8 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Request, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { AiService } from '../ai/ai.service';
+import { OptionalAuthGuard } from '../auth/guards/optional-auth.guard';
 import { ProtocolService } from './protocol.service';
 
 interface RunBody {
@@ -23,25 +24,33 @@ export class RunsController {
   ) {}
 
   @Post('api/threads/:threadId/runs/stream')
+  @UseGuards(OptionalAuthGuard)
   @ApiOperation({ summary: '在 Thread 中流式执行 Run' })
   async createThreadRunStream(
     @Param('threadId') threadId: string,
     @Body() body: RunBody,
     @Res() res: Response,
+    @Request() req: any,
   ) {
-    return this.streamRun(threadId, body, res);
+    return this.streamRun(threadId, body, res, req.user?.id);
   }
 
   @Post('api/runs/stream')
+  @UseGuards(OptionalAuthGuard)
   @ApiOperation({ summary: '无状态流式执行 Run，会自动创建 Thread' })
-  async createStatelessRunStream(@Body() body: RunBody & { thread_id?: string }, @Res() res: Response) {
+  async createStatelessRunStream(
+    @Body() body: RunBody & { thread_id?: string },
+    @Res() res: Response,
+    @Request() req: any,
+  ) {
     const threadId = body.thread_id || `thread-${Date.now()}`;
-    return this.streamRun(threadId, body, res);
+    return this.streamRun(threadId, body, res, req.user?.id);
   }
 
   @Post('api/threads/:threadId/runs')
+  @UseGuards(OptionalAuthGuard)
   @ApiOperation({ summary: '在 Thread 中执行 Run（非流式）' })
-  async createThreadRun(@Param('threadId') threadId: string, @Body() body: RunBody) {
+  async createThreadRun(@Param('threadId') threadId: string, @Body() body: RunBody, @Request() req: any) {
     const input = this.getInput(body);
     const agentId = body.agentId ?? body.agent_id;
     const run = await this.protocolService.createRun({ threadId, agentId, input: body });
@@ -57,6 +66,7 @@ export class RunsController {
         body.skills,
         threadId,
         body.attachments,
+        req.user?.id,
       );
       await this.protocolService.appendMessage({ threadId, role: 'assistant', content: output });
       await this.protocolService.markRunCompleted(run.id, output, { model: body.model });
@@ -80,7 +90,7 @@ export class RunsController {
     return this.protocolService.cancelRun(threadId, runId);
   }
 
-  private async streamRun(threadId: string, body: RunBody, res: Response) {
+  private async streamRun(threadId: string, body: RunBody, res: Response, userId?: number) {
     const input = this.getInput(body);
     const agentId = body.agentId ?? body.agent_id;
 
@@ -132,6 +142,7 @@ export class RunsController {
         body.skills,
         threadId,
         body.attachments,
+        userId,
       );
 
       await this.protocolService.appendMessage({ threadId, role: 'assistant', content: output });

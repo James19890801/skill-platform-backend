@@ -12,10 +12,13 @@ import {
   UseInterceptors,
   BadRequestException,
   PayloadTooLargeException,
+  Request,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { KnowledgeService } from './knowledge.service';
+import { OptionalAuthGuard } from '../auth/guards/optional-auth.guard';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto';
 import {
@@ -84,9 +87,10 @@ export class KnowledgeController {
   }
 
   @Post()
+  @UseGuards(OptionalAuthGuard)
   @ApiOperation({ summary: '创建知识库' })
-  async create(@Body() dto: CreateKnowledgeBaseDto) {
-    return this.knowledgeService.create(dto, 1);
+  async create(@Body() dto: CreateKnowledgeBaseDto, @Request() req: any) {
+    return this.knowledgeService.create(dto, req.user?.id || 1);
   }
 
   @Post(':id/documents')

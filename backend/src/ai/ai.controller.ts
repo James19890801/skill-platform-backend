@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Delete, Body, Param, Query, Res, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, Param, Query, Res, HttpException, HttpStatus, NotFoundException, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { IsString, IsOptional, IsNumber, IsBoolean, IsArray, ValidateNested, IsNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -8,6 +8,7 @@ import { SkillExecutorService } from './skill-executor.service';
 import { ToolBridgeService } from './tool-bridge.service';
 import { SkillRuntimeQueueService } from '../skill-runtime/skill-runtime-queue.service';
 import { SkillRuntimeTraceService } from '../skill-runtime/skill-runtime-trace.service';
+import { OptionalAuthGuard } from '../auth/guards/optional-auth.guard';
 
 class ProcessFileDto {
   name: string;
@@ -145,9 +146,10 @@ export class AiController {
   }
 
   @Post('chat')
+  @UseGuards(OptionalAuthGuard)
   @ApiOperation({ summary: 'AI 对话（流式输出）', description: '与 AI 对话，支持流式 SSE 输出和附件上传' })
   @ApiBody({ type: ChatDto })
-  async chat(@Body() body: ChatDto, @Res() res: Response) {
+  async chat(@Body() body: ChatDto, @Res() res: Response, @Request() req: any) {
     try {
       const stream = body.stream !== false;
       
@@ -188,6 +190,7 @@ export class AiController {
             body.skills,
             body.thread_id,
             body.attachments,
+            req.user?.id,
           );
 
           // ★ 空响应检测：AI 未返回内容（上下文溢出/模型拒绝）
@@ -215,6 +218,7 @@ export class AiController {
           body.skills,
           body.thread_id,
           body.attachments,
+          req.user?.id,
         );
         res.json({
           thread_id: body.thread_id,

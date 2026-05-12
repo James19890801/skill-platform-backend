@@ -27,6 +27,9 @@ import {
   message,
   Grid,
   Upload,
+  Tabs,
+  Checkbox,
+  Switch,
 } from 'antd';
 import {
   SendOutlined,
@@ -56,13 +59,14 @@ import {
   GlobalOutlined,
   LayoutOutlined,
   LinkOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
 import MermaidRenderer from '../../components/MermaidRenderer';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { KnowledgeSourceReference, LlmModel, llmApi, skillsApi } from '../../services/api';
+import { KnowledgeSourceReference, LlmModel, McpServerConfig, PersonalContextDTO, llmApi, personalContextApi, skillsApi } from '../../services/api';
 import type { ISkill } from '../../types';
 import {
   getAgentAvatarSrc,
@@ -244,6 +248,8 @@ const AgentChatCanvas: React.FC = () => {
   const navigate = useNavigate();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
+  const currentUser = useAuthStore((state) => state.user);
+  const authToken = useAuthStore((state) => state.token);
   const [messages, setMessages] = useState<Message[]>([]);
   const [activeKnowledgeSource, setActiveKnowledgeSource] = useState<KnowledgeSourceReference | null>(null);
   const [inputValue, setInputValue] = useState('');
@@ -283,6 +289,16 @@ const AgentChatCanvas: React.FC = () => {
   // Agent 名称
   const [agentName, setAgentName] = useState<string>('');
   const [agentAvatar, setAgentAvatar] = useState<string>('');
+
+  // 个人上下文：用户自己的知识库、MCP 和记忆
+  const [personalContextOpen, setPersonalContextOpen] = useState(false);
+  const [personalContext, setPersonalContext] = useState<PersonalContextDTO | null>(null);
+  const [personalContextError, setPersonalContextError] = useState<string | null>(null);
+  const [loadingPersonalContext, setLoadingPersonalContext] = useState(false);
+  const [savingPersonalContext, setSavingPersonalContext] = useState(false);
+  const [personalKnowledgeIds, setPersonalKnowledgeIds] = useState<number[]>([]);
+  const [personalMcpJson, setPersonalMcpJson] = useState('{\n  "mcpServers": {}\n}');
+  const [newPersonalMemory, setNewPersonalMemory] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1131,9 +1147,12 @@ const AgentChatCanvas: React.FC = () => {
     }]);
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
       let response = await fetch(`${API_BASE}/threads/${encodeURIComponent(currentThreadId)}/runs/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           input: userMessage.content,
           model: selectedModel,
@@ -1146,7 +1165,7 @@ const AgentChatCanvas: React.FC = () => {
       if (response.status === 404) {
         response = await fetch(`${API_BASE}/ai/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             thread_id: currentThreadId,
             message: userMessage.content,
@@ -2069,6 +2088,318 @@ const AgentChatCanvas: React.FC = () => {
     );
   };
 
+  const hydratePersonalContext = (context: PersonalContextDTO) => {
+    setPersonalContext(context);
+    setPersonalKnowledgeIds((context.knowledgeBaseIds || []).map(Number));
+    const servers = (context.mcpServers || []) as McpServerConfig[];
+    setPersonalMcpJson(JSON.stringify({ mcpServers: servers }, null, 2));
+  };
+
+  const loadPersonalContext = useCallback(async () => {
+    if (!authToken) {
+      setPersonalContext(null);
+      setPersonalKnowledgeIds([]);
+      setPersonalContextError(null);
+      return;
+    }
+    setLoadingPersonalContext(true);
+    setPersonalContextError(null);
+    try {
+      const context = await personalContextApi.get();
+      hydratePersonalContext(context);
+    } catch (error: any) {
+      setPersonalContextError(error?.response?.data?.message || '个人设置暂时不可用');
+    } finally {
+      setLoadingPersonalContext(false);
+    }
+  }, [authToken]);
+
+  useEffect(() => {
+    if (personalContextOpen) {
+      loadPersonalContext();
+    }
+  }, [personalContextOpen, loadPersonalContext]);
+
+  const savePersonalKnowledge = async () => {
+    setSavingPersonalContext(true);
+    try {
+      await personalContextApi.update({ knowledgeBaseIds: personalKnowledgeIds });
+      await loadPersonalContext();
+      message.success('个人知识库设置已保存');
+    } catch (error: any) {
+      message.error(error?.response?.data?.message || '保存失败');
+    } finally {
+      setSavingPersonalContext(false);
+    }
+  };
+
+  const savePersonalMemorySwitch = async (enabled: boolean) => {
+    if (!personalContext) return;
+    hydratePersonalContext({ ...personalContext, memoryEnabled: enabled });
+    try {
+      await personalContextApi.update({ memoryEnabled: enabled });
+      await loadPersonalContext();
+    } catch (error: any) {
+      message.error(error?.response?.data?.message || '保存失败');
+    }
+  };
+
+  const savePersonalMcp = async () => {
+    setSavingPersonalContext(true);
+    try {
+      const parsed = JSON.parse(personalMcpJson || '{}');
+      await personalContextApi.update({ mcpServers: parsed });
+      await loadPersonalContext();
+      message.success('个人 MCP 已保存');
+    } catch (error: any) {
+      message.error(error?.response?.data?.message || 'MCP JSON 格式不正确');
+    } finally {
+      setSavingPersonalContext(false);
+    }
+  };
+
+  const addPersonalMemory = async () => {
+    const value = newPersonalMemory.trim();
+    if (!value) return;
+    setSavingPersonalContext(true);
+    try {
+      await personalContextApi.createMemory({
+        key: value.slice(0, 24),
+        value,
+        category: 'fact',
+      });
+      setNewPersonalMemory('');
+      await loadPersonalContext();
+      message.success('个人记忆已保存');
+    } catch (error: any) {
+      message.error(error?.response?.data?.message || '保存失败');
+    } finally {
+      setSavingPersonalContext(false);
+    }
+  };
+
+  const deletePersonalMemory = async (memoryId: number) => {
+    try {
+      await personalContextApi.deleteMemory(memoryId);
+      await loadPersonalContext();
+      message.success('个人记忆已删除');
+    } catch (error: any) {
+      message.error(error?.response?.data?.message || '删除失败');
+    }
+  };
+
+  const addMarketplaceMcp = (server: McpServerConfig) => {
+    try {
+      const parsed = JSON.parse(personalMcpJson || '{}');
+      const current = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed?.mcpServers)
+          ? parsed.mcpServers
+          : Object.values(parsed?.mcpServers || {});
+      const nextServers = [
+        ...current.filter((item: any) => item?.id !== server.id && item?.name !== server.name),
+        server,
+      ];
+      setPersonalMcpJson(JSON.stringify({ mcpServers: nextServers }, null, 2));
+      message.success(`已加入 ${server.name}，保存后生效`);
+    } catch {
+      setPersonalMcpJson(JSON.stringify({ mcpServers: [server] }, null, 2));
+    }
+  };
+
+  const renderPersonalContextDrawer = () => {
+    const knowledgeBases = personalContext?.knowledgeBases || [];
+    const memories = personalContext?.memories || [];
+    const marketplaceItems = personalContext?.mcpMarketplace?.items || [];
+
+    return (
+      <Drawer
+        title={
+          <Space>
+            <SettingOutlined style={{ color: '#2563eb' }} />
+            <span>个人上下文</span>
+          </Space>
+        }
+        placement="right"
+        open={personalContextOpen}
+        onClose={() => setPersonalContextOpen(false)}
+        width={isMobile ? '100%' : 520}
+        styles={{ body: { padding: 0 } }}
+      >
+        {!authToken ? (
+          <div className="personal-context-empty">
+            <UserOutlined />
+            <Title level={5}>登录后可使用个人上下文</Title>
+            <Text type="secondary">个人知识库、MCP 和记忆只对你的账号生效。</Text>
+            <Button type="primary" onClick={() => navigate('/login')} style={{ marginTop: 16 }}>
+              去登录
+            </Button>
+          </div>
+        ) : loadingPersonalContext ? (
+          <div className="personal-context-empty">
+            <Spin />
+            <Text type="secondary">正在加载个人设置...</Text>
+          </div>
+        ) : personalContextError ? (
+          <div className="personal-context-empty">
+            <SettingOutlined />
+            <Title level={5}>个人设置暂时不可用</Title>
+            <Text type="secondary">
+              主对话不受影响。你可以稍后重试，或先进入资源管理维护知识库。
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12, marginTop: 8 }}>
+              {personalContextError}
+            </Text>
+            <Space style={{ marginTop: 16 }}>
+              <Button onClick={() => navigate('/knowledge')}>打开知识库</Button>
+              <Button type="primary" onClick={loadPersonalContext}>重试</Button>
+            </Space>
+          </div>
+        ) : (
+          <Tabs
+            className="personal-context-tabs"
+            defaultActiveKey="knowledge"
+            items={[
+              {
+                key: 'knowledge',
+                label: '个人知识库',
+                children: (
+                  <div className="personal-context-pane">
+                    <div className="personal-context-note">
+                      这些知识库会和当前 Agent 的公共知识库一起检索，但只对你自己的会话生效。
+                    </div>
+                    {knowledgeBases.length === 0 ? (
+                      <Empty description="还没有个人知识库" image={Empty.PRESENTED_IMAGE_SIMPLE}>
+                        <Button onClick={() => navigate('/knowledge')}>去创建知识库</Button>
+                      </Empty>
+                    ) : (
+                      <Checkbox.Group
+                        value={personalKnowledgeIds}
+                        onChange={(values) => setPersonalKnowledgeIds(values.map(Number))}
+                        style={{ width: '100%' }}
+                      >
+                        <div className="personal-context-list">
+                          {knowledgeBases.map((kb) => (
+                            <label key={kb.id} className="personal-context-row">
+                              <Checkbox value={kb.id} />
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <Text strong style={{ display: 'block' }} ellipsis>{kb.name}</Text>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  {kb.documentCount || 0} 文档 · {kb.chunkCount || 0} 切片 · {kb.status}
+                                </Text>
+                              </div>
+                              <Button size="small" type="link" onClick={(event) => { event.preventDefault(); navigate('/knowledge'); }}>
+                                管理
+                              </Button>
+                            </label>
+                          ))}
+                        </div>
+                      </Checkbox.Group>
+                    )}
+                    <div className="personal-context-actions">
+                      <Button onClick={() => navigate('/knowledge')}>打开知识库</Button>
+                      <Button type="primary" loading={savingPersonalContext} onClick={savePersonalKnowledge}>
+                        保存选择
+                      </Button>
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                key: 'mcp',
+                label: '个人 MCP',
+                children: (
+                  <div className="personal-context-pane">
+                    <div className="personal-context-note">
+                      可从市场加入，也可粘贴 Claude / Cursor 风格 MCP JSON；保存后并入当前会话运行时。
+                    </div>
+                    <div className="personal-mcp-market">
+                      {marketplaceItems.slice(0, 8).map((server) => (
+                        <button
+                          type="button"
+                          key={server.id || server.name}
+                          className="personal-mcp-card"
+                          onClick={() => addMarketplaceMcp(server)}
+                        >
+                          <Text strong>{server.name}</Text>
+                          <Text type="secondary">{server.description}</Text>
+                        </button>
+                      ))}
+                    </div>
+                    <TextArea
+                      value={personalMcpJson}
+                      onChange={(event) => setPersonalMcpJson(event.target.value)}
+                      autoSize={{ minRows: 9, maxRows: 14 }}
+                      spellCheck={false}
+                      style={{ fontFamily: 'SFMono-Regular, Consolas, monospace', fontSize: 12 }}
+                    />
+                    <div className="personal-context-actions">
+                      <Button onClick={() => setPersonalMcpJson(JSON.stringify({ mcpServers: [] }, null, 2))}>
+                        清空
+                      </Button>
+                      <Button type="primary" loading={savingPersonalContext} onClick={savePersonalMcp}>
+                        保存 MCP
+                      </Button>
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                key: 'memory',
+                label: '个人记忆',
+                children: (
+                  <div className="personal-context-pane">
+                    <div className="personal-memory-head">
+                      <div>
+                        <Text strong>个人记忆开关</Text>
+                        <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                          开启后，系统会把这些记忆注入你的对话上下文。
+                        </Text>
+                      </div>
+                      <Switch checked={personalContext?.memoryEnabled !== false} onChange={savePersonalMemorySwitch} />
+                    </div>
+                    <Space.Compact style={{ width: '100%', marginBottom: 14 }}>
+                      <Input
+                        value={newPersonalMemory}
+                        onChange={(event) => setNewPersonalMemory(event.target.value)}
+                        onPressEnter={addPersonalMemory}
+                        placeholder="例如：我偏好中文回答，并给出可执行步骤"
+                      />
+                      <Button type="primary" loading={savingPersonalContext} onClick={addPersonalMemory}>
+                        添加
+                      </Button>
+                    </Space.Compact>
+                    {memories.length === 0 ? (
+                      <Empty description="暂无个人记忆" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    ) : (
+                      <div className="personal-context-list">
+                        {memories.map((memory) => (
+                          <div key={memory.id} className="personal-context-row">
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <Text strong style={{ display: 'block' }} ellipsis>{memory.key}</Text>
+                              <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{memory.value}</Text>
+                            </div>
+                            <Button
+                              danger
+                              type="text"
+                              size="small"
+                              icon={<DeleteOutlined />}
+                              onClick={() => deletePersonalMemory(memory.id)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ),
+              },
+            ]}
+          />
+        )}
+      </Drawer>
+    );
+  };
+
   const sidebarItems = conversations.length > 0
     ? conversations
     : messages.length > 0
@@ -2122,6 +2453,14 @@ const AgentChatCanvas: React.FC = () => {
         <Space size="small">
           {isMobile ? (
             <>
+              <Tooltip title="个人设置">
+                <Button
+                  icon={<SettingOutlined />}
+                  size="small"
+                  type="text"
+                  onClick={() => setPersonalContextOpen(true)}
+                />
+              </Tooltip>
               <Tooltip title="历史会话">
                 <Button
                   icon={<HistoryOutlined />}
@@ -2175,6 +2514,14 @@ const AgentChatCanvas: React.FC = () => {
                   onClick={() => setWorkspaceVisible(true)}
                 />
               </Tooltip>
+              <Tooltip title="个人设置">
+                <Button
+                  icon={<SettingOutlined />}
+                  size="small"
+                  type="text"
+                  onClick={() => setPersonalContextOpen(true)}
+                />
+              </Tooltip>
             </>
           )}
         </Space>
@@ -2210,12 +2557,21 @@ const AgentChatCanvas: React.FC = () => {
                 ))
               )}
             </div>
-            <div className="agent-chat-sidebar-footer">
+            <div
+              className="agent-chat-sidebar-footer agent-chat-sidebar-footer-clickable"
+              onClick={() => setPersonalContextOpen(true)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') setPersonalContextOpen(true);
+              }}
+            >
               <Avatar size={28} icon={<UserOutlined />} style={{ background: '#2563eb' }} />
               <div style={{ minWidth: 0, flex: 1 }}>
-                <Text strong style={{ display: 'block', fontSize: 13 }} ellipsis>{agentName || 'Agent 工作台'}</Text>
-                <Text type="secondary" style={{ fontSize: 11 }}>全屏对话 · 产物 Canvas</Text>
+                <Text strong style={{ display: 'block', fontSize: 13 }} ellipsis>{currentUser?.email || '个人设置'}</Text>
+                <Text type="secondary" style={{ fontSize: 11 }}>知识库 · MCP · 记忆</Text>
               </div>
+              <SettingOutlined style={{ color: '#94a3b8', fontSize: 14 }} />
             </div>
           </aside>
         )}
@@ -2731,6 +3087,8 @@ const AgentChatCanvas: React.FC = () => {
           </div>
         )}
       </div>
+
+      {renderPersonalContextDrawer()}
 
       {/* 历史会话抽屉 */}
       <Drawer

@@ -15,6 +15,17 @@ export class MemoryService {
   async create(dto: CreateMemoryDto): Promise<Memory> {
     const memory = new Memory();
     memory.agentId = dto.agentId;
+    memory.scope = 'agent';
+    memory.key = dto.key;
+    memory.value = dto.value;
+    memory.category = dto.category || 'fact';
+    return await this.memoryRepository.save(memory);
+  }
+
+  async createPersonal(userId: number, dto: Pick<CreateMemoryDto, 'key' | 'value' | 'category'>): Promise<Memory> {
+    const memory = new Memory();
+    memory.userId = userId;
+    memory.scope = 'user';
     memory.key = dto.key;
     memory.value = dto.value;
     memory.category = dto.category || 'fact';
@@ -28,6 +39,27 @@ export class MemoryService {
       where,
       order: { updatedAt: 'DESC' },
     });
+  }
+
+  async findPersonal(userId: number): Promise<Memory[]> {
+    return this.memoryRepository.find({
+      where: { userId, scope: 'user' },
+      order: { updatedAt: 'DESC' },
+      take: 100,
+    });
+  }
+
+  async buildPersonalMemoryContext(userId: number, limit = 12): Promise<string> {
+    const memories = await this.memoryRepository.find({
+      where: { userId, scope: 'user' },
+      order: { updatedAt: 'DESC' },
+      take: limit,
+    });
+    if (memories.length === 0) return '';
+
+    return memories
+      .map((memory) => `- ${memory.key}: ${memory.value}`)
+      .join('\n');
   }
 
   async findOne(id: number): Promise<Memory> {
@@ -46,6 +78,14 @@ export class MemoryService {
 
   async remove(id: number): Promise<void> {
     const memory = await this.findOne(id);
+    await this.memoryRepository.remove(memory);
+  }
+
+  async removePersonal(id: number, userId: number): Promise<void> {
+    const memory = await this.memoryRepository.findOne({
+      where: { id, userId, scope: 'user' },
+    });
+    if (!memory) throw new NotFoundException(`Personal memory with ID ${id} not found`);
     await this.memoryRepository.remove(memory);
   }
 }

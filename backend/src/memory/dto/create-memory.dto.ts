@@ -7,8 +7,9 @@ export enum MemoryCategory {
 }
 
 export class CreateMemoryDto {
+  @IsOptional()
   @IsNumber()
-  agentId: number;
+  agentId?: number;
 
   @IsString()
   key: string;

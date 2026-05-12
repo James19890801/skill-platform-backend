@@ -5,8 +5,14 @@ export class Memory {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'int' })
-  agentId: number;
+  @Column({ type: 'int', nullable: true })
+  agentId?: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  userId?: number | null;
+
+  @Column({ type: 'varchar', length: 24, default: 'agent' })
+  scope: 'agent' | 'user';
 
   @Column({ type: 'varchar', length: 255 })
   key: string;

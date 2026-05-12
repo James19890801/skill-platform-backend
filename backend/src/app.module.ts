@@ -22,6 +22,7 @@ import { ProtocolModule } from './protocol/protocol.module';
 import { OpenAiCompatibleModule } from './openai-compatible/openai-compatible.module';
 import { McpModule } from './mcp/mcp.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
+import { PersonalContextModule } from './personal-context/personal-context.module';
 import {
   User,
   Skill,
@@ -39,6 +40,7 @@ import {
   KnowledgeDocument,
   KnowledgeChunk,
   Memory,
+  UserContext,
   SkillRuntimeArtifact,
   SkillRuntimeEvent,
   SkillRuntimeStep,
@@ -102,6 +104,7 @@ const entities = [
   KnowledgeDocument,
   KnowledgeChunk,
   Memory,
+  UserContext,
   SkillExecution,
   SkillRuntimeArtifact,
   SkillRuntimeEvent,
@@ -167,6 +170,7 @@ function buildTypeOrmOptions(): TypeOrmModuleOptions {
     LlmModule,
     McpModule,
     MonitoringModule,
+    PersonalContextModule,
     ProtocolModule,
     OpenAiCompatibleModule,
   ],

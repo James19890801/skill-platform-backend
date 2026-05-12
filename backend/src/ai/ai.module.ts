@@ -7,6 +7,7 @@ import { SkillExecutorService } from './skill-executor.service';
 import { WorkspaceModule } from '../workspace/workspace.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { LlmModule } from '../llm/llm.module';
+import { PersonalContextModule } from '../personal-context/personal-context.module';
 import { AiController } from './ai.controller';
 import { Agent } from '../entities/agent.entity';
 import { Skill } from '../entities/skill.entity';
@@ -30,6 +31,7 @@ import { SkillRuntimeQueueService } from '../skill-runtime/skill-runtime-queue.s
     WorkspaceModule,
     KnowledgeModule,
     LlmModule,
+    PersonalContextModule,
   ],
   providers: [
     AiService,

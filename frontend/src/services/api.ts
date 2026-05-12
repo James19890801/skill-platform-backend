@@ -519,7 +519,9 @@ export const agentsApi = {
 // ============================================
 export interface MemoryDTO {
   id: number;
-  agentId: number;
+  agentId?: number | null;
+  userId?: number | null;
+  scope?: 'agent' | 'user';
   key: string;
   value: string;
   category: string;
@@ -539,6 +541,36 @@ export const memoriesApi = {
 
   delete: (id: number): Promise<void> =>
     apiClient.delete(`/memories/${id}`),
+};
+
+// ============================================
+// Personal Context API
+// ============================================
+export interface PersonalContextDTO {
+  id: number;
+  userId: number;
+  knowledgeBaseIds: number[];
+  mcpServers: McpServerConfig[];
+  memoryEnabled: boolean;
+  knowledgeBases: KnowledgeBase[];
+  memories: MemoryDTO[];
+  mcpMarketplace: McpMarketplaceResponse;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const personalContextApi = {
+  get: (): Promise<PersonalContextDTO> =>
+    apiClient.get('/me/context'),
+
+  update: (data: { knowledgeBaseIds?: number[]; mcpServers?: unknown; memoryEnabled?: boolean }): Promise<PersonalContextDTO> =>
+    apiClient.put('/me/context', data),
+
+  createMemory: (data: { key?: string; value: string; category?: string }): Promise<MemoryDTO> =>
+    apiClient.post('/me/context/memories', data),
+
+  deleteMemory: (id: number): Promise<void> =>
+    apiClient.delete(`/me/context/memories/${id}`),
 };
 
 // ============================================
