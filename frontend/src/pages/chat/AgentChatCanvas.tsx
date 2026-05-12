@@ -56,7 +56,6 @@ import {
   GlobalOutlined,
   LayoutOutlined,
   LinkOutlined,
-  PlusCircleOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
@@ -218,7 +217,7 @@ const REPOSITORY_CONTEXTS: RepositoryContext[] = [
     key: 'frontend',
     title: 'frontend',
     scope: 'React 工作台',
-    description: 'Agent 工作台、对话 Canvas、Skill 市场、知识库和调用中心。',
+    description: 'Agent 工作台、全屏对话、Skill 市场、知识库和调用中心。',
     modules: ['pages/chat', 'pages/agents', 'pages/skills', 'services/api.ts'],
     status: 'local',
   },
@@ -579,7 +578,7 @@ const AgentChatCanvas: React.FC = () => {
       .trim();
   };
 
-  // ★ 渲染消息内容（基于 react-markdown，支持表格、Mermaid、代码块、HTML/图片/JSON 内联预览）
+  // ★ 渲染消息内容（基于 react-markdown，产物以卡片触发 Canvas，避免挤占正常对话空间）
   const renderMessageContent = (content: string, artifacts?: Artifact[], execution?: ExecutionState | null) => {
     const artifactElements: JSX.Element[] = [];
   
@@ -587,58 +586,59 @@ const AgentChatCanvas: React.FC = () => {
       artifacts.forEach((artifact) => {
         if (artifact.type === 'table') return;
 
-        // ★ HTML 类型：内联 iframe 预览
+        // ★ HTML 类型：点击后进入 Canvas 预览
         if (artifact.type === 'html') {
           artifactElements.push(
-            <div key={artifact.id} style={{ marginTop: 10, border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
-              <div style={{
-                padding: '4px 10px', background: '#f8f9fb', borderBottom: '1px solid #e8e8e8',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12,
-              }}>
-                <span style={{ fontWeight: 500, color: '#6366f1' }}>🌐 HTML 预览</span>
-                <Button size="small" type="link" onClick={() => openCanvas(artifact)} style={{ fontSize: 11, padding: 0 }}>
-                  在 Canvas 中打开
-                </Button>
-              </div>
-              <iframe
-                srcDoc={artifact.content}
-                style={{ width: '100%', height: 300, border: 'none' }}
-                title={artifact.title}
-                sandbox="allow-same-origin allow-scripts"
-              />
+            <div
+              key={artifact.id}
+              className="artifact-card artifact-compact-card"
+              onClick={() => openCanvas(artifact)}
+            >
+              <Space size={10}>
+                <span className="artifact-card-icon"><GlobalOutlined /></span>
+                <div style={{ minWidth: 0 }}>
+                  <Text strong style={{ display: 'block', fontSize: 13 }} ellipsis>{artifact.title || 'HTML 页面'}</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>点击在 Canvas 中预览网页</Text>
+                </div>
+              </Space>
+              <Button size="small" type="link" onClick={(e) => { e.stopPropagation(); openCanvas(artifact); }}>
+                打开
+              </Button>
             </div>
           );
           return;
         }
 
-        // ★ 图片类型：内联图片预览
+        // ★ 图片类型：点击后进入 Canvas 查看
         if (artifact.type === 'image') {
           const imgSrc = artifact.src || artifact.content;
           artifactElements.push(
-            <div key={artifact.id} style={{ marginTop: 10 }}>
-              <div style={{
-                padding: '4px 0', fontSize: 12, color: '#666', fontWeight: 500,
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}>
-                <PictureOutlined style={{ color: '#6366f1' }} />
-                <span>{artifact.filename || artifact.title}</span>
-                <Button size="small" type="link" onClick={() => openCanvas(artifact)} style={{ fontSize: 11, padding: 0 }}>
-                  查看原图
-                </Button>
-              </div>
-              <img
-                src={imgSrc}
-                alt={artifact.title}
-                style={{ maxWidth: '100%', maxHeight: 400, borderRadius: 8, border: '1px solid #e8e8e8', cursor: 'pointer' }}
-                onClick={() => openCanvas(artifact)}
-                loading="lazy"
-              />
+            <div
+              key={artifact.id}
+              className="artifact-card artifact-compact-card"
+              onClick={() => openCanvas(artifact)}
+            >
+              <Space size={10}>
+                <img
+                  src={imgSrc}
+                  alt={artifact.title}
+                  className="artifact-thumb"
+                  loading="lazy"
+                />
+                <div style={{ minWidth: 0 }}>
+                  <Text strong style={{ display: 'block', fontSize: 13 }} ellipsis>{artifact.filename || artifact.title}</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>点击在 Canvas 中查看原图</Text>
+                </div>
+              </Space>
+              <Button size="small" type="link" onClick={(e) => { e.stopPropagation(); openCanvas(artifact); }}>
+                查看
+              </Button>
             </div>
           );
           return;
         }
 
-        // ★ JSON 类型：格式化显示
+        // ★ JSON 类型：点击后进入 Canvas 展开
         if (artifact.type === 'json') {
           let formatted = '';
           try {
@@ -647,28 +647,30 @@ const AgentChatCanvas: React.FC = () => {
             formatted = artifact.content;
           }
           artifactElements.push(
-            <div key={artifact.id} style={{ marginTop: 10, borderRadius: 8, overflow: 'hidden', border: '1px solid #e8e8e8' }}>
-              <div style={{
-                padding: '4px 10px', background: '#f8f9fb', borderBottom: '1px solid #e8e8e8',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12,
-              }}>
-                <span style={{ fontWeight: 500, color: '#6366f1' }}>📋 JSON 数据</span>
-                <Space size={4}>
-                  <Button size="small" type="link" onClick={() => openCanvas(artifact)} style={{ fontSize: 11, padding: 0 }}>
-                    展开
-                  </Button>
-                  <Button
-                    size="small" type="link"
-                    onClick={() => { navigator.clipboard.writeText(artifact.content); }}
-                    style={{ fontSize: 11, padding: 0 }}
-                  >
-                    复制
-                  </Button>
-                </Space>
-              </div>
-              <pre style={{ margin: 0, padding: 10, background: '#1e1e1e', color: '#d4d4d4', fontSize: 11, maxHeight: 200, overflow: 'auto', lineHeight: 1.5 }}>
-                <code>{formatted}</code>
-              </pre>
+            <div
+              key={artifact.id}
+              className="artifact-card artifact-compact-card"
+              onClick={() => openCanvas(artifact)}
+            >
+              <Space size={10}>
+                <span className="artifact-card-icon"><FileTextOutlined /></span>
+                <div style={{ minWidth: 0 }}>
+                  <Text strong style={{ display: 'block', fontSize: 13 }}>JSON 数据</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }} ellipsis>{formatted.slice(0, 96)}</Text>
+                </div>
+              </Space>
+              <Space size={4}>
+                <Button size="small" type="link" onClick={(e) => { e.stopPropagation(); openCanvas(artifact); }}>
+                  展开
+                </Button>
+                <Button
+                  size="small"
+                  type="link"
+                  onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(artifact.content); }}
+                >
+                  复制
+                </Button>
+              </Space>
             </div>
           );
           return;
@@ -1065,7 +1067,7 @@ const AgentChatCanvas: React.FC = () => {
 
   // ★ 拖拽调整宽度
   const handleDragStart = (e: React.MouseEvent) => {
-    if (!canvasOpen) return;
+    if (!canvasOpen && activeWorkbenchApp === 'chat') return;
     setIsDragging(true);
     dragStartX.current = e.clientX;
     dragStartLeftWidth.current = leftWidth;
@@ -2081,73 +2083,42 @@ const AgentChatCanvas: React.FC = () => {
   const activeWorkbenchMeta = WORKBENCH_APPS.find((item) => item.key === activeWorkbenchApp) || WORKBENCH_APPS[0];
 
   return (
-    <div ref={containerRef} className="agent-workbench" style={{ height: isMobile ? '100vh' : 'calc(100vh - 56px - 32px)', display: 'flex', flexDirection: 'column' }}>
-      {/* 顶部工具栏 */}
-      <div style={{
-        padding: isMobile ? '6px 10px' : '8px 16px',
-        borderBottom: '1px solid #f0f0f0',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexShrink: 0,
-        background: '#fff',
-      }}>
-        {isMobile ? (
-          <Space size="small">
+    <div ref={containerRef} className="agent-workbench agent-workbench-fullscreen" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {/* 顶部工具栏：只保留对话必要动作，Canvas 应用切换在右侧面板内出现 */}
+      <div className="agent-chat-topbar">
+        <Space size={isMobile ? 6 : 10} className="agent-chat-topbar-left">
+          {isMobile && (
             <Button
               type="text"
               icon={<ArrowLeftOutlined />}
               onClick={() => navigate('/dashboard')}
-              style={{ fontSize: 16, color: '#333' }}
+              className="agent-plaza-button"
             />
-            <RobotOutlined style={{ color: '#6366f1', fontSize: 16 }} />
-            <Text strong style={{ fontSize: 15 }}>{agentName || (agentId ? `Agent #${agentId}` : 'AI 对话')}</Text>
-          </Space>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{
-              width: 26, height: 26, borderRadius: 7,
-              background: getAgentAvatarSrc(agentAvatar) ? '#eef2ff' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-              backgroundImage: getAgentAvatarSrc(agentAvatar) ? `url(${getAgentAvatarSrc(agentAvatar)})` : undefined,
-              backgroundSize: 'cover',
-              ...getAgentAvatarStyle(agentAvatar),
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-            }}>
-              {renderAgentAvatarContent(agentAvatar, <RobotOutlined style={{ color: '#fff', fontSize: 13 }} />)}
-            </div>
-            <div>
-              <Text strong style={{ fontSize: 14, display: 'block', lineHeight: 1.3 }}>
-                {agentName || 'Agent 对话'}
-              </Text>
-            </div>
-            <Tooltip title="点击复制 Thread ID">
-              <Text
-                style={{ fontSize: 10, color: '#ccc', cursor: 'pointer', marginLeft: 2 }}
-                onClick={() => { navigator.clipboard.writeText(currentThreadId); message.success('Thread ID 已复制'); }}
-              >
-                #{currentThreadId.slice(-6)}
-              </Text>
-            </Tooltip>
+          )}
+          <div className="agent-topbar-avatar" style={{
+            background: getAgentAvatarSrc(agentAvatar) ? '#eef2ff' : 'linear-gradient(135deg, #2563eb, #7c3aed)',
+            backgroundImage: getAgentAvatarSrc(agentAvatar) ? `url(${getAgentAvatarSrc(agentAvatar)})` : undefined,
+            backgroundSize: 'cover',
+            ...getAgentAvatarStyle(agentAvatar),
+          }}>
+            {renderAgentAvatarContent(agentAvatar, <RobotOutlined style={{ color: '#fff', fontSize: isMobile ? 13 : 14 }} />)}
           </div>
-        )}
-        {!isMobile && (
-          <div className="codex-app-switcher" role="tablist" aria-label="Canvas 应用">
-            {WORKBENCH_APPS.map((app) => (
-              <button
-                key={app.key}
-                type="button"
-                className={activeWorkbenchApp === app.key ? 'active' : ''}
-                onClick={() => switchWorkbenchApp(app.key)}
-                title={app.label}
-              >
-                <PlusCircleOutlined />
-                <span className="codex-app-icon">{app.icon}</span>
-                <span>{app.label}</span>
-              </button>
-            ))}
+          <div className="agent-topbar-title">
+            <Text strong ellipsis style={{ fontSize: isMobile ? 15 : 16, display: 'block', lineHeight: 1.25 }}>
+              {agentName || (agentId ? `Agent #${agentId}` : 'AI 对话')}
+            </Text>
+            {!isMobile && (
+              <Tooltip title="点击复制 Thread ID">
+                <Text
+                  className="agent-thread-chip"
+                  onClick={() => { navigator.clipboard.writeText(currentThreadId); message.success('Thread ID 已复制'); }}
+                >
+                  Thread #{currentThreadId.slice(-6)}
+                </Text>
+              </Tooltip>
+            )}
           </div>
-        )}
+        </Space>
         <Space size="small">
           {isMobile ? (
             <>
@@ -2166,14 +2137,6 @@ const AgentChatCanvas: React.FC = () => {
                   icon={<PlusOutlined />}
                   onClick={newConversation}
                   style={{ color: '#6366f1' }}
-                />
-              </Tooltip>
-              <Tooltip title="工作区文件">
-                <Button
-                  icon={<FolderOpenOutlined />}
-                  size="small"
-                  type="text"
-                  onClick={() => setWorkspaceVisible(true)}
                 />
               </Tooltip>
             </>
@@ -2222,6 +2185,9 @@ const AgentChatCanvas: React.FC = () => {
         {!isMobile && (
           <aside className="agent-chat-sidebar">
             <div className="agent-chat-sidebar-header">
+              <Button icon={<AppstoreOutlined />} block onClick={() => navigate('/dashboard')} className="agent-sidebar-plaza">
+                广场
+              </Button>
               <Button type="primary" icon={<PlusOutlined />} block onClick={newConversation}>
                 新对话
               </Button>
@@ -2248,7 +2214,7 @@ const AgentChatCanvas: React.FC = () => {
               <Avatar size={28} icon={<UserOutlined />} style={{ background: '#2563eb' }} />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <Text strong style={{ display: 'block', fontSize: 13 }} ellipsis>{agentName || 'Agent 工作台'}</Text>
-                <Text type="secondary" style={{ fontSize: 11 }}>Skills · Memory · Canvas</Text>
+                <Text type="secondary" style={{ fontSize: 11 }}>全屏对话 · 产物 Canvas</Text>
               </div>
             </div>
           </aside>
@@ -2661,7 +2627,7 @@ const AgentChatCanvas: React.FC = () => {
             }}
           >
             {/* Canvas / App 头部 */}
-            <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, background: '#fff' }}>
+            <div className="agent-canvas-header" style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, background: '#fff' }}>
               <Space>
                 <span className="codex-panel-title-icon">
                   {activeWorkbenchApp === 'chat' ? <AppstoreOutlined /> : activeWorkbenchMeta.icon}
@@ -2676,6 +2642,22 @@ const AgentChatCanvas: React.FC = () => {
                   <Tag color="blue">{currentArtifact.title}</Tag>
                 )}
               </Space>
+              {!isMobile && (
+                <div className="codex-app-switcher codex-app-switcher-panel" role="tablist" aria-label="Canvas 应用">
+                  {WORKBENCH_APPS.map((app) => (
+                    <button
+                      key={app.key}
+                      type="button"
+                      className={activeWorkbenchApp === app.key ? 'active' : ''}
+                      onClick={() => switchWorkbenchApp(app.key)}
+                      title={app.label}
+                    >
+                      <span className="codex-app-icon">{app.icon}</span>
+                      <span>{app.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <Space>
                 {activeWorkbenchApp === 'chat' && currentArtifact && currentArtifact.type !== 'document' && currentArtifact.type !== 'html' && currentArtifact.type !== 'image' && currentArtifact.type !== 'json' && (
                   <>

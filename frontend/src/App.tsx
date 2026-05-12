@@ -40,10 +40,6 @@ function App() {
             <Route path="agents/create" element={<AgentCreate />} />
             <Route path="agents/edit/:id" element={<AgentEdit />} />
 
-            {/* 对话 Canvas */}
-            <Route path="chat" element={<AgentChatCanvas />} />
-            <Route path="chat/:agentId" element={<AgentChatCanvas />} />
-
             {/* 资源管理 */}
             <Route path="skills" element={<SkillHub />} />
             <Route path="skills/:id" element={<SkillDetail />} />
@@ -62,6 +58,8 @@ function App() {
           </Route>
           
           <Route path="login" element={<LoginPage />} />
+          <Route path="chat" element={<AgentChatCanvas />} />
+          <Route path="chat/:agentId" element={<AgentChatCanvas />} />
           <Route path="embed/chat/:agentId" element={<AgentChatCanvas />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
