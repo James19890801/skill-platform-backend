@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import JSZip from 'jszip';
 import {
+  buildKnowledgeSearchTerms,
   chunkText,
   cosineSimilarity,
   extractTextFromDocument,
+  inferProcessMetadata,
   rankKnowledgeChunks,
 } from '../src/knowledge/knowledge-pipeline';
 
@@ -76,4 +78,34 @@ test('rankKnowledgeChunks returns cosine-ranked context', () => {
   assert.equal(ranked[0].id, 1);
   assert.equal(ranked[1].id, 3);
   assert.equal(cosineSimilarity([1, 0], [1, 0]), 1);
+});
+
+test('buildKnowledgeSearchTerms extracts useful Chinese process terms', () => {
+  const terms = buildKnowledgeSearchTerms('付款申请流程怎么走，需要哪些审批材料？');
+
+  assert.ok(terms.includes('付款申请'));
+  assert.ok(terms.includes('付款'));
+  assert.ok(terms.includes('申请'));
+  assert.ok(terms.includes('审批'));
+  assert.ok(!terms.includes('怎么'));
+});
+
+test('inferProcessMetadata extracts process fields for filtering', () => {
+  const metadata = inferProcessMetadata(
+    [
+      '流程编号：FIN-PAY-001',
+      '流程名称：付款申请流程',
+      '适用部门：财务部、采购部',
+      '版本：V2.1',
+      '当前状态：现行',
+    ].join('\n'),
+    '财务域-付款申请流程-V2.1.docx',
+  );
+
+  assert.equal(metadata.processCode, 'FIN-PAY-001');
+  assert.equal(metadata.processName, '付款申请流程');
+  assert.equal(metadata.domain, '财务域');
+  assert.equal(metadata.version, 'V2.1');
+  assert.equal(metadata.status, '现行');
+  assert.deepEqual(metadata.departments, ['财务部', '采购部']);
 });

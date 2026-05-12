@@ -9,8 +9,10 @@ import { CreateKnowledgeBaseDto, KnowledgeSource, KnowledgeStatus } from './dto/
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto';
 import { ObservabilityService } from '../monitoring/observability.service';
 import {
+  buildKnowledgeSearchTerms,
   chunkText,
   extractTextFromDocument,
+  inferProcessMetadata,
   rankKnowledgeChunks,
 } from './knowledge-pipeline';
 import { normalizeUploadedFilename } from './filename';
@@ -29,6 +31,43 @@ export interface KnowledgeSourceReference {
   content?: string;
 }
 
+export interface KnowledgeSearchFilters {
+  documentId?: number;
+  domain?: string;
+  processCode?: string;
+  processName?: string;
+  sectionTitle?: string;
+  status?: string;
+  version?: string;
+}
+
+export interface KnowledgeSearchOptions {
+  filters?: KnowledgeSearchFilters;
+  candidateLimit?: number;
+}
+
+export interface KnowledgeUploadFile {
+  originalname: string;
+  mimetype?: string;
+  size?: number;
+  buffer: Buffer;
+}
+
+export interface KnowledgeIngestionBatchResult {
+  batchId: string;
+  total: number;
+  queued: number;
+  documents: KnowledgeDocument[];
+}
+
+interface KnowledgeIngestionQueueItem {
+  knowledgeBaseId: number;
+  documentId: number;
+  displayName: string;
+  file: KnowledgeUploadFile;
+  options: { chunkSize?: number; chunkOverlap?: number };
+}
+
 @Injectable()
 export class KnowledgeService {
   private readonly logger = new Logger(KnowledgeService.name);
@@ -38,6 +77,9 @@ export class KnowledgeService {
   private readonly maxChunksPerDocument = positiveIntegerEnv('KNOWLEDGE_MAX_CHUNKS_PER_DOCUMENT', 500, 1);
   private readonly maxSearchTopK = positiveIntegerEnv('KNOWLEDGE_MAX_TOP_K', 20, 1);
   private readonly maxSearchChunks = positiveIntegerEnv('KNOWLEDGE_MAX_SEARCH_CHUNKS', 5000, 100);
+  private readonly maxSearchCandidates = positiveIntegerEnv('KNOWLEDGE_MAX_SEARCH_CANDIDATES', 1500, 100);
+  private readonly ingestionQueue: KnowledgeIngestionQueueItem[] = [];
+  private processingIngestionQueue = false;
 
   constructor(
     @InjectRepository(KnowledgeBase)
@@ -170,7 +212,7 @@ export class KnowledgeService {
 
   async uploadDocument(
     knowledgeBaseId: number,
-    file: { originalname: string; mimetype?: string; size?: number; buffer: Buffer },
+    file: KnowledgeUploadFile,
     options: { chunkSize?: number; chunkOverlap?: number } = {},
   ): Promise<KnowledgeDocument> {
     const knowledgeBase = await this.findOne(knowledgeBaseId);
@@ -183,8 +225,75 @@ export class KnowledgeService {
       status: 'processing',
       chunkCount: 0,
     }));
+
+    return this.indexDocumentBuffer(knowledgeBase, document, file, displayName, options, true);
+  }
+
+  async enqueueDocuments(
+    knowledgeBaseId: number,
+    files: KnowledgeUploadFile[],
+    options: { chunkSize?: number; chunkOverlap?: number } = {},
+  ): Promise<KnowledgeIngestionBatchResult> {
+    const knowledgeBase = await this.getKnowledgeBaseForIngestion(knowledgeBaseId);
+    const batchId = `kb${knowledgeBaseId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const documents: KnowledgeDocument[] = [];
+
+    for (const file of files) {
+      const displayName = normalizeUploadedFilename(file.originalname);
+      const document = await this.documentRepository.save(this.documentRepository.create({
+        knowledgeBaseId,
+        name: displayName,
+        mimeType: file.mimetype,
+        size: file.size || file.buffer.length,
+        status: 'queued',
+        chunkCount: 0,
+      }));
+      documents.push(document);
+      this.ingestionQueue.push({
+        knowledgeBaseId,
+        documentId: document.id,
+        displayName,
+        file,
+        options,
+      });
+      await this.recordKnowledgeEvent('info', 'knowledge.upload.queued', `${displayName} 已加入知识库入库队列`, {
+        knowledgeBaseId,
+        documentId: document.id,
+        batchId,
+        fileName: displayName,
+        size: file.size || file.buffer.length,
+      });
+    }
+
+    knowledgeBase.documents = Array.from(new Set([
+      ...(knowledgeBase.documents || []),
+      ...documents.map((document) => normalizeUploadedFilename(document.name)),
+    ]));
+    knowledgeBase.documentCount = await this.documentRepository.count({ where: { knowledgeBaseId } });
+    knowledgeBase.status = 'syncing';
+    await this.knowledgeRepository.save(knowledgeBase);
+    this.scheduleIngestionQueue();
+
+    return {
+      batchId,
+      total: files.length,
+      queued: documents.length,
+      documents: documents.map((document) => this.normalizeDocumentDisplay(document)),
+    };
+  }
+
+  private async indexDocumentBuffer(
+    knowledgeBase: KnowledgeBase,
+    document: KnowledgeDocument,
+    file: KnowledgeUploadFile,
+    displayName: string,
+    options: { chunkSize?: number; chunkOverlap?: number } = {},
+    rethrowOnError = false,
+  ): Promise<KnowledgeDocument> {
+    document.status = 'processing';
+    await this.documentRepository.save(document);
     await this.recordKnowledgeEvent('info', 'knowledge.upload.received', `${displayName} 已接收，开始解析`, {
-      knowledgeBaseId,
+      knowledgeBaseId: document.knowledgeBaseId,
       documentId: document.id,
       fileName: displayName,
       mimeType: file.mimetype,
@@ -194,22 +303,24 @@ export class KnowledgeService {
     try {
       const text = await extractTextFromDocument(file.buffer, displayName, file.mimetype);
       await this.recordKnowledgeEvent('info', 'knowledge.upload.extracted', `${displayName} 文本解析完成`, {
-        knowledgeBaseId,
+        knowledgeBaseId: document.knowledgeBaseId,
         documentId: document.id,
         textLength: text.length,
       });
+      const processMetadata = inferProcessMetadata(text, displayName);
       const allChunks = chunkText(text, {
         chunkSize: options.chunkSize,
         chunkOverlap: options.chunkOverlap,
         metadata: {
           documentName: displayName,
           mimeType: file.mimetype,
-          knowledgeBaseId,
+          knowledgeBaseId: document.knowledgeBaseId,
+          ...processMetadata,
         },
       });
       const chunks = allChunks.slice(0, this.maxChunksPerDocument);
       await this.recordKnowledgeEvent('info', 'knowledge.upload.chunked', `${displayName} 已生成 ${chunks.length} 个切片`, {
-        knowledgeBaseId,
+        knowledgeBaseId: document.knowledgeBaseId,
         documentId: document.id,
         chunkCount: chunks.length,
         totalChunks: allChunks.length,
@@ -222,7 +333,7 @@ export class KnowledgeService {
 
       const embeddings = await this.embedTexts(chunks.map((chunk) => chunk.content));
       await this.chunkRepository.save(chunks.map((chunk, index) => this.chunkRepository.create({
-        knowledgeBaseId,
+        knowledgeBaseId: document.knowledgeBaseId,
         documentId: document.id,
         chunkIndex: chunk.index,
         content: chunk.content,
@@ -239,11 +350,11 @@ export class KnowledgeService {
       const savedDocument = await this.documentRepository.save(document);
 
       knowledgeBase.documents = Array.from(new Set([...(knowledgeBase.documents || []), displayName]));
-      knowledgeBase.documentCount = await this.documentRepository.count({ where: { knowledgeBaseId } });
+      knowledgeBase.documentCount = await this.documentRepository.count({ where: { knowledgeBaseId: document.knowledgeBaseId } });
       knowledgeBase.status = KnowledgeStatus.CONNECTED;
       await this.knowledgeRepository.save(knowledgeBase);
       await this.recordKnowledgeEvent('info', 'knowledge.upload.indexed', `${displayName} 已完成索引`, {
-        knowledgeBaseId,
+        knowledgeBaseId: document.knowledgeBaseId,
         documentId: document.id,
         chunkCount: chunks.length,
       });
@@ -254,14 +365,51 @@ export class KnowledgeService {
       document.error = err instanceof Error ? err.message : String(err);
       await this.documentRepository.save(document);
       await this.recordKnowledgeEvent('error', 'knowledge.upload.failed', `${displayName} 索引失败`, {
-        knowledgeBaseId,
+        knowledgeBaseId: document.knowledgeBaseId,
         documentId: document.id,
         fileName: displayName,
         size: file.size || file.buffer.length,
         error: document.error,
       });
-      throw err;
+      if (rethrowOnError) throw err;
+      return document;
     }
+  }
+
+  private scheduleIngestionQueue() {
+    if (this.processingIngestionQueue) return;
+    setTimeout(() => {
+      void this.drainIngestionQueue();
+    }, 0);
+  }
+
+  private async drainIngestionQueue() {
+    if (this.processingIngestionQueue) return;
+    this.processingIngestionQueue = true;
+    try {
+      while (this.ingestionQueue.length > 0) {
+        const item = this.ingestionQueue.shift();
+        if (!item) continue;
+        await this.processQueuedDocument(item);
+      }
+    } finally {
+      this.processingIngestionQueue = false;
+    }
+  }
+
+  private async processQueuedDocument(item: KnowledgeIngestionQueueItem) {
+    const document = await this.documentRepository.findOne({ where: { id: item.documentId, knowledgeBaseId: item.knowledgeBaseId } });
+    if (!document) return;
+    const knowledgeBase = await this.getKnowledgeBaseForIngestion(item.knowledgeBaseId);
+    await this.indexDocumentBuffer(knowledgeBase, document, item.file, item.displayName, item.options, false);
+  }
+
+  private async getKnowledgeBaseForIngestion(id: number): Promise<KnowledgeBase> {
+    const knowledgeBase = await this.knowledgeRepository.findOne({ where: { id } });
+    if (!knowledgeBase) {
+      throw new NotFoundException(`KnowledgeBase with ID ${id} not found`);
+    }
+    return this.normalizeKnowledgeBaseDisplay(knowledgeBase);
   }
 
   async ingestText(
@@ -330,22 +478,20 @@ export class KnowledgeService {
     knowledgeBaseId: number,
     query: string,
     topK = 5,
+    options: KnowledgeSearchOptions = {},
   ): Promise<{
     query: string;
     topK: number;
     results: Array<KnowledgeChunk & { score: number }>;
     context: string;
     sources: KnowledgeSourceReference[];
+    candidateCount: number;
   }> {
     const knowledgeBase = await this.findOne(knowledgeBaseId);
     const normalizedTopK = Math.min(Math.max(1, topK || 5), this.maxSearchTopK);
-    const chunks = await this.chunkRepository.find({
-      where: { knowledgeBaseId },
-      take: this.maxSearchChunks,
-      order: { id: 'DESC' },
-    });
+    const chunks = await this.findSearchCandidateChunks(knowledgeBaseId, query, options);
     if (chunks.length === 0) {
-      return { query, topK: normalizedTopK, results: [], context: '', sources: [] };
+      return { query, topK: normalizedTopK, results: [], context: '', sources: [], candidateCount: 0 };
     }
 
     const [queryEmbedding] = await this.embedTexts([query]);
@@ -361,22 +507,25 @@ export class KnowledgeService {
       })
       .join('\n\n---\n\n');
 
-    return { query, topK: normalizedTopK, results: ranked, context, sources };
+    return { query, topK: normalizedTopK, results: ranked, context, sources, candidateCount: chunks.length };
   }
 
   async searchMany(
     knowledgeBaseIds: number[],
     query: string,
     topK = 5,
-  ): Promise<{ context: string; results: Array<KnowledgeChunk & { score: number }>; sources: KnowledgeSourceReference[] }> {
+    options: KnowledgeSearchOptions = {},
+  ): Promise<{ context: string; results: Array<KnowledgeChunk & { score: number }>; sources: KnowledgeSourceReference[]; candidateCount: number }> {
     const ids = knowledgeBaseIds.filter((id) => Number.isInteger(id) && id > 0);
     const results: Array<KnowledgeChunk & { score: number }> = [];
     const sources: KnowledgeSourceReference[] = [];
+    let candidateCount = 0;
 
-    const searchResults = await Promise.all(ids.map((id) => this.search(id, query, topK)));
+    const searchResults = await Promise.all(ids.map((id) => this.search(id, query, topK, options)));
     for (const searchResult of searchResults) {
       results.push(...searchResult.results);
       sources.push(...searchResult.sources);
+      candidateCount += searchResult.candidateCount;
     }
 
     const ranked = results
@@ -391,6 +540,7 @@ export class KnowledgeService {
     return {
       results: ranked,
       sources: rankedSources,
+      candidateCount,
       context: ranked
         .map((chunk, index) => {
           const source = rankedSources.find((item) => item.chunkId === chunk.id);
@@ -401,6 +551,98 @@ export class KnowledgeService {
         })
         .join('\n\n---\n\n'),
     };
+  }
+
+  private async findSearchCandidateChunks(
+    knowledgeBaseId: number,
+    query: string,
+    options: KnowledgeSearchOptions,
+  ): Promise<KnowledgeChunk[]> {
+    const limit = Math.min(
+      Math.max(1, options.candidateLimit || this.maxSearchCandidates),
+      Math.max(this.maxSearchCandidates, this.maxSearchChunks),
+    );
+    const terms = buildKnowledgeSearchTerms(query);
+    const candidates = terms.length > 0
+      ? await this.findLexicalCandidateChunks(knowledgeBaseId, terms, options.filters, limit)
+      : [];
+
+    if (candidates.length > 0) {
+      return candidates;
+    }
+
+    return this.findFallbackCandidateChunks(knowledgeBaseId, options.filters, Math.min(limit, this.maxSearchChunks));
+  }
+
+  private async findLexicalCandidateChunks(
+    knowledgeBaseId: number,
+    terms: string[],
+    filters: KnowledgeSearchFilters | undefined,
+    limit: number,
+  ): Promise<KnowledgeChunk[]> {
+    const queryBuilder = this.chunkRepository.createQueryBuilder('chunk')
+      .where('chunk.knowledgeBaseId = :knowledgeBaseId', { knowledgeBaseId });
+    this.applySearchFilters(queryBuilder, filters);
+
+    const params: Record<string, string> = {};
+    const clauses = terms.map((term, index) => {
+      const param = `term${index}`;
+      params[param] = `%${escapeSqlLike(term)}%`;
+      return `(LOWER(chunk.content) LIKE :${param} ESCAPE '\\' OR LOWER(chunk.metadata) LIKE :${param} ESCAPE '\\')`;
+    });
+    if (clauses.length > 0) {
+      queryBuilder.andWhere(`(${clauses.join(' OR ')})`, params);
+    }
+
+    return queryBuilder
+      .orderBy('chunk.id', 'DESC')
+      .take(limit)
+      .getMany();
+  }
+
+  private async findFallbackCandidateChunks(
+    knowledgeBaseId: number,
+    filters: KnowledgeSearchFilters | undefined,
+    limit: number,
+  ): Promise<KnowledgeChunk[]> {
+    if (filters && Object.keys(filters).length > 0) {
+      const queryBuilder = this.chunkRepository.createQueryBuilder('chunk')
+        .where('chunk.knowledgeBaseId = :knowledgeBaseId', { knowledgeBaseId });
+      this.applySearchFilters(queryBuilder, filters);
+      return queryBuilder
+        .orderBy('chunk.id', 'DESC')
+        .take(limit)
+        .getMany();
+    }
+
+    return this.chunkRepository.find({
+      where: { knowledgeBaseId },
+      take: limit,
+      order: { id: 'DESC' },
+    });
+  }
+
+  private applySearchFilters(queryBuilder: any, filters?: KnowledgeSearchFilters) {
+    if (!filters) return;
+    if (Number.isInteger(filters.documentId) && Number(filters.documentId) > 0) {
+      queryBuilder.andWhere('chunk.documentId = :documentId', { documentId: Number(filters.documentId) });
+    }
+    const metadataFilters: Array<[keyof KnowledgeSearchFilters, string]> = [
+      ['domain', 'domain'],
+      ['processCode', 'processCode'],
+      ['processName', 'processName'],
+      ['sectionTitle', 'sectionTitle'],
+      ['status', 'status'],
+      ['version', 'version'],
+    ];
+    for (const [key, param] of metadataFilters) {
+      const value = filters[key];
+      if (typeof value === 'string' && value.trim()) {
+        queryBuilder.andWhere(`LOWER(chunk.metadata) LIKE :${param} ESCAPE '\\'`, {
+          [param]: `%${escapeSqlLike(value.trim().toLowerCase())}%`,
+        });
+      }
+    }
   }
 
   private async embedTexts(texts: string[]): Promise<number[][]> {
@@ -567,4 +809,8 @@ function positiveIntegerEnv(name: string, fallback: number, min: number): number
   const parsed = Number(process.env[name]);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.floor(parsed));
+}
+
+function escapeSqlLike(value: string): string {
+  return value.toLowerCase().replace(/[\\%_]/g, (match) => `\\${match}`);
 }

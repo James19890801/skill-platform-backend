@@ -25,10 +25,34 @@ export interface RankedKnowledgeChunk extends RankableKnowledgeChunk {
   score: number;
 }
 
+export interface InferredProcessMetadata {
+  domain?: string;
+  processCode?: string;
+  processName?: string;
+  version?: string;
+  status?: string;
+  departments?: string[];
+}
+
 const DEFAULT_CHUNK_SIZE = 1000;
 const DEFAULT_CHUNK_OVERLAP = 180;
 const TEXT_EXTENSIONS = /\.(txt|md|markdown|csv|json|yaml|yml|xml|html|htm|log|sql|py|js|ts|tsx|jsx|css)$/i;
 const SENTENCE_BOUNDARY = /(?<=[。！？!?；;.!?])\s*|\n+/u;
+const QUERY_STOP_TERMS = new Set([
+  '怎么',
+  '如何',
+  '哪些',
+  '什么',
+  '是否',
+  '需要',
+  '流程',
+  '文档',
+  '规定',
+  '制度',
+  '请问',
+  '一下',
+  '走',
+]);
 
 export function chunkText(text: string, options: ChunkTextOptions = {}): KnowledgeTextChunk[] {
   const normalized = normalizeText(text);
@@ -119,6 +143,90 @@ export function rankKnowledgeChunks<T extends RankableKnowledgeChunk>(
     .filter((chunk) => Number.isFinite(chunk.score))
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, topK));
+}
+
+export function buildKnowledgeSearchTerms(query: string, maxTerms = 12): string[] {
+  const normalized = normalizeText(query).toLowerCase();
+  if (!normalized) return [];
+
+  const terms: string[] = [];
+  const push = (term: string) => {
+    const value = term.trim().toLowerCase();
+    if (value.length < 2 || QUERY_STOP_TERMS.has(value)) return;
+    if (!terms.includes(value)) terms.push(value);
+  };
+
+  for (const match of normalized.matchAll(/[a-z0-9][a-z0-9_.-]{1,}/g)) {
+    push(match[0]);
+  }
+
+  for (const match of normalized.matchAll(/[\p{Script=Han}]{2,}/gu)) {
+    let phrase = match[0];
+    for (const stopTerm of QUERY_STOP_TERMS) {
+      phrase = phrase.replaceAll(stopTerm, ' ');
+    }
+    for (const segment of phrase.split(/\s+/).filter((item) => item.length >= 2)) {
+      push(segment);
+      if (segment.length > 2) {
+        for (let i = 0; i < segment.length - 1; i += 1) {
+          push(segment.slice(i, i + 2));
+        }
+      }
+    }
+  }
+
+  return terms
+    .sort((left, right) => right.length - left.length || left.localeCompare(right))
+    .slice(0, Math.max(1, maxTerms));
+}
+
+export function inferProcessMetadata(text: string, documentName = ''): InferredProcessMetadata {
+  const normalized = normalizeText(text);
+  const metadata: InferredProcessMetadata = {};
+
+  metadata.processCode = pickFirst(normalized, [
+    /流程编号\s*[:：]\s*([A-Za-z0-9_.-]{2,80})/i,
+    /(?:制度|文件|文档)编号\s*[:：]\s*([A-Za-z0-9_.-]{2,80})/i,
+  ]);
+  metadata.processName = pickFirst(normalized, [
+    /流程名称\s*[:：]\s*([^\n\r]{2,120})/i,
+    /(?:制度|文件|文档)名称\s*[:：]\s*([^\n\r]{2,120})/i,
+  ]);
+  metadata.version = pickFirst(normalized, [
+    /(?:版本|版次|修订版本)\s*[:：]\s*([A-Za-z]?\d+(?:\.\d+){0,4})/i,
+    /(?:版本|版次|修订版本)\s*[:：]\s*([^\n\r]{1,40})/i,
+  ]);
+  metadata.status = pickFirst(normalized, [
+    /(?:当前状态|状态|文件状态)\s*[:：]\s*([^\n\r]{1,40})/i,
+  ]);
+
+  const departments = pickFirst(normalized, [
+    /(?:适用部门|适用组织|适用范围)\s*[:：]\s*([^\n\r]{2,160})/i,
+  ]);
+  if (departments) {
+    metadata.departments = departments
+      .split(/[、,，;；/]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 20);
+  }
+
+  const baseName = documentName.replace(/\.[^.]+$/, '');
+  const firstNamePart = baseName.split(/[-_—｜|]/)[0]?.trim();
+  if (!metadata.domain && firstNamePart && /[\u4e00-\u9fff]/u.test(firstNamePart) && firstNamePart.length <= 20) {
+    metadata.domain = firstNamePart;
+  }
+  if (!metadata.version) {
+    metadata.version = baseName.match(/\bV\d+(?:\.\d+){0,4}\b/i)?.[0];
+  }
+  if (!metadata.processName && baseName) {
+    const withoutVersion = baseName.replace(/\bV\d+(?:\.\d+){0,4}\b/ig, '').replace(/[-_—｜|]+/g, ' ').trim();
+    if (withoutVersion) metadata.processName = withoutVersion.slice(0, 120);
+  }
+
+  return Object.fromEntries(
+    Object.entries(metadata).filter(([, value]) => Array.isArray(value) ? value.length > 0 : Boolean(value)),
+  ) as InferredProcessMetadata;
 }
 
 export function cosineSimilarity(left: number[], right: number[]): number {
@@ -376,6 +484,15 @@ function tokenizeForRetrieval(text: string): Set<string> {
     .filter((token) => token.length >= 2);
   const chars = Array.from(text.replace(/\s+/g, '')).filter((char) => /\p{Letter}|\p{Number}/u.test(char));
   return new Set([...words, ...chars]);
+}
+
+function pickFirst(text: string, patterns: RegExp[]): string | undefined {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const value = match?.[1]?.trim();
+    if (value) return value.replace(/[。；;，,]+$/g, '').trim();
+  }
+  return undefined;
 }
 
 function lexicalOverlapScore(queryTerms: Set<string>, content: string): number {

@@ -10,6 +10,7 @@ import {
 import { KnowledgeBase } from './knowledge-base.entity';
 import { KnowledgeDocument } from './knowledge-document.entity';
 
+@Index(['knowledgeBaseId', 'documentId'])
 @Entity('knowledge_chunks')
 export class KnowledgeChunk {
   @PrimaryGeneratedColumn()

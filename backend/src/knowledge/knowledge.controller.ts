@@ -14,10 +14,11 @@ import {
   PayloadTooLargeException,
   Request,
   UseGuards,
+  UploadedFiles,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { KnowledgeService } from './knowledge.service';
+import { KnowledgeSearchFilters, KnowledgeService } from './knowledge.service';
 import { OptionalAuthGuard } from '../auth/guards/optional-auth.guard';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto';
@@ -28,6 +29,7 @@ import {
 } from './upload-policy';
 
 const KNOWLEDGE_UPLOAD_LIMIT_BYTES = getKnowledgeUploadLimitBytes();
+const KNOWLEDGE_BATCH_UPLOAD_MAX_FILES = Math.max(1, Math.floor(Number(process.env.KNOWLEDGE_BATCH_UPLOAD_MAX_FILES) || 50));
 
 @ApiTags('Knowledge Base 管理')
 @Controller('api/knowledge-bases')
@@ -46,6 +48,7 @@ export class KnowledgeController {
     return {
       maxFileSize: KNOWLEDGE_UPLOAD_LIMIT_BYTES,
       maxFileSizeLabel: formatBytes(KNOWLEDGE_UPLOAD_LIMIT_BYTES),
+      maxBatchFiles: KNOWLEDGE_BATCH_UPLOAD_MAX_FILES,
       supportedExtensions: KNOWLEDGE_SUPPORTED_EXTENSIONS,
     };
   }
@@ -119,6 +122,37 @@ export class KnowledgeController {
     });
   }
 
+  @Post(':id/documents/batch')
+  @UseInterceptors(FilesInterceptor('files', KNOWLEDGE_BATCH_UPLOAD_MAX_FILES, {
+    limits: { fileSize: KNOWLEDGE_UPLOAD_LIMIT_BYTES },
+  }))
+  @ApiOperation({ summary: '批量上传离线文档并异步构建知识库索引' })
+  async uploadDocumentsBatch(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFiles() files: any[],
+    @Body() body: { chunkSize?: string; chunkOverlap?: string },
+  ) {
+    if (!Array.isArray(files) || files.length === 0) {
+      throw new BadRequestException('请至少上传一个文件');
+    }
+    if (files.length > KNOWLEDGE_BATCH_UPLOAD_MAX_FILES) {
+      throw new BadRequestException(`单次最多上传 ${KNOWLEDGE_BATCH_UPLOAD_MAX_FILES} 个文件，请分批上传`);
+    }
+    for (const file of files) {
+      const size = file.size || file.buffer?.length || 0;
+      if (size > KNOWLEDGE_UPLOAD_LIMIT_BYTES) {
+        throw new PayloadTooLargeException(
+          `文件 ${file.originalname || '未命名文件'} 大小 ${formatBytes(size)} 超过当前单文件上限 ${formatBytes(KNOWLEDGE_UPLOAD_LIMIT_BYTES)}，请压缩或拆分后重试`,
+        );
+      }
+    }
+
+    return this.knowledgeService.enqueueDocuments(id, files, {
+      chunkSize: body.chunkSize ? Number(body.chunkSize) : undefined,
+      chunkOverlap: body.chunkOverlap ? Number(body.chunkOverlap) : undefined,
+    });
+  }
+
   @Post(':id/text')
   @ApiOperation({ summary: '写入纯文本并构建知识库索引' })
   async ingestText(
@@ -141,13 +175,16 @@ export class KnowledgeController {
   @ApiOperation({ summary: '检索知识库切片' })
   async search(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { query: string; topK?: number },
+    @Body() body: { query: string; topK?: number; filters?: KnowledgeSearchFilters; candidateLimit?: number },
   ) {
     if (!body.query?.trim()) {
       throw new BadRequestException('请输入检索问题');
     }
 
-    return this.knowledgeService.search(id, body.query, body.topK || 5);
+    return this.knowledgeService.search(id, body.query, body.topK || 5, {
+      filters: body.filters,
+      candidateLimit: body.candidateLimit,
+    });
   }
 
   @Put(':id')

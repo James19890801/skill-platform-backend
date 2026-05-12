@@ -324,7 +324,7 @@ export interface KnowledgeDocument {
   name: string;
   mimeType?: string;
   size: number;
-  status: 'processing' | 'indexed' | 'error';
+  status: 'queued' | 'processing' | 'indexed' | 'error';
   textPreview?: string;
   chunkCount: number;
   error?: string;
@@ -356,6 +356,16 @@ export interface KnowledgeSourceReference {
   content?: string;
 }
 
+export interface KnowledgeSearchFilters {
+  documentId?: number;
+  domain?: string;
+  processCode?: string;
+  processName?: string;
+  sectionTitle?: string;
+  status?: string;
+  version?: string;
+}
+
 export interface CreateKnowledgeBaseRequest {
   name: string;
   description?: string;
@@ -382,11 +392,18 @@ export interface KnowledgeUploadOptions {
   onUploadProgress?: (progress: KnowledgeUploadProgress) => void;
 }
 
+export interface KnowledgeBatchUploadResult {
+  batchId: string;
+  total: number;
+  queued: number;
+  documents: KnowledgeDocument[];
+}
+
 export const knowledgeApi = {
   list: (): Promise<KnowledgeBase[]> =>
     apiClient.get('/knowledge-bases'),
 
-  uploadPolicy: (): Promise<{ maxFileSize: number; maxFileSizeLabel: string; supportedExtensions: string[] }> =>
+  uploadPolicy: (): Promise<{ maxFileSize: number; maxFileSizeLabel: string; maxBatchFiles?: number; supportedExtensions: string[] }> =>
     apiClient.get('/knowledge-bases/upload-policy'),
 
   getById: (id: number): Promise<KnowledgeBase> =>
@@ -413,6 +430,24 @@ export const knowledgeApi = {
     });
   },
 
+  uploadDocumentsBatch: (id: number, files: File[], options?: KnowledgeUploadOptions): Promise<KnowledgeBatchUploadResult> => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files', file, file.name));
+    if (options?.chunkSize !== undefined) formData.append('chunkSize', String(options.chunkSize));
+    if (options?.chunkOverlap !== undefined) formData.append('chunkOverlap', String(options.chunkOverlap));
+    return apiClient.post(`/knowledge-bases/${id}/documents/batch`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: options?.timeoutMs ?? 600000,
+      onUploadProgress: (event) => {
+        options?.onUploadProgress?.({
+          loaded: event.loaded,
+          total: event.total,
+          percent: event.total ? Math.min(100, Math.round((event.loaded / event.total) * 100)) : undefined,
+        });
+      },
+    });
+  },
+
   ingestText: (id: number, data: { name?: string; content: string; chunkSize?: number; chunkOverlap?: number }): Promise<KnowledgeDocument> =>
     apiClient.post(`/knowledge-bases/${id}/text`, data),
 
@@ -425,7 +460,7 @@ export const knowledgeApi = {
   getChunk: (id: number, chunkId: number): Promise<KnowledgeChunk> =>
     apiClient.get(`/knowledge-bases/${id}/chunks/${chunkId}`),
 
-  search: (id: number, data: { query: string; topK?: number }): Promise<{ query: string; topK: number; results: KnowledgeSearchResult[]; context: string; sources?: KnowledgeSourceReference[] }> =>
+  search: (id: number, data: { query: string; topK?: number; filters?: KnowledgeSearchFilters; candidateLimit?: number }): Promise<{ query: string; topK: number; candidateCount?: number; results: KnowledgeSearchResult[]; context: string; sources?: KnowledgeSourceReference[] }> =>
     apiClient.post(`/knowledge-bases/${id}/search`, data),
 
   update: (id: number, data: UpdateKnowledgeBaseRequest): Promise<KnowledgeBase> =>

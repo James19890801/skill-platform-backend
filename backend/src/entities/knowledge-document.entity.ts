@@ -6,14 +6,17 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { KnowledgeBase } from './knowledge-base.entity';
 
+@Index(['knowledgeBaseId', 'status'])
 @Entity('knowledge_documents')
 export class KnowledgeDocument {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Index()
   @Column()
   knowledgeBaseId: number;
 

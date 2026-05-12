@@ -169,45 +169,50 @@ const KnowledgeManager: React.FC = () => {
     await refreshSelected(kb.id);
   };
 
-  const handleUpload = async (file: File) => {
-    if (!selectedKb) return Upload.LIST_IGNORE;
-    if (file.size > MAX_KNOWLEDGE_UPLOAD_BYTES) {
-      message.error(
-        `${file.name} 是 ${formatBytes(file.size)}，超过当前单文件上限 ${formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)}，请压缩或拆分后上传`,
-      );
-      return Upload.LIST_IGNORE;
-    }
+  const handleBatchUpload = async (files: File[]) => {
+    if (!selectedKb) return;
+    const validFiles = files.filter((file) => {
+      if (file.size > MAX_KNOWLEDGE_UPLOAD_BYTES) {
+        message.error(
+          `${file.name} 是 ${formatBytes(file.size)}，超过当前单文件上限 ${formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)}，请压缩或拆分后上传`,
+        );
+        return false;
+      }
+      return true;
+    });
+    if (validFiles.length === 0) return;
 
-    const messageKey = `knowledge-upload-${file.name}-${file.size}`;
+    const totalSize = validFiles.reduce((sum, file) => sum + file.size, 0);
+    const messageKey = `knowledge-batch-upload-${Date.now()}`;
     try {
       setUploadProgress(0);
-      setUploadFileName(file.name);
-      setUploadPhase('正在上传文件');
+      setUploadFileName(validFiles.length === 1 ? validFiles[0].name : `${validFiles.length} 个文件`);
+      setUploadPhase('正在提交入库队列');
       setUploading(true);
-      if (file.size >= LARGE_FILE_WARNING_BYTES) {
+      if (totalSize >= LARGE_FILE_WARNING_BYTES) {
         message.warning(
-          `${file.name} 较大（${formatBytes(file.size)}），支持上传，但解析、切片和向量化可能需要几分钟，请保持页面打开。`,
+          `本批次共 ${formatBytes(totalSize)}，上传完成后会进入后台队列，解析、切片和向量化会陆续完成。`,
           8,
         );
       }
-      message.loading({ key: messageKey, content: `${file.name} 正在上传...`, duration: 0 });
-      await knowledgeApi.uploadDocument(selectedKb.id, file, {
+      message.loading({ key: messageKey, content: `正在提交 ${validFiles.length} 个文件...`, duration: 0 });
+      const result = await knowledgeApi.uploadDocumentsBatch(selectedKb.id, validFiles, {
         chunkSize: 1000,
         chunkOverlap: 180,
         timeoutMs: 600000,
         onUploadProgress: ({ percent }) => {
           if (percent !== undefined) {
             setUploadProgress(percent);
-            setUploadPhase(percent >= 100 ? '上传完成，正在解析、切片和构建索引' : `正在上传 ${percent}%`);
+            setUploadPhase(percent >= 100 ? '上传完成，后台正在排队入库' : `正在上传 ${percent}%`);
           }
         },
       });
-      message.success({ key: messageKey, content: `${file.name} 已完成索引`, duration: 4 });
+      message.success({ key: messageKey, content: `已提交 ${result.queued}/${result.total} 个文件入库`, duration: 4 });
       await refreshSelected(selectedKb.id);
     } catch (error) {
       message.error({
         key: messageKey,
-        content: `${file.name} 索引失败：${getUploadErrorMessage(error)}`,
+        content: `批量入库提交失败：${getUploadErrorMessage(error)}`,
         duration: 8,
       });
     } finally {
@@ -216,7 +221,14 @@ const KnowledgeManager: React.FC = () => {
       setUploadPhase('');
       setUploadFileName('');
     }
+  };
 
+  const handleBeforeBatchUpload = (file: File, fileList: File[]) => {
+    const currentUid = (file as any).uid;
+    const lastUid = (fileList[fileList.length - 1] as any)?.uid;
+    if (currentUid === lastUid) {
+      void handleBatchUpload(fileList as File[]);
+    }
     return Upload.LIST_IGNORE;
   };
 
@@ -360,8 +372,8 @@ const KnowledgeManager: React.FC = () => {
       key: 'status',
       width: 110,
       render: (status: KnowledgeDocument['status']) => (
-        <Tag color={status === 'error' ? 'red' : status === 'processing' ? 'gold' : 'green'}>
-          {status === 'error' ? '失败' : status === 'processing' ? '处理中' : '已索引'}
+        <Tag color={status === 'error' ? 'red' : status === 'processing' ? 'gold' : status === 'queued' ? 'blue' : 'green'}>
+          {status === 'error' ? '失败' : status === 'processing' ? '处理中' : status === 'queued' ? '排队中' : '已索引'}
         </Tag>
       ),
     },
@@ -479,7 +491,7 @@ const KnowledgeManager: React.FC = () => {
               <Upload.Dragger
                 multiple
                 showUploadList={false}
-                beforeUpload={(file) => handleUpload(file as File)}
+                beforeUpload={(file, fileList) => handleBeforeBatchUpload(file as File, fileList as File[])}
                 disabled={uploading}
                 accept=".pdf,.docx,.pptx,.xlsx,.xls,.txt,.md,.csv,.json,.html,.xml,.yaml,.yml"
               >
@@ -493,8 +505,8 @@ const KnowledgeManager: React.FC = () => {
                 style={{ marginTop: 12 }}
                 type="info"
                 showIcon
-                message="大文件会先上传，再解析、切片和向量化"
-                description={`30MB 以上文件会显示进度；上传到 100% 后仍需等待索引完成。超过 ${formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)} 会在本地直接拦截并提示。`}
+                message="批量文件会先提交队列，再后台解析、切片和向量化"
+                description={`可一次选择多份流程文件；上传到 100% 后列表会显示排队中/处理中。超过 ${formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)} 的单文件会在本地直接拦截。`}
               />
               {uploading ? (
                 <div style={{ marginTop: 12 }}>

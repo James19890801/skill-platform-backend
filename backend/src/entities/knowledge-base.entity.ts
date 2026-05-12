@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 import { User } from './user.entity';
 
 @Entity('knowledge_bases')
@@ -30,6 +30,7 @@ export class KnowledgeBase {
   })
   status: string;
 
+  @Index()
   @Column({ type: 'int' })
   userId: number;
 
