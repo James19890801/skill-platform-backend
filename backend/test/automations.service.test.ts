@@ -49,6 +49,60 @@ function makeProtocolService() {
       calls.push({ type: 'appendMessage', input });
       return input;
     },
+    async createRun(input: any) {
+      calls.push({ type: 'createRun', input });
+      return { id: 'run-test-1', ...input };
+    },
+    async markRunRunning(id: string) {
+      calls.push({ type: 'markRunRunning', id });
+    },
+    async markRunCompleted(id: string, output: string, usage?: Record<string, unknown>) {
+      calls.push({ type: 'markRunCompleted', id, output, usage });
+    },
+    async markRunFailed(id: string, error: string) {
+      calls.push({ type: 'markRunFailed', id, error });
+    },
+  };
+}
+
+function makeAiService(output = '真实自动化结果') {
+  const calls: any[] = [];
+  return {
+    calls,
+    async chatStream(...args: any[]) {
+      calls.push(args);
+      return output;
+    },
+  };
+}
+
+function makeSkillResolver(candidate?: any) {
+  const calls: any[] = [];
+  return {
+    calls,
+    async resolve(...args: any[]) {
+      calls.push(args);
+      return candidate ? [candidate] : [];
+    },
+  };
+}
+
+function makeSkillExecutor(output = 'Skill 真实输出') {
+  const calls: any[] = [];
+  return {
+    calls,
+    async execute(...args: any[]) {
+      calls.push(args);
+      return {
+        executionId: 101,
+        status: 'completed',
+        output,
+        artifacts: [],
+        totalRounds: 2,
+        totalDurationMs: 1200,
+        logs: [],
+      };
+    },
   };
 }
 
@@ -56,7 +110,17 @@ test('findAll seeds platform automation blueprints with no runs', async () => {
   const taskRepo = makeRepository<any>();
   const runRepo = makeRepository<any>();
   const protocol = makeProtocolService();
-  const service = new AutomationsService(taskRepo as any, runRepo as any, protocol as any);
+  const ai = makeAiService();
+  const resolver = makeSkillResolver();
+  const executor = makeSkillExecutor();
+  const service = new AutomationsService(
+    taskRepo as any,
+    runRepo as any,
+    protocol as any,
+    ai as any,
+    resolver as any,
+    executor as any,
+  );
 
   const result = await service.findAll();
 
@@ -67,7 +131,7 @@ test('findAll seeds platform automation blueprints with no runs', async () => {
   assert.equal(result.items.some((item) => item.triggerType === 'flow'), true);
 });
 
-test('runAutomation creates a thread-backed execution record', async () => {
+test('runAutomation executes the automation prompt through AI and records the result', async () => {
   const taskRepo = makeRepository<any>([
     {
       id: 7,
@@ -83,7 +147,17 @@ test('runAutomation creates a thread-backed execution record', async () => {
   ]);
   const runRepo = makeRepository<any>();
   const protocol = makeProtocolService();
-  const service = new AutomationsService(taskRepo as any, runRepo as any, protocol as any);
+  const ai = makeAiService('真实自动化结果');
+  const resolver = makeSkillResolver({ skillId: 11, name: '晨会纪要' });
+  const executor = makeSkillExecutor('Skill 真实输出');
+  const service = new AutomationsService(
+    taskRepo as any,
+    runRepo as any,
+    protocol as any,
+    ai as any,
+    resolver as any,
+    executor as any,
+  );
 
   const run = await service.runAutomation(7, { trigger: 'manual' });
 
@@ -93,4 +167,58 @@ test('runAutomation creates a thread-backed execution record', async () => {
   assert.equal(runRepo.items.length, 1);
   assert.equal(protocol.calls.filter((call) => call.type === 'appendMessage').length, 2);
   assert.equal(protocol.calls[0].input.id, run.threadId);
+  assert.equal(protocol.calls.some((call) => call.type === 'markRunRunning'), true);
+  assert.equal(protocol.calls.some((call) => call.type === 'markRunCompleted'), true);
+  assert.equal(ai.calls.length, 0);
+  assert.equal(resolver.calls.length, 1);
+  assert.equal(executor.calls.length, 1);
+  assert.equal(executor.calls[0][0], 11);
+  assert.match(executor.calls[0][1], /必须实际调用并执行这些 Skill/);
+  const assistantMessage = protocol.calls.find((call) => call.type === 'appendMessage' && call.input.role === 'assistant').input;
+  assert.match(assistantMessage.content, /Skill「晨会纪要」已实际执行完成/);
+  assert.equal(assistantMessage.metadata.executionMode, 'published-skill');
+  assert.match(run.outputPreview, /Skill「晨会纪要」已实际执行完成/);
+});
+
+test('runAutomation records a failed run when AI execution fails', async () => {
+  const taskRepo = makeRepository<any>([
+    {
+      id: 8,
+      name: '合同审查',
+      description: '发现合同风险。',
+      status: 'active',
+      triggerType: 'event',
+      triggerLabel: '文件上传',
+      prompt: '审查合同',
+      skills: '["审查合同"]',
+      orchestration: '{"nodes":["trigger","skill","thread_result"]}',
+    },
+  ]);
+  const runRepo = makeRepository<any>();
+  const protocol = makeProtocolService();
+  const ai = makeAiService();
+  const resolver = makeSkillResolver({ skillId: 12, name: '审查合同' });
+  const executor = {
+    calls: [] as any[],
+    async execute(...args: any[]) {
+      this.calls.push(args);
+      throw new Error('Skill 引擎不可用');
+    },
+  };
+  const service = new AutomationsService(
+    taskRepo as any,
+    runRepo as any,
+    protocol as any,
+    ai as any,
+    resolver as any,
+    executor as any,
+  );
+
+  const run = await service.runAutomation(8, { trigger: 'manual' });
+
+  assert.equal(run.status, 'failed');
+  assert.equal(run.error, 'Skill 引擎不可用');
+  assert.match(run.outputPreview || '', /执行失败/);
+  assert.equal(protocol.calls.some((call) => call.type === 'markRunFailed'), true);
+  assert.match(protocol.calls.find((call) => call.type === 'appendMessage' && call.input.role === 'assistant').input.content, /Skill 引擎不可用/);
 });

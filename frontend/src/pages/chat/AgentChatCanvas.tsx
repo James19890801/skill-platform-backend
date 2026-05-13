@@ -54,11 +54,7 @@ import {
   ReloadOutlined,
   PlusOutlined,
   ThunderboltOutlined,
-  BranchesOutlined,
-  ChromeOutlined,
   GlobalOutlined,
-  LayoutOutlined,
-  LinkOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
@@ -141,107 +137,7 @@ interface WorkspaceFile {
   children?: WorkspaceFile[];
 }
 
-type WorkbenchAppKey = 'chat' | 'browser' | 'pages' | 'repositories' | 'workspace';
-
-interface WorkbenchApp {
-  key: WorkbenchAppKey;
-  label: string;
-  icon: React.ReactNode;
-  status?: 'ready' | 'partial' | 'blocked';
-}
-
-interface PageContext {
-  key: string;
-  title: string;
-  path: string;
-  description: string;
-  signal: string;
-}
-
-interface RepositoryContext {
-  key: string;
-  title: string;
-  scope: string;
-  description: string;
-  modules: string[];
-  status: 'local' | 'connector-required';
-}
-
 const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
-
-const WORKBENCH_APPS: WorkbenchApp[] = [
-  { key: 'chat', label: '对话', icon: <RobotOutlined />, status: 'ready' },
-  { key: 'browser', label: '浏览器', icon: <ChromeOutlined />, status: 'partial' },
-  { key: 'pages', label: '页面', icon: <LayoutOutlined />, status: 'ready' },
-  { key: 'repositories', label: '仓库', icon: <BranchesOutlined />, status: 'partial' },
-  { key: 'workspace', label: '文件', icon: <FolderOpenOutlined />, status: 'ready' },
-];
-
-const PLATFORM_PAGES: PageContext[] = [
-  {
-    key: 'dashboard',
-    title: 'Agent 工作台',
-    path: '/dashboard',
-    description: '查看已建智能体、装配状态和平台运营指标。',
-    signal: 'Agents',
-  },
-  {
-    key: 'skills',
-    title: 'Skill 市场',
-    path: '/skills',
-    description: '浏览、导入、发布标准 Skill 包。',
-    signal: 'Skill runtime',
-  },
-  {
-    key: 'knowledge',
-    title: '知识库',
-    path: '/knowledge',
-    description: '上传文档、切片索引、绑定 Agent 检索。',
-    signal: 'RAG',
-  },
-  {
-    key: 'integrations',
-    title: '调用中心',
-    path: '/integrations',
-    description: 'SDK、iframe、组件化接入和 OpenAI 兼容调用入口。',
-    signal: 'Open platform',
-  },
-];
-
-const REPOSITORY_CONTEXTS: RepositoryContext[] = [
-  {
-    key: 'platform',
-    title: 'skill-platform',
-    scope: '当前产品仓库',
-    description: '前端、后端、Skill runtime、知识库、模型注册与部署脚本。',
-    modules: ['frontend/src', 'backend/src', 'agent-runtime', 'docs/plans'],
-    status: 'local',
-  },
-  {
-    key: 'frontend',
-    title: 'frontend',
-    scope: 'React 工作台',
-    description: 'Agent 工作台、全屏对话、Skill 市场、知识库和调用中心。',
-    modules: ['pages/chat', 'pages/agents', 'pages/skills', 'services/api.ts'],
-    status: 'local',
-  },
-  {
-    key: 'backend',
-    title: 'backend',
-    scope: 'NestJS API',
-    description: 'AI chat、Workspace、Knowledge、Skill、LLM registry 和 auth。',
-    modules: ['ai', 'knowledge', 'skill-runtime', 'workspace', 'llm'],
-    status: 'local',
-  },
-  {
-    key: 'remote-github',
-    title: 'GitHub Connector',
-    scope: '待接入',
-    description: '需要后端提供 repo 授权、文件读取、分支、PR 和 commit API。',
-    modules: ['OAuth/GitHub App', 'repo browser', 'branch writer'],
-    status: 'connector-required',
-  },
-];
 
 const AgentChatCanvas: React.FC = () => {
   const { agentId } = useParams();
@@ -262,9 +158,6 @@ const AgentChatCanvas: React.FC = () => {
   const [canvasViewMode, setCanvasViewMode] = useState<'preview' | 'code'>('preview');
   const [leftWidth, setLeftWidth] = useState(100);
   const [isDragging, setIsDragging] = useState(false);
-  const [activeWorkbenchApp, setActiveWorkbenchApp] = useState<WorkbenchAppKey>('chat');
-  const [browserDraftUrl, setBrowserDraftUrl] = useState('https://e2e-ai.pages.dev/dashboard');
-  const [browserPreviewUrl, setBrowserPreviewUrl] = useState('https://e2e-ai.pages.dev/dashboard');
   const queryThreadId = searchParams.get('threadId') || searchParams.get('thread_id') || '';
 
   // 会话管理状态
@@ -354,9 +247,11 @@ const AgentChatCanvas: React.FC = () => {
       .then((data) => {
         const chatModels = data.filter((model) => model.capability === 'chat');
         setAvailableModels(chatModels);
-        if (chatModels.length > 0 && !chatModels.some((model) => model.code === selectedModel)) {
-          setSelectedModel(chatModels[0].code);
-        }
+        setSelectedModel((current) => (
+          chatModels.length > 0 && !chatModels.some((model) => model.code === current)
+            ? chatModels[0].code
+            : current
+        ));
       })
       .catch(() => {
         setAvailableModels([
@@ -436,7 +331,7 @@ const AgentChatCanvas: React.FC = () => {
         }
         .placeholder-cursor {
           animation: blink-cursor 1s ease-in-out infinite;
-          color: #6366f1;
+          color: #111827;
           font-weight: bold;
         }
         
@@ -1071,7 +966,6 @@ const AgentChatCanvas: React.FC = () => {
   const openCanvas = (artifact: Artifact) => {
     setCurrentArtifact(artifact);
     setCanvasOpen(true);
-    setActiveWorkbenchApp('chat');
     setCanvasViewMode('preview');
     setLeftWidth(60);
   };
@@ -1079,13 +973,12 @@ const AgentChatCanvas: React.FC = () => {
   const closeCanvas = () => {
     setCanvasOpen(false);
     setCurrentArtifact(null);
-    setActiveWorkbenchApp('chat');
     setLeftWidth(100);
   };
 
   // ★ 拖拽调整宽度
   const handleDragStart = (e: React.MouseEvent) => {
-    if (!canvasOpen && activeWorkbenchApp === 'chat') return;
+    if (!canvasOpen) return;
     setIsDragging(true);
     dragStartX.current = e.clientX;
     dragStartLeftWidth.current = leftWidth;
@@ -1207,7 +1100,7 @@ const AgentChatCanvas: React.FC = () => {
       };
 
       if (reader) {
-        while (true) {
+        for (;;) {
           const { done, value } = await reader.read();
           if (done) {
             if (pendingBuffer.trim()) {
@@ -1347,7 +1240,6 @@ const AgentChatCanvas: React.FC = () => {
     setMessages([]);
     setCanvasOpen(false);
     setCurrentArtifact(null);
-    setActiveWorkbenchApp('chat');
     setLeftWidth(100);
     setExecutionState(null);
   };
@@ -1442,7 +1334,7 @@ const AgentChatCanvas: React.FC = () => {
   }, []);
 
   // 切换到指定会话
-  const switchConversation = async (threadId: string) => {
+  const switchConversation = useCallback(async (threadId: string) => {
     setHistoryVisible(false);
     setCurrentThreadId(threadId);
     setMessages([]);
@@ -1473,13 +1365,13 @@ const AgentChatCanvas: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (queryThreadId && queryThreadId !== currentThreadId) {
       switchConversation(queryThreadId);
     }
-  }, [queryThreadId]);
+  }, [currentThreadId, queryThreadId, switchConversation]);
 
   // 新建对话
   const newConversation = () => {
@@ -1487,7 +1379,6 @@ const AgentChatCanvas: React.FC = () => {
     setCurrentThreadId(`thread-${Date.now()}`);
     setCanvasOpen(false);
     setCurrentArtifact(null);
-    setActiveWorkbenchApp('chat');
     setLeftWidth(100);
     setHistoryVisible(false);
   };
@@ -1502,7 +1393,7 @@ const AgentChatCanvas: React.FC = () => {
     if (messages.length > 0) {
       loadConversations();
     }
-  }, [messages.length]);
+  }, [loadConversations, messages.length]);
 
   // ★ 获取 Agent 名称
   useEffect(() => {
@@ -1897,205 +1788,6 @@ const AgentChatCanvas: React.FC = () => {
     return <Text>{content}</Text>;
   };
 
-  const normalizeBrowserUrl = (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) return browserPreviewUrl;
-    if (/^https?:\/\//i.test(trimmed)) return trimmed;
-    return `https://${trimmed}`;
-  };
-
-  const insertWorkbenchContext = (title: string, body: string) => {
-    const contextText = `@${title}: ${body}`;
-    setInputValue((prev) => (prev.trim() ? `${prev.trim()}\n\n${contextText}` : contextText));
-    message.success('已加入当前输入上下文');
-  };
-
-  const switchWorkbenchApp = (key: WorkbenchAppKey) => {
-    setActiveWorkbenchApp(key);
-    if (key === 'chat') {
-      if (!currentArtifact) {
-        setCanvasOpen(false);
-        setLeftWidth(100);
-      }
-      return;
-    }
-
-    setCanvasOpen(false);
-    setCurrentArtifact(null);
-    setLeftWidth(58);
-    if (key === 'workspace') {
-      loadWorkspaceFiles();
-    }
-  };
-
-  const renderWorkbenchAppContent = () => {
-    if (activeWorkbenchApp === 'chat') {
-      return renderCanvasContent();
-    }
-
-    if (activeWorkbenchApp === 'browser') {
-      return (
-        <div className="codex-workbench-panel">
-          <div className="codex-panel-status">
-            <div>
-              <Text strong>Browser Preview</Text>
-              <Text type="secondary"> iframe 预览已可用，远程可控浏览器需要后端 Connector</Text>
-            </div>
-            <Tag color="orange">部分接入</Tag>
-          </div>
-          <Input.Search
-            value={browserDraftUrl}
-            onChange={(event) => setBrowserDraftUrl(event.target.value)}
-            onSearch={(value) => {
-              const nextUrl = normalizeBrowserUrl(value);
-              setBrowserDraftUrl(nextUrl);
-              setBrowserPreviewUrl(nextUrl);
-            }}
-            enterButton="打开"
-            prefix={<GlobalOutlined />}
-            placeholder="https://example.com"
-            style={{ marginBottom: 12 }}
-          />
-          <div className="codex-browser-frame">
-            <iframe
-              src={browserPreviewUrl}
-              title="浏览器预览"
-              sandbox="allow-forms allow-popups allow-same-origin allow-scripts"
-            />
-          </div>
-          <div className="codex-context-actions">
-            <Button
-              icon={<LinkOutlined />}
-              onClick={() => insertWorkbenchContext('浏览器页面', browserPreviewUrl)}
-            >
-              加入上下文
-            </Button>
-            <Button onClick={() => window.open(browserPreviewUrl, '_blank')}>新窗口打开</Button>
-          </div>
-        </div>
-      );
-    }
-
-    if (activeWorkbenchApp === 'pages') {
-      return (
-        <div className="codex-workbench-panel">
-          <div className="codex-panel-status">
-            <div>
-              <Text strong>Pages</Text>
-              <Text type="secondary"> 当前平台页面可以作为上下文，也可以直接跳转</Text>
-            </div>
-            <Tag color="green">已接入</Tag>
-          </div>
-          <div className="codex-page-grid">
-            {PLATFORM_PAGES.map((page) => (
-              <div key={page.key} className="codex-context-card">
-                <div className="codex-context-card-head">
-                  <span className="codex-context-icon"><LayoutOutlined /></span>
-                  <Tag color="blue">{page.signal}</Tag>
-                </div>
-                <Text strong className="codex-context-title">{page.title}</Text>
-                <Text type="secondary" className="codex-context-desc">{page.description}</Text>
-                <div className="codex-context-actions">
-                  <Button size="small" onClick={() => navigate(page.path)}>打开</Button>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      const url = `${window.location.origin}${page.path}`;
-                      setBrowserDraftUrl(url);
-                      setBrowserPreviewUrl(url);
-                      setActiveWorkbenchApp('browser');
-                    }}
-                  >
-                    预览
-                  </Button>
-                  <Button
-                    size="small"
-                    type="primary"
-                    onClick={() => insertWorkbenchContext('平台页面', `${page.title} ${page.path}：${page.description}`)}
-                  >
-                    加上下文
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    if (activeWorkbenchApp === 'repositories') {
-      return (
-        <div className="codex-workbench-panel">
-          <div className="codex-panel-status">
-            <div>
-              <Text strong>Repositories</Text>
-              <Text type="secondary"> 当前可注入仓库结构上下文；远程读写仓库需要后端 GitHub Connector</Text>
-            </div>
-            <Tag color="orange">连接器待接入</Tag>
-          </div>
-          <div className="codex-repo-list">
-            {REPOSITORY_CONTEXTS.map((repo) => (
-              <div key={repo.key} className="codex-context-card">
-                <div className="codex-context-card-head">
-                  <span className="codex-context-icon"><BranchesOutlined /></span>
-                  <Tag color={repo.status === 'local' ? 'green' : 'orange'}>{repo.scope}</Tag>
-                </div>
-                <Text strong className="codex-context-title">{repo.title}</Text>
-                <Text type="secondary" className="codex-context-desc">{repo.description}</Text>
-                <div className="codex-module-row">
-                  {repo.modules.map((moduleName) => (
-                    <Tag key={moduleName}>{moduleName}</Tag>
-                  ))}
-                </div>
-                <div className="codex-context-actions">
-                  <Button
-                    size="small"
-                    type="primary"
-                    onClick={() => insertWorkbenchContext('仓库', `${repo.title} / ${repo.scope}：${repo.description}。模块：${repo.modules.join(', ')}`)}
-                  >
-                    加上下文
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="codex-workbench-panel">
-        <div className="codex-panel-status">
-          <div>
-            <Text strong>Workspace Files</Text>
-            <Text type="secondary"> 当前 Thread #{currentThreadId.slice(-6)} 的文件工作区</Text>
-          </div>
-          <Space>
-            <Button size="small" icon={<ReloadOutlined />} onClick={loadWorkspaceFiles} loading={loadingWorkspace}>
-              刷新
-            </Button>
-            <Button size="small" onClick={() => setWorkspaceVisible(true)}>抽屉</Button>
-          </Space>
-        </div>
-        {loadingWorkspace ? (
-          <div className="codex-panel-empty">
-            <Spin />
-            <Text type="secondary">加载工作区...</Text>
-          </div>
-        ) : workspaceFiles.length === 0 ? (
-          <div className="codex-panel-empty">
-            <FolderOpenOutlined />
-            <Text type="secondary">当前会话还没有文件</Text>
-          </div>
-        ) : (
-          <div className="codex-workspace-tree">
-            {renderFileTree(workspaceFiles)}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const hydratePersonalContext = (context: PersonalContextDTO) => {
     setPersonalContext(context);
     setPersonalKnowledgeIds((context.knowledgeBaseIds || []).map(Number));
@@ -2418,12 +2110,11 @@ const AgentChatCanvas: React.FC = () => {
         }]
       : [];
 
-  const workbenchPanelOpen = canvasOpen || activeWorkbenchApp !== 'chat';
-  const activeWorkbenchMeta = WORKBENCH_APPS.find((item) => item.key === activeWorkbenchApp) || WORKBENCH_APPS[0];
+  const workbenchPanelOpen = canvasOpen;
 
   return (
     <div ref={containerRef} className="agent-workbench agent-workbench-fullscreen" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* 顶部工具栏：只保留对话必要动作，Canvas 应用切换在右侧面板内出现 */}
+      {/* 顶部工具栏：只保留对话必要动作 */}
       <div className="agent-chat-topbar">
         <Space size={isMobile ? 6 : 10} className="agent-chat-topbar-left">
           {isMobile && (
@@ -2601,7 +2292,7 @@ const AgentChatCanvas: React.FC = () => {
               flex: 1,
               overflow: 'auto',
               padding: isMobile ? '8px 12px' : '16px 20px',
-              background: 'var(--bg-main)',
+              background: '#fff',
             }}
             className="agent-message-scroll"
           >
@@ -2635,42 +2326,46 @@ const AgentChatCanvas: React.FC = () => {
               messages.map((msg, idx) => {
                 const isLastAssistant = msg.role === 'assistant' && idx === messages.length - 1;
                 const showGlobalActions = isLastAssistant && !isLoading;
+                const isUser = msg.role === 'user';
                 return (
                   <div
                     key={msg.id}
-                    className="msg-bubble-wrapper"
+                    className={`msg-bubble-wrapper ${isUser ? 'msg-user-row' : 'msg-assistant-row'}`}
                     style={{
                       display: 'flex',
-                      marginBottom: 10,
-                      flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
+                      marginBottom: isUser ? 12 : 10,
+                      justifyContent: isUser ? 'flex-end' : 'flex-start',
                       alignItems: 'flex-start',
                     }}
                   >
-                    <Avatar
-                      src={msg.role === 'user' ? undefined : getAgentAvatarSrc(agentAvatar) || "/logo.png"}
-                      icon={msg.role === 'user' ? <UserOutlined /> : undefined}
-                      className={msg.role !== 'user' ? 'agent-avatar-logo' : undefined}
-                      size={32}
-                      style={{
-                        backgroundColor: msg.role === 'user' ? '#10b981' : '#1a237e',
-                        ...getAgentAvatarStyle(msg.role === 'user' ? undefined : agentAvatar),
-                        flexShrink: 0,
-                      }}
-                    >
-                      {msg.role === 'user' ? null : renderAgentAvatarContent(agentAvatar)}
-                    </Avatar>
+                    {!isUser && (
+                      <Avatar
+                        src={getAgentAvatarSrc(agentAvatar) || "/logo.png"}
+                        className="agent-avatar-logo"
+                        size={32}
+                        style={{
+                          backgroundColor: '#1a237e',
+                          ...getAgentAvatarStyle(agentAvatar),
+                          flexShrink: 0,
+                        }}
+                      >
+                        {renderAgentAvatarContent(agentAvatar)}
+                      </Avatar>
+                    )}
                     <div
+                      className={isUser ? 'user-message-plain' : undefined}
                       style={{
-                        maxWidth: '82%',
-                        marginLeft: msg.role === 'user' ? 0 : 8,
-                        marginRight: msg.role === 'user' ? 8 : 0,
-                        padding: msg.role === 'user' ? '6px 14px' : '8px 16px',
-                        borderRadius: 10,
-                        background: msg.role === 'user' ? '#2563eb' : '#fff',
-                        color: msg.role === 'user' ? '#fff' : undefined,
-                        boxShadow: msg.role === 'user' ? 'none' : '0 1px 2px rgba(0,0,0,0.04)',
-                        border: msg.role === 'user' ? 'none' : '1px solid var(--border-color)',
-                        lineHeight: 1.55,
+                        maxWidth: isUser ? 'min(760px, 76%)' : '82%',
+                        marginLeft: isUser ? 0 : 8,
+                        padding: isUser ? '4px 2px 6px' : '8px 16px',
+                        borderRadius: isUser ? 0 : 10,
+                        background: isUser ? 'transparent' : '#fff',
+                        color: '#111827',
+                        boxShadow: isUser ? 'none' : '0 1px 2px rgba(0,0,0,0.04)',
+                        border: isUser ? 'none' : '1px solid var(--border-color)',
+                        lineHeight: isUser ? 1.72 : 1.55,
+                        fontSize: isUser ? 15 : undefined,
+                        fontWeight: isUser ? 450 : undefined,
                       }}
                     >
                       {msg.content === '▍' ? (
@@ -2993,37 +2688,15 @@ const AgentChatCanvas: React.FC = () => {
             {/* Canvas / App 头部 */}
             <div className="agent-canvas-header" style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, background: '#fff' }}>
               <Space>
-                <span className="codex-panel-title-icon">
-                  {activeWorkbenchApp === 'chat' ? <AppstoreOutlined /> : activeWorkbenchMeta.icon}
-                </span>
-                <Text strong>{activeWorkbenchApp === 'chat' ? 'Canvas' : activeWorkbenchMeta.label}</Text>
-                {activeWorkbenchApp !== 'chat' && (
-                  <Tag color={activeWorkbenchMeta.status === 'ready' ? 'green' : activeWorkbenchMeta.status === 'blocked' ? 'red' : 'orange'}>
-                    {activeWorkbenchMeta.status === 'ready' ? '已接入' : activeWorkbenchMeta.status === 'blocked' ? '未接入' : '部分接入'}
-                  </Tag>
-                )}
-                {activeWorkbenchApp === 'chat' && currentArtifact && (
-                  <Tag color="blue">{currentArtifact.title}</Tag>
-                )}
+                <Text strong>{currentArtifact?.title || 'Canvas'}</Text>
+                {currentArtifact?.type ? (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {currentArtifact.type}
+                  </Text>
+                ) : null}
               </Space>
-              {!isMobile && (
-                <div className="codex-app-switcher codex-app-switcher-panel" role="tablist" aria-label="Canvas 应用">
-                  {WORKBENCH_APPS.map((app) => (
-                    <button
-                      key={app.key}
-                      type="button"
-                      className={activeWorkbenchApp === app.key ? 'active' : ''}
-                      onClick={() => switchWorkbenchApp(app.key)}
-                      title={app.label}
-                    >
-                      <span className="codex-app-icon">{app.icon}</span>
-                      <span>{app.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
               <Space>
-                {activeWorkbenchApp === 'chat' && currentArtifact && currentArtifact.type !== 'document' && currentArtifact.type !== 'html' && currentArtifact.type !== 'image' && currentArtifact.type !== 'json' && (
+                {currentArtifact && currentArtifact.type !== 'document' && currentArtifact.type !== 'html' && currentArtifact.type !== 'image' && currentArtifact.type !== 'json' && (
                   <>
                     <Button
                       size="small"
@@ -3043,7 +2716,7 @@ const AgentChatCanvas: React.FC = () => {
                     </Button>
                   </>
                 )}
-                {activeWorkbenchApp === 'chat' && currentArtifact && currentArtifact.type !== 'document' && currentArtifact.type !== 'image' && currentArtifact.type !== 'html' && (
+                {currentArtifact && currentArtifact.type !== 'document' && currentArtifact.type !== 'image' && currentArtifact.type !== 'html' && (
                   <Button
                     size="small"
                     icon={<CopyOutlined />}
@@ -3054,7 +2727,7 @@ const AgentChatCanvas: React.FC = () => {
                     复制
                   </Button>
                 )}
-                {activeWorkbenchApp === 'chat' && (currentArtifact?.type === 'document' || currentArtifact?.type === 'image') && currentArtifact.downloadUrl && (
+                {(currentArtifact?.type === 'document' || currentArtifact?.type === 'image') && currentArtifact.downloadUrl && (
                   <Button
                     size="small"
                     type="primary"
@@ -3066,7 +2739,7 @@ const AgentChatCanvas: React.FC = () => {
                     下载
                   </Button>
                 )}
-                {activeWorkbenchApp === 'chat' && currentArtifact?.type === 'html' && (
+                {currentArtifact?.type === 'html' && (
                   <Button
                     size="small"
                     icon={<CopyOutlined />}
@@ -3080,17 +2753,14 @@ const AgentChatCanvas: React.FC = () => {
                 <Button
                   size="small"
                   icon={<CloseOutlined />}
-                  onClick={() => {
-                    if (activeWorkbenchApp === 'chat') closeCanvas();
-                    else switchWorkbenchApp('chat');
-                  }}
+                  onClick={closeCanvas}
                 />
               </Space>
             </div>
 
-            {/* Canvas / App 内容 */}
-            <div style={{ flex: 1, overflow: 'auto', padding: activeWorkbenchApp === 'chat' ? 16 : 12 }}>
-              {renderWorkbenchAppContent()}
+            {/* Canvas 内容 */}
+            <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+              {renderCanvasContent()}
             </div>
           </div>
         )}

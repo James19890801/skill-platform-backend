@@ -152,12 +152,17 @@ const AutomationCenter: React.FC = () => {
     setRunningId(task.id);
     try {
       const run = await automationsApi.run(task.id, { trigger: 'manual' });
-      message.success('已创建自动化执行会话');
+      if (run.status === 'failed') {
+        message.error('自动化执行失败，已打开执行会话');
+      } else {
+        message.success('自动化已执行完成');
+      }
       await loadAutomations();
       navigate(openChatPath(task, run.threadId));
     } catch (error) {
       console.error('运行自动化失败:', error);
       message.error('自动化运行失败');
+      await loadAutomations();
     } finally {
       setRunningId(null);
     }
@@ -249,7 +254,7 @@ const AutomationCenter: React.FC = () => {
             <div>
               <div className="section-kicker">Blueprints</div>
               <h2>自动化任务</h2>
-              <Text type="secondary">先用蓝图跑通闭环，后续可接入真正的调度器和事件总线。</Text>
+              <Text type="secondary">点击运行会立即执行配置的 Skill 和提示词，结果沉淀到中心化对话。</Text>
             </div>
             <Segmented
               value={filter}
@@ -283,7 +288,7 @@ const AutomationCenter: React.FC = () => {
                   <h3>{selectedTask.name}</h3>
                   <Text type="secondary">{selectedTask.description}</Text>
                 </div>
-                <Tooltip title="运行并打开中心化对话">
+                <Tooltip title="立即执行并打开结果对话">
                   <Button
                     type="primary"
                     icon={<PlayCircleOutlined />}
@@ -330,7 +335,7 @@ const AutomationCenter: React.FC = () => {
                 {selectedRuns.length === 0 ? (
                   <div className="automation-no-runs">
                     <HistoryOutlined />
-                    <Text type="secondary">还没有执行记录，点击运行会生成一条中心化会话。</Text>
+                    <Text type="secondary">还没有执行记录，点击运行会立即执行并生成结果会话。</Text>
                   </div>
                 ) : (
                   <Timeline

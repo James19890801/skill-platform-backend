@@ -137,7 +137,7 @@ const SkillEdit: React.FC = () => {
         })));
       }
     }
-  }, [skill?.id]);
+  }, [skill?.id, skill?.files]);
 
   const user = useAuthStore(state => state.user);
   const canEditExecution = user?.isAdmin === true;

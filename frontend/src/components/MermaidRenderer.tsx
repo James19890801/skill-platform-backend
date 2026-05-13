@@ -58,7 +58,9 @@ function cleanupMermaidErrors() {
     // 清理 Mermaid 添加到 body 的零散错误 SVG（没有在容器内的 SVG）
     document.querySelectorAll('body > svg.error, body > div.error, body > [data-error]')
       .forEach(el => el.remove());
-  } catch {}
+  } catch {
+    // Best-effort cleanup only.
+  }
 }
 
 // 每 2 秒清理一次（轻量级）
@@ -80,6 +82,7 @@ const MermaidRenderer: React.FC<Props> = ({ chart, id: externalId }) => {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
 
   useEffect(() => {
+    const container = containerRef.current;
     // 每次 chart 变化时：清除之前的计时器和渲染标记
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     renderAttempted.current = false;
@@ -87,14 +90,14 @@ const MermaidRenderer: React.FC<Props> = ({ chart, id: externalId }) => {
 
     // 防抖：300ms 内没有新变化才真正开始渲染
     debounceTimer.current = setTimeout(() => {
-      if (!containerRef.current) return;
+      if (!container) return;
       if (renderAttempted.current) return;
       renderAttempted.current = true;
 
       const doRender = async () => {
         try {
           // 彻底清理容器内的所有内容
-          containerRef.current!.innerHTML = '';
+          container.innerHTML = '';
 
           // 预处理：给含中文的节点内容加引号，提升兼容性
           const preprocessedChart = chart
@@ -107,15 +110,15 @@ const MermaidRenderer: React.FC<Props> = ({ chart, id: externalId }) => {
 
           const mermaid = await getMermaid();
           const { svg } = await mermaid.render(renderId.current, preprocessedChart);
-          if (containerRef.current) {
-            containerRef.current.innerHTML = svg;
+          if (containerRef.current === container) {
+            container.innerHTML = svg;
             setStatus('success');
           }
         } catch (e: any) {
           // 出错时：先清理 mermaid 可能已写入的 DOM 元素
-          if (containerRef.current) {
-            containerRef.current.innerHTML = '';
-            containerRef.current.innerHTML = `<pre style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:8px;overflow:auto;font-size:12px;line-height:1.5;margin:0">${escapeHtml(chart)}</pre>`;
+          if (containerRef.current === container) {
+            container.innerHTML = '';
+            container.innerHTML = `<pre style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:8px;overflow:auto;font-size:12px;line-height:1.5;margin:0">${escapeHtml(chart)}</pre>`;
           }
           setStatus('error');
         }
@@ -125,7 +128,7 @@ const MermaidRenderer: React.FC<Props> = ({ chart, id: externalId }) => {
 
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
-      if (containerRef.current) containerRef.current.innerHTML = '';
+      if (container) container.innerHTML = '';
     };
   }, [chart]);
 

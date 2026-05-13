@@ -1,8 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { homedir } from 'os';
+import { join } from 'path';
+import { readFile } from 'fs/promises';
 import { Repository } from 'typeorm';
+import { AiService } from '../ai/ai.service';
+import { SkillExecutorService, SkillExecutionResult } from '../ai/skill-executor.service';
 import { AutomationRun, AutomationTask } from '../entities';
 import { ProtocolService } from '../protocol/protocol.service';
+import { SkillResolverService } from '../skill-runtime/skill-resolver.service';
 
 type TriggerType = 'time' | 'event' | 'flow';
 
@@ -15,6 +21,17 @@ interface AutomationBlueprint {
   skills: string[];
   orchestration: Record<string, unknown>;
   nextRunAt?: Date;
+}
+
+interface AutomationExecutionResult {
+  content: string;
+  metadata: Record<string, unknown>;
+}
+
+interface LocalSkillDefinition {
+  name: string;
+  path: string;
+  content: string;
 }
 
 export interface AutomationRunOptions {
@@ -78,6 +95,9 @@ export class AutomationsService {
     @InjectRepository(AutomationRun)
     private automationRunRepository: Repository<AutomationRun>,
     private protocolService: ProtocolService,
+    private aiService: AiService,
+    private skillResolver: SkillResolverService,
+    private skillExecutor: SkillExecutorService,
   ) {}
 
   async findAll() {
@@ -110,7 +130,7 @@ export class AutomationsService {
     const threadId = options.threadId || `automation-${id}-${Date.now()}`;
     const trigger = options.trigger || 'manual';
     const skills = parseJson<string[]>(automation.skills, []);
-    const outputPreview = `自动化「${automation.name}」已创建中心化执行会话。触发方式：${automation.triggerLabel || trigger}。`;
+    const executionInput = this.buildExecutionInput(automation, skills, trigger);
 
     await this.protocolService.ensureThread({
       id: threadId,
@@ -122,40 +142,284 @@ export class AutomationsService {
         trigger,
       },
     });
+    const protocolRun = await this.protocolService.createRun({
+      threadId,
+      agentId: automation.agentId,
+      input: {
+        source: 'automation',
+        automationId: automation.id,
+        trigger,
+        prompt: automation.prompt,
+        skills,
+      },
+    });
+    await this.protocolService.markRunRunning(protocolRun.id);
     await this.protocolService.appendMessage({
       threadId,
       role: 'user',
-      content: automation.prompt || `运行自动化：${automation.name}`,
+      content: executionInput,
       metadata: { source: 'automation', automationId: automation.id, trigger, skills },
     });
-    await this.protocolService.appendMessage({
-      threadId,
-      role: 'assistant',
-      content: [
-        outputPreview,
-        '',
-        skills.length ? `已装配 Skill：${skills.join('、')}` : '暂未装配 Skill。',
-        '后续接入调度器后，这里会展示真实执行输出、产物和人工确认节点。',
-      ].join('\n'),
-      metadata: { source: 'automation', automationId: automation.id, status: 'completed' },
-    });
 
-    const completedAt = new Date();
-    const run = await this.automationRunRepository.save(this.automationRunRepository.create({
+    let run = await this.automationRunRepository.save(this.automationRunRepository.create({
       automationId: automation.id,
       threadId,
-      status: 'completed',
+      status: 'running',
       trigger,
       startedAt,
-      completedAt,
-      durationMs: completedAt.getTime() - startedAt.getTime(),
-      input: JSON.stringify({ prompt: automation.prompt, skills }),
-      outputPreview,
+      input: JSON.stringify({
+        prompt: automation.prompt,
+        executionInput,
+        skills,
+        protocolRunId: protocolRun.id,
+      }),
     }));
 
-    automation.lastRunAt = completedAt;
-    await this.automationRepository.save(automation);
+    try {
+      const execution = await this.executeAutomation(automation, skills, executionInput, threadId);
+      const completedAt = new Date();
+      const assistantContent = execution.content.trim() || `自动化「${automation.name}」已执行完成，但模型未返回可展示内容。`;
+      const outputPreview = this.toOutputPreview(assistantContent);
+
+      await this.protocolService.appendMessage({
+        threadId,
+        role: 'assistant',
+        content: assistantContent,
+        metadata: {
+          source: 'automation',
+          automationId: automation.id,
+          status: 'completed',
+          protocolRunId: protocolRun.id,
+          skills,
+          ...execution.metadata,
+        },
+      });
+      await this.protocolService.markRunCompleted(protocolRun.id, assistantContent, {
+        source: 'automation',
+        automationId: automation.id,
+        skills,
+        ...execution.metadata,
+      });
+
+      run.status = 'completed';
+      run.completedAt = completedAt;
+      run.durationMs = completedAt.getTime() - startedAt.getTime();
+      run.outputPreview = outputPreview;
+      run = await this.automationRunRepository.save(run);
+
+      automation.lastRunAt = completedAt;
+      await this.automationRepository.save(automation);
+    } catch (err) {
+      const completedAt = new Date();
+      const message = err instanceof Error ? err.message : '自动化执行失败';
+      const failureMessage = `自动化「${automation.name}」执行失败：${message}`;
+
+      await this.protocolService.appendMessage({
+        threadId,
+        role: 'assistant',
+        content: failureMessage,
+        metadata: {
+          source: 'automation',
+          automationId: automation.id,
+          status: 'failed',
+          protocolRunId: protocolRun.id,
+          skills,
+        },
+      });
+      await this.protocolService.markRunFailed(protocolRun.id, message);
+
+      run.status = 'failed';
+      run.completedAt = completedAt;
+      run.durationMs = completedAt.getTime() - startedAt.getTime();
+      run.error = message;
+      run.outputPreview = this.toOutputPreview(failureMessage);
+      run = await this.automationRunRepository.save(run);
+    }
+
     return this.toRunDto(run);
+  }
+
+  private async executeAutomation(
+    automation: AutomationTask,
+    skills: string[],
+    executionInput: string,
+    threadId: string,
+  ): Promise<AutomationExecutionResult> {
+    if (skills.length > 0) {
+      const publishedSkill = await this.resolvePublishedSkill(executionInput, skills);
+      if (publishedSkill) {
+        const result = await this.skillExecutor.execute(publishedSkill.skillId, executionInput, threadId);
+        return {
+          content: this.formatSkillExecutionOutput(publishedSkill.name, result),
+          metadata: {
+            executionMode: 'published-skill',
+            skillName: publishedSkill.name,
+            skillId: publishedSkill.skillId,
+            skillExecutionId: result.executionId,
+            artifacts: result.artifacts,
+            totalRounds: result.totalRounds,
+            totalDurationMs: result.totalDurationMs,
+          },
+        };
+      }
+
+      const localSkill = await this.loadLocalSkill(skills);
+      if (localSkill) {
+        const localSkillInput = this.buildLocalSkillInput(localSkill, automation, executionInput);
+        let content = await this.aiService.chatStream(
+          localSkillInput,
+          null,
+          undefined,
+          automation.agentId,
+          [],
+          threadId,
+        );
+        if (this.looksLikeToolCallJson(content)) {
+          content = await this.aiService.chatStream(
+            this.buildToolJsonRecoveryInput(localSkillInput, content),
+            null,
+            undefined,
+            automation.agentId,
+            [],
+            threadId,
+          );
+        }
+        if (this.looksLikeToolCallJson(content)) {
+          throw new Error(`Skill「${localSkill.name}」返回了未执行的工具调用 JSON，未生成最终结果`);
+        }
+        return {
+          content: content.trim() || `Skill「${localSkill.name}」已执行完成，但模型未返回可展示内容。`,
+          metadata: {
+            executionMode: 'local-skill',
+            skillName: localSkill.name,
+            skillPath: localSkill.path,
+          },
+        };
+      }
+
+      throw new Error(`未找到可执行 Skill：${skills.join('、')}`);
+    }
+
+    const content = await this.aiService.chatStream(
+      executionInput,
+      null,
+      undefined,
+      automation.agentId,
+      [],
+      threadId,
+    );
+    return {
+      content,
+      metadata: { executionMode: 'ai' },
+    };
+  }
+
+  private async resolvePublishedSkill(executionInput: string, skills: string[]) {
+    const candidates = await this.skillResolver.resolve(executionInput, skills, 1);
+    return candidates[0] || null;
+  }
+
+  private async loadLocalSkill(skills: string[]): Promise<LocalSkillDefinition | null> {
+    const roots = [
+      join(process.cwd(), '..', '.codex', 'skills'),
+      join(homedir(), '.codex', 'skills'),
+    ];
+
+    for (const skillName of skills) {
+      if (!skillName || skillName.includes('/') || skillName.includes('\\') || skillName.includes('..')) {
+        continue;
+      }
+      for (const root of roots) {
+        const skillPath = join(root, skillName, 'SKILL.md');
+        try {
+          const content = await readFile(skillPath, 'utf8');
+          return { name: skillName, path: skillPath, content };
+        } catch {
+          // Try the next configured skill root.
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private buildLocalSkillInput(
+    skill: LocalSkillDefinition,
+    automation: AutomationTask,
+    executionInput: string,
+  ) {
+    return [
+      `你正在执行 Skill「${skill.name}」。`,
+      '下面是该 Skill 的完整定义，请严格按照定义中的角色、步骤、输出格式和质量要求完成任务。',
+      `# Skill 定义\n${skill.content}`,
+      '# 自动化任务输入',
+      executionInput,
+      `# 输出要求\n请直接给出自动化「${automation.name}」的最终结果。不要输出“已创建会话”“后续接入”或其他占位状态。`,
+    ].join('\n\n');
+  }
+
+  private buildToolJsonRecoveryInput(originalInput: string, previousOutput: string) {
+    return [
+      originalInput,
+      '# 上一次输出无效',
+      '你刚才输出了工具调用 JSON，而不是用户可直接使用的最终结果。自动化任务不能把工具调用 JSON 当作完成。',
+      `上一次输出：\n${previousOutput}`,
+      '# 请重新输出',
+      '请不要输出 JSON 工具调用。请直接给出最终报告；如果缺少实时数据或工具不可用，请明确说明缺口、采用截至当前可得信息的谨慎结论，并给出下一步行动。',
+    ].join('\n\n');
+  }
+
+  private looksLikeToolCallJson(output: string) {
+    const trimmed = output.trim();
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return false;
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      return typeof parsed.name === 'string'
+        && (typeof parsed.arguments === 'object' || typeof parsed.arguments === 'string');
+    } catch {
+      return false;
+    }
+  }
+
+  private formatSkillExecutionOutput(skillName: string, result: SkillExecutionResult) {
+    const parts = [
+      `Skill「${skillName}」已实际执行完成。`,
+      `执行 ID：${result.executionId}；轮次：${result.totalRounds}；耗时：${(result.totalDurationMs / 1000).toFixed(1)} 秒。`,
+      '',
+      result.output,
+    ];
+    if (result.artifacts.length > 0) {
+      parts.push(
+        '',
+        '产物：',
+        ...result.artifacts.map((artifact) => `- ${artifact.name} (${artifact.type})`),
+      );
+    }
+    return parts.join('\n');
+  }
+
+  private buildExecutionInput(automation: AutomationTask, skills: string[], trigger: string) {
+    const prompt = automation.prompt?.trim() || `运行自动化：${automation.name}`;
+    return [
+      `自动化任务：${automation.name}`,
+      `触发方式：${automation.triggerLabel || trigger}`,
+      `运行日期：${this.currentDateLabel()}。这是当前自动化执行日期，请不要把该日期判断为未来日期。`,
+      skills.length
+        ? `必须实际调用并执行这些 Skill 中最匹配的一个或多个：${skills.join('、')}。不要只复述任务，也不要输出“已创建会话”这类占位状态。`
+        : '请直接完成任务，不要只创建会话或输出占位状态。',
+      '执行完成后，请输出可直接使用的最终结果；如果缺少必要输入，请明确列出缺口和下一步。',
+      `任务提示词：${prompt}`,
+    ].join('\n\n');
+  }
+
+  private toOutputPreview(output: string) {
+    const normalized = output.replace(/\s+/g, ' ').trim();
+    if (!normalized) return '自动化执行完成';
+    return normalized.length > 160 ? `${normalized.slice(0, 160)}...` : normalized;
+  }
+
+  private currentDateLabel() {
+    return new Date().toISOString().slice(0, 10);
   }
 
   private async seedIfEmpty() {

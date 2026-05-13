@@ -2,7 +2,7 @@
  * UserSettings - 用户设置页面
  * 包含记忆管理、知识库管理、模型偏好设置
  */
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Card,
   Tabs,
@@ -68,7 +68,7 @@ const UserSettings: React.FC = () => {
   const [kbForm] = Form.useForm();
   
   // Mock 数据
-  const mockMemories: MemoryItem[] = [
+  const mockMemories = useMemo<MemoryItem[]>(() => [
     {
       id: 'mem-1',
       key: '用户偏好_语言',
@@ -93,9 +93,9 @@ const UserSettings: React.FC = () => {
       createdAt: new Date('2025-01-10'),
       updatedAt: new Date('2025-01-20'),
     },
-  ];
+  ], []);
   
-  const mockKnowledgeBases: KnowledgeBase[] = [
+  const mockKnowledgeBases = useMemo<KnowledgeBase[]>(() => [
     {
       id: 'kb-1',
       name: '流程管理知识库',
@@ -120,13 +120,9 @@ const UserSettings: React.FC = () => {
       status: 'disconnected',
       source: 'local',
     },
-  ];
+  ], []);
   
-  useEffect(() => {
-    loadData();
-  }, []);
-  
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       setMemories(mockMemories);
@@ -134,7 +130,11 @@ const UserSettings: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [mockKnowledgeBases, mockMemories]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
   
   // 添加记忆
   const addMemory = () => {

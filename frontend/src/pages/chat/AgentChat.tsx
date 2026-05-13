@@ -144,7 +144,7 @@ const AgentChat: React.FC<AgentChatProps> = ({
       let fullContent = '';
       
       if (reader) {
-        while (true) {
+        for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
           

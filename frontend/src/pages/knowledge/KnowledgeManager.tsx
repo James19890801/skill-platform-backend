@@ -56,6 +56,11 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(precision)}${units[unitIndex]}`;
 }
 
+function formatMetadataValue(value: unknown) {
+  if (typeof value === 'number' || typeof value === 'string') return String(value);
+  return '-';
+}
+
 function getUploadErrorMessage(error: any) {
   const status = error?.response?.status || error?.response?.data?.statusCode;
   const serverMessage = error?.response?.data?.message;
@@ -402,7 +407,7 @@ const KnowledgeManager: React.FC = () => {
       width: 120,
       render: (_: unknown, record: KnowledgeChunk) => (
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {record.metadata?.start ?? '-'} - {record.metadata?.end ?? '-'}
+          {formatMetadataValue(record.metadata?.start)} - {formatMetadataValue(record.metadata?.end)}
         </Text>
       ),
     },

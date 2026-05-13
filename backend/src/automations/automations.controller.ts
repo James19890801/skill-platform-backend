@@ -14,7 +14,7 @@ export class AutomationsController {
   }
 
   @Post(':id/run')
-  @ApiOperation({ summary: '手动运行自动化任务，并创建中心化对话记录' })
+  @ApiOperation({ summary: '手动运行自动化任务，执行配置 Skill/提示词并写入中心化对话' })
   runAutomation(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { trigger?: string; threadId?: string },

@@ -73,6 +73,7 @@ const SkillList: React.FC = () => {
   const [skills, setSkills] = useState<any[]>([]);
   const [stats, setStats] = useState({ total: 0, published: 0, draft: 0, reviewing: 0 });
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
+  const { current, pageSize } = pagination;
 
   // 从后端加载 Skill 列表
   useEffect(() => {
@@ -80,8 +81,8 @@ const SkillList: React.FC = () => {
       try {
         setLoading(true);
         const response = await skillsApi.list({
-          page: pagination.current,
-          limit: pagination.pageSize,
+          page: current,
+          limit: pageSize,
           domain: (domainFilter || undefined) as SkillDomain | undefined,
           status: (statusFilter || undefined) as SkillStatus | undefined,
           search: searchText || undefined,
@@ -110,7 +111,7 @@ const SkillList: React.FC = () => {
       }
     };
     fetchSkills();
-  }, [pagination.current, pagination.pageSize, domainFilter, statusFilter, searchText]);
+  }, [current, pageSize, domainFilter, statusFilter, searchText]);
 
   const handleInstall = (record: { id: number; name: string }) => {
     setInstallSkill(record);
