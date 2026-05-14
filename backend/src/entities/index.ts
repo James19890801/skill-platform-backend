@@ -8,6 +8,8 @@ export { SkillRuntimeArtifact } from './skill-runtime-artifact.entity';
 export { CapabilityTree } from './capability-tree.entity';
 export { CapabilityNode } from './capability-node.entity';
 export { CapabilityEdge } from './capability-edge.entity';
+export { ProcessArchitectureTree } from './process-architecture-tree.entity';
+export { ProcessArchitectureNode } from './process-architecture-node.entity';
 export { JobModel } from './job-model.entity';
 export { JobModelSkill } from './job-model-skill.entity';
 export { SkillReview } from './skill-review.entity';

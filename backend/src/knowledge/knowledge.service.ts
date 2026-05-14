@@ -5,9 +5,14 @@ import OpenAI from 'openai';
 import { KnowledgeBase } from '../entities/knowledge-base.entity';
 import { KnowledgeDocument } from '../entities/knowledge-document.entity';
 import { KnowledgeChunk } from '../entities/knowledge-chunk.entity';
+import { ProcessArchitectureNode } from '../entities/process-architecture-node.entity';
 import { CreateKnowledgeBaseDto, KnowledgeSource, KnowledgeStatus } from './dto/create-knowledge-base.dto';
 import { UpdateKnowledgeBaseDto } from './dto/update-knowledge-base.dto';
 import { ObservabilityService } from '../monitoring/observability.service';
+import {
+  collectDescendantNodeIds,
+  parseProcessArchitectureBinding,
+} from '../process-architectures/process-architecture.logic';
 import {
   buildKnowledgeSearchTerms,
   chunkText,
@@ -36,6 +41,8 @@ export interface KnowledgeSearchFilters {
   domain?: string;
   processCode?: string;
   processName?: string;
+  processArchitectureNodeId?: number;
+  processArchitectureNodeIds?: Array<number | string>;
   sectionTitle?: string;
   status?: string;
   version?: string;
@@ -65,7 +72,13 @@ interface KnowledgeIngestionQueueItem {
   documentId: number;
   displayName: string;
   file: KnowledgeUploadFile;
-  options: { chunkSize?: number; chunkOverlap?: number };
+  options: KnowledgeIndexingOptions;
+}
+
+interface KnowledgeIndexingOptions {
+  chunkSize?: number;
+  chunkOverlap?: number;
+  processArchitectureNodeIds?: unknown;
 }
 
 @Injectable()
@@ -88,6 +101,8 @@ export class KnowledgeService {
     private documentRepository: Repository<KnowledgeDocument>,
     @InjectRepository(KnowledgeChunk)
     private chunkRepository: Repository<KnowledgeChunk>,
+    @InjectRepository(ProcessArchitectureNode)
+    private processArchitectureNodeRepository: Repository<ProcessArchitectureNode>,
     private observability: ObservabilityService,
   ) {
     this.embeddingClient = new OpenAI({
@@ -213,10 +228,11 @@ export class KnowledgeService {
   async uploadDocument(
     knowledgeBaseId: number,
     file: KnowledgeUploadFile,
-    options: { chunkSize?: number; chunkOverlap?: number } = {},
+    options: KnowledgeIndexingOptions = {},
   ): Promise<KnowledgeDocument> {
     const knowledgeBase = await this.findOne(knowledgeBaseId);
     const displayName = normalizeUploadedFilename(file.originalname);
+    const processArchitectureNodeIds = parseProcessArchitectureBinding(options.processArchitectureNodeIds);
     const document = await this.documentRepository.save(this.documentRepository.create({
       knowledgeBaseId,
       name: displayName,
@@ -224,6 +240,7 @@ export class KnowledgeService {
       size: file.size || file.buffer.length,
       status: 'processing',
       chunkCount: 0,
+      processArchitectureNodeIds,
     }));
 
     return this.indexDocumentBuffer(knowledgeBase, document, file, displayName, options, true);
@@ -232,11 +249,12 @@ export class KnowledgeService {
   async enqueueDocuments(
     knowledgeBaseId: number,
     files: KnowledgeUploadFile[],
-    options: { chunkSize?: number; chunkOverlap?: number } = {},
+    options: KnowledgeIndexingOptions = {},
   ): Promise<KnowledgeIngestionBatchResult> {
     const knowledgeBase = await this.getKnowledgeBaseForIngestion(knowledgeBaseId);
     const batchId = `kb${knowledgeBaseId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const documents: KnowledgeDocument[] = [];
+    const processArchitectureNodeIds = parseProcessArchitectureBinding(options.processArchitectureNodeIds);
 
     for (const file of files) {
       const displayName = normalizeUploadedFilename(file.originalname);
@@ -247,6 +265,7 @@ export class KnowledgeService {
         size: file.size || file.buffer.length,
         status: 'queued',
         chunkCount: 0,
+        processArchitectureNodeIds,
       }));
       documents.push(document);
       this.ingestionQueue.push({
@@ -287,7 +306,7 @@ export class KnowledgeService {
     document: KnowledgeDocument,
     file: KnowledgeUploadFile,
     displayName: string,
-    options: { chunkSize?: number; chunkOverlap?: number } = {},
+    options: KnowledgeIndexingOptions = {},
     rethrowOnError = false,
   ): Promise<KnowledgeDocument> {
     document.status = 'processing';
@@ -308,6 +327,11 @@ export class KnowledgeService {
         textLength: text.length,
       });
       const processMetadata = inferProcessMetadata(text, displayName);
+      const processArchitectureNodeIds = parseProcessArchitectureBinding(
+        document.processArchitectureNodeIds?.length
+          ? document.processArchitectureNodeIds
+          : options.processArchitectureNodeIds,
+      );
       const allChunks = chunkText(text, {
         chunkSize: options.chunkSize,
         chunkOverlap: options.chunkOverlap,
@@ -315,6 +339,7 @@ export class KnowledgeService {
           documentName: displayName,
           mimeType: file.mimetype,
           knowledgeBaseId: document.knowledgeBaseId,
+          processArchitectureNodeIds,
           ...processMetadata,
         },
       });
@@ -338,10 +363,12 @@ export class KnowledgeService {
         chunkIndex: chunk.index,
         content: chunk.content,
         embedding: embeddings[index] || createLocalEmbedding(chunk.content),
+        processArchitectureNodeIds,
         metadata: chunk.metadata,
       })));
 
       document.status = 'indexed';
+      document.processArchitectureNodeIds = processArchitectureNodeIds;
       document.textPreview = text.slice(0, 800);
       document.chunkCount = chunks.length;
       document.error = allChunks.length > chunks.length
@@ -414,7 +441,7 @@ export class KnowledgeService {
 
   async ingestText(
     knowledgeBaseId: number,
-    input: { name: string; content: string; chunkSize?: number; chunkOverlap?: number },
+    input: { name: string; content: string; chunkSize?: number; chunkOverlap?: number; processArchitectureNodeIds?: unknown },
   ): Promise<KnowledgeDocument> {
     return this.uploadDocument(knowledgeBaseId, {
       originalname: input.name,
@@ -424,6 +451,7 @@ export class KnowledgeService {
     }, {
       chunkSize: input.chunkSize,
       chunkOverlap: input.chunkOverlap,
+      processArchitectureNodeIds: input.processArchitectureNodeIds,
     });
   }
 
@@ -563,15 +591,16 @@ export class KnowledgeService {
       Math.max(this.maxSearchCandidates, this.maxSearchChunks),
     );
     const terms = buildKnowledgeSearchTerms(query);
+    const filters = await this.expandProcessArchitectureFilters(options.filters);
     const candidates = terms.length > 0
-      ? await this.findLexicalCandidateChunks(knowledgeBaseId, terms, options.filters, limit)
+      ? await this.findLexicalCandidateChunks(knowledgeBaseId, terms, filters, limit)
       : [];
 
     if (candidates.length > 0) {
       return candidates;
     }
 
-    return this.findFallbackCandidateChunks(knowledgeBaseId, options.filters, Math.min(limit, this.maxSearchChunks));
+    return this.findFallbackCandidateChunks(knowledgeBaseId, filters, Math.min(limit, this.maxSearchChunks));
   }
 
   private async findLexicalCandidateChunks(
@@ -627,6 +656,31 @@ export class KnowledgeService {
     if (Number.isInteger(filters.documentId) && Number(filters.documentId) > 0) {
       queryBuilder.andWhere('chunk.documentId = :documentId', { documentId: Number(filters.documentId) });
     }
+    const processArchitectureNodeIds = parseProcessArchitectureBinding([
+      ...(filters.processArchitectureNodeId ? [filters.processArchitectureNodeId] : []),
+      ...(Array.isArray(filters.processArchitectureNodeIds) ? filters.processArchitectureNodeIds : []),
+    ]);
+    if (processArchitectureNodeIds.length > 0) {
+      const clauses: string[] = [];
+      const params: Record<string, string> = {};
+      processArchitectureNodeIds.forEach((nodeId, index) => {
+        const exact = `archNode${index}exact`;
+        const first = `archNode${index}first`;
+        const middle = `archNode${index}middle`;
+        const last = `archNode${index}last`;
+        params[exact] = `[${nodeId}]`;
+        params[first] = `[${nodeId},%`;
+        params[middle] = `%,${nodeId},%`;
+        params[last] = `%,${nodeId}]`;
+        clauses.push(
+          `chunk.processArchitectureNodeIds = :${exact}`,
+          `chunk.processArchitectureNodeIds LIKE :${first}`,
+          `chunk.processArchitectureNodeIds LIKE :${middle}`,
+          `chunk.processArchitectureNodeIds LIKE :${last}`,
+        );
+      });
+      queryBuilder.andWhere(`(${clauses.join(' OR ')})`, params);
+    }
     const metadataFilters: Array<[keyof KnowledgeSearchFilters, string]> = [
       ['domain', 'domain'],
       ['processCode', 'processCode'],
@@ -642,6 +696,33 @@ export class KnowledgeService {
           [param]: `%${escapeSqlLike(value.trim().toLowerCase())}%`,
         });
       }
+    }
+  }
+
+  private async expandProcessArchitectureFilters(filters?: KnowledgeSearchFilters): Promise<KnowledgeSearchFilters | undefined> {
+    if (!filters) return filters;
+    const selectedNodeIds = parseProcessArchitectureBinding([
+      ...(filters.processArchitectureNodeId ? [filters.processArchitectureNodeId] : []),
+      ...(Array.isArray(filters.processArchitectureNodeIds) ? filters.processArchitectureNodeIds : []),
+    ]);
+    if (selectedNodeIds.length === 0) return filters;
+
+    try {
+      const nodes = await this.processArchitectureNodeRepository.find();
+      const expanded = new Set<number>();
+      for (const nodeId of selectedNodeIds) {
+        const descendants = nodes.some((node) => node.id === nodeId)
+          ? collectDescendantNodeIds(nodes, nodeId)
+          : [nodeId];
+        descendants.forEach((id) => expanded.add(id));
+      }
+      return {
+        ...filters,
+        processArchitectureNodeIds: Array.from(expanded),
+      };
+    } catch (err) {
+      this.logger.warn(`流程架构过滤展开失败，使用直接节点过滤: ${err instanceof Error ? err.message : String(err)}`);
+      return filters;
     }
   }
 

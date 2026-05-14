@@ -25,6 +25,7 @@ import { MonitoringModule } from './monitoring/monitoring.module';
 import { PersonalContextModule } from './personal-context/personal-context.module';
 import { AutomationsModule } from './automations/automations.module';
 import { CapabilitiesModule } from './capabilities/capabilities.module';
+import { ProcessArchitecturesModule } from './process-architectures/process-architectures.module';
 import {
   User,
   Skill,
@@ -49,6 +50,8 @@ import {
   CapabilityTree,
   CapabilityNode,
   CapabilityEdge,
+  ProcessArchitectureTree,
+  ProcessArchitectureNode,
   ThreadEntity,
   MessageEntity,
   RunEntity,
@@ -119,6 +122,8 @@ const entities = [
   CapabilityTree,
   CapabilityNode,
   CapabilityEdge,
+  ProcessArchitectureTree,
+  ProcessArchitectureNode,
   ThreadEntity,
   MessageEntity,
   RunEntity,
@@ -185,6 +190,7 @@ function buildTypeOrmOptions(): TypeOrmModuleOptions {
     PersonalContextModule,
     AutomationsModule,
     CapabilitiesModule,
+    ProcessArchitecturesModule,
     ProtocolModule,
     OpenAiCompatibleModule,
   ],

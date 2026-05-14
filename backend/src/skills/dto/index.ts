@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsEnum } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray } from 'class-validator';
 
 export class CreateSkillDto {
   @ApiProperty({ description: '命名空间' })
@@ -71,6 +71,11 @@ export class CreateSkillDto {
   @IsString()
   @IsOptional()
   triggerRules?: string;
+
+  @ApiPropertyOptional({ description: '绑定的本地流程架构节点', type: [Number] })
+  @IsArray()
+  @IsOptional()
+  processArchitectureNodeIds?: Array<number | string>;
 }
 
 export class UpdateSkillDto {
@@ -192,6 +197,11 @@ export class UpdateSkillDto {
   @IsString()
   @IsOptional()
   triggerRules?: string;
+
+  @ApiPropertyOptional({ description: '绑定的本地流程架构节点', type: [Number] })
+  @IsArray()
+  @IsOptional()
+  processArchitectureNodeIds?: Array<number | string>;
 }
 
 export class CreateSkillVersionDto {
@@ -250,6 +260,11 @@ export class SkillQueryDto {
   @IsString()
   @IsOptional()
   search?: string;
+
+  @ApiPropertyOptional({ description: '流程架构节点 ID' })
+  @IsString()
+  @IsOptional()
+  processArchitectureNodeId?: string;
 }
 
 export class SubmitReviewDto {

@@ -16,6 +16,7 @@ const MemoryManager = lazy(() => import('./pages/memory/MemoryManager'));
 const IntegrationCenter = lazy(() => import('./pages/integration/IntegrationCenter'));
 const AutomationCenter = lazy(() => import('./pages/automation/AutomationCenter'));
 const MonitoringDashboard = lazy(() => import('./pages/monitoring/MonitoringDashboard'));
+const ProcessArchitectureView = lazy(() => import('./pages/process-architecture/ProcessArchitectureView'));
 const Settings = lazy(() => import('./pages/settings/Settings'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const UserManagement = lazy(() => import('./pages/users/UserManagement'));
@@ -40,6 +41,9 @@ function App() {
             {/* Agent 管理 */}
             <Route path="agents/create" element={<AgentCreate />} />
             <Route path="agents/edit/:id" element={<AgentEdit />} />
+
+            {/* 流程架构 */}
+            <Route path="process-architecture" element={<ProcessArchitectureView />} />
 
             {/* 资源管理 */}
             <Route path="skills" element={<SkillHub />} />

@@ -154,6 +154,7 @@ export interface ISkill {
   runtimePolicy?: string;
   triggerRules?: string;
   packageHash?: string;
+  processArchitectureNodeIds?: number[];
   content?: string; // ★ Skill 标准正文（Markdown）：角色定义、核心职责、输入输出、执行原则
   files?: ISkillFile[]; // 捆绑文件列表
 }

@@ -36,6 +36,7 @@ import {
   KnowledgeSearchResult,
   knowledgeApi,
 } from '../../services/api';
+import ProcessArchitectureSelector from '../../components/process-architecture/ProcessArchitectureSelector';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -59,6 +60,10 @@ function formatBytes(bytes: number) {
 function formatMetadataValue(value: unknown) {
   if (typeof value === 'number' || typeof value === 'string') return String(value);
   return '-';
+}
+
+function formatArchitectureBinding(value?: number[]) {
+  return value?.length ? value.map((id) => `#${id}`).join('、') : '未绑定';
 }
 
 function getUploadErrorMessage(error: any) {
@@ -111,6 +116,7 @@ const KnowledgeManager: React.FC = () => {
   const [textIndexing, setTextIndexing] = useState(false);
   const [searching, setSearching] = useState(false);
   const [createForm] = Form.useForm();
+  const [uploadForm] = Form.useForm();
   const [textForm] = Form.useForm();
   const [searchForm] = Form.useForm();
 
@@ -186,6 +192,12 @@ const KnowledgeManager: React.FC = () => {
       return true;
     });
     if (validFiles.length === 0) return;
+    let uploadValues: { processArchitectureNodeIds?: number[] };
+    try {
+      uploadValues = await uploadForm.validateFields();
+    } catch {
+      return;
+    }
 
     const totalSize = validFiles.reduce((sum, file) => sum + file.size, 0);
     const messageKey = `knowledge-batch-upload-${Date.now()}`;
@@ -204,6 +216,7 @@ const KnowledgeManager: React.FC = () => {
       const result = await knowledgeApi.uploadDocumentsBatch(selectedKb.id, validFiles, {
         chunkSize: 1000,
         chunkOverlap: 180,
+        processArchitectureNodeIds: uploadValues.processArchitectureNodeIds || [],
         timeoutMs: 600000,
         onUploadProgress: ({ percent }) => {
           if (percent !== undefined) {
@@ -248,6 +261,7 @@ const KnowledgeManager: React.FC = () => {
         content: values.content,
         chunkSize: 1000,
         chunkOverlap: 180,
+        processArchitectureNodeIds: values.processArchitectureNodeIds || [],
       });
       message.success('文本已完成索引');
       textForm.resetFields();
@@ -268,6 +282,9 @@ const KnowledgeManager: React.FC = () => {
       const result = await knowledgeApi.search(selectedKb.id, {
         query: values.query,
         topK: 5,
+        filters: {
+          processArchitectureNodeIds: values.processArchitectureNodeIds || [],
+        },
       });
       setSearchResults((result.sources || result.results || []).map((item: any) => ({
         id: item.chunkId || item.id,
@@ -364,6 +381,16 @@ const KnowledgeManager: React.FC = () => {
       dataIndex: 'name',
       key: 'name',
       render: (name: string) => <Space><FileTextOutlined />{name}</Space>,
+    },
+    {
+      title: '流程架构',
+      key: 'processArchitectureNodeIds',
+      width: 160,
+      render: (_: unknown, record: KnowledgeDocument) => (
+        <Tag color={record.processArchitectureNodeIds?.length ? 'purple' : 'default'}>
+          {formatArchitectureBinding(record.processArchitectureNodeIds)}
+        </Tag>
+      ),
     },
     {
       title: '切片',
@@ -493,6 +520,15 @@ const KnowledgeManager: React.FC = () => {
         {selectedKb ? (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <Card title="上传文档" style={panelStyle}>
+              <Form form={uploadForm} layout="vertical">
+                <Form.Item
+                  name="processArchitectureNodeIds"
+                  label="流程架构节点"
+                  rules={[{ required: true, message: '请选择流程架构节点' }]}
+                >
+                  <ProcessArchitectureSelector placeholder="选择这批流程文件所属的架构节点" />
+                </Form.Item>
+              </Form>
               <Upload.Dragger
                 multiple
                 showUploadList={false}
@@ -529,6 +565,13 @@ const KnowledgeManager: React.FC = () => {
                 <Form.Item name="name" label="标题">
                   <Input placeholder="例如：客服 SOP" />
                 </Form.Item>
+                <Form.Item
+                  name="processArchitectureNodeIds"
+                  label="流程架构节点"
+                  rules={[{ required: true, message: '请选择流程架构节点' }]}
+                >
+                  <ProcessArchitectureSelector placeholder="选择这段文本所属的架构节点" />
+                </Form.Item>
                 <Form.Item name="content" label="内容" rules={[{ required: true, message: '请输入内容' }]}>
                   <TextArea rows={5} placeholder="粘贴制度、FAQ、流程说明或业务资料" />
                 </Form.Item>
@@ -539,8 +582,11 @@ const KnowledgeManager: React.FC = () => {
             </Card>
 
             <Card title="检索测试" style={panelStyle}>
-              <Form form={searchForm} layout="inline" style={{ marginBottom: 16 }}>
-                <Form.Item name="query" rules={[{ required: true, message: '请输入问题' }]} style={{ flex: 1 }}>
+              <Form form={searchForm} layout="vertical" style={{ marginBottom: 16 }}>
+                <Form.Item name="processArchitectureNodeIds" label="流程架构范围">
+                  <ProcessArchitectureSelector placeholder="不选则检索整个知识库" />
+                </Form.Item>
+                <Form.Item name="query" rules={[{ required: true, message: '请输入问题' }]}>
                   <Input placeholder="输入一个问题，检查召回内容" />
                 </Form.Item>
                 <Button type="primary" icon={<SearchOutlined />} loading={searching} onClick={handleSearch}>

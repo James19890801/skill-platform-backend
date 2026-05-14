@@ -20,6 +20,10 @@ import {
   normalizeToolDefinitionList,
   parseSkillPackageZip,
 } from '../skill-runtime/skill-package';
+import {
+  parseProcessArchitectureBinding,
+  serializeProcessArchitectureBinding,
+} from '../process-architectures/process-architecture.logic';
 
 @Injectable()
 export class SkillsService {
@@ -33,7 +37,7 @@ export class SkillsService {
   ) {}
 
   async findAll(query: SkillQueryDto) {
-    const { domain, status, scope, page = 1, limit = 10, search } = query;
+    const { domain, status, scope, page = 1, limit = 10, search, processArchitectureNodeId } = query;
 
     const where: any = {};
     if (domain) where.domain = domain;
@@ -43,7 +47,7 @@ export class SkillsService {
       where.name = Like(`%${search.replace(/[%_]/g, '\\$&')}%`);
     }
 
-    const [items, total] = await this.skillRepository.findAndCount({
+    let [items, total] = await this.skillRepository.findAndCount({
       where,
       relations: ['owner'],
       skip: (page - 1) * limit,
@@ -51,8 +55,14 @@ export class SkillsService {
       order: { updatedAt: 'DESC' },
     });
 
+    if (processArchitectureNodeId) {
+      const nodeId = Number(processArchitectureNodeId);
+      items = items.filter((item) => parseProcessArchitectureBinding(item.processArchitectureNodeIds).includes(nodeId));
+      total = items.length;
+    }
+
     return {
-      items,
+      items: items.map((item) => this.parseSkill(item)),
       total,
       page: Number(page),
       limit: Number(limit),
@@ -76,7 +86,7 @@ export class SkillsService {
       order: { createdAt: 'DESC' },
     });
 
-    return { ...skill, reviews };
+    return { ...this.parseSkill(skill), reviews };
   }
 
   async create(createDto: CreateSkillDto, userId: number) {
@@ -89,6 +99,7 @@ export class SkillsService {
 
     const skill = this.skillRepository.create({
       ...createDto,
+      processArchitectureNodeIds: serializeProcessArchitectureBinding(createDto.processArchitectureNodeIds),
       ownerId: userId,
       status: 'draft',
       currentVersion: '1.0.0',
@@ -133,18 +144,23 @@ export class SkillsService {
       manifest: draft.manifest,
       runtimePolicy: draft.runtimePolicy,
       triggerRules: draft.triggerRules,
+      processArchitectureNodeIds: overrides.processArchitectureNodeIds,
     }, userId);
   }
 
   async update(id: number, updateDto: UpdateSkillDto, userId: number) {
-    const skill = await this.findOne(id);
+    const skill = await this.findEntityOrThrow(id);
 
     // 非管理员只能编辑自己的 Skill
     if (skill.ownerId !== userId) {
       throw new ForbiddenException('只能编辑自己的 Skill');
     }
 
-    Object.assign(skill, updateDto);
+    const updateData: any = { ...updateDto };
+    if (updateDto.processArchitectureNodeIds !== undefined) {
+      updateData.processArchitectureNodeIds = serializeProcessArchitectureBinding(updateDto.processArchitectureNodeIds);
+    }
+    Object.assign(skill, updateData);
     await this.skillRepository.save(skill);
     await this.refreshPackageHash(id);
 
@@ -152,7 +168,7 @@ export class SkillsService {
   }
 
   async remove(id: number, userId: number, isAdmin: boolean) {
-    const skill = await this.findOne(id);
+    const skill = await this.findEntityOrThrow(id);
 
     // 非管理员只能删除自己的
     if (!isAdmin && skill.ownerId !== userId) {
@@ -167,7 +183,7 @@ export class SkillsService {
   }
 
   async submitForReview(id: number, dto: SubmitReviewDto, userId: number) {
-    const skill = await this.findOne(id);
+    const skill = await this.findEntityOrThrow(id);
 
     if (skill.status !== 'draft' && skill.status !== 'rejected') {
       throw new BadRequestException('Only draft or rejected skills can be submitted for review');
@@ -189,7 +205,7 @@ export class SkillsService {
   }
 
   async publish(id: number, userId: number) {
-    const skill = await this.findOne(id);
+    const skill = await this.findEntityOrThrow(id);
 
     if (skill.status !== 'reviewing') {
       throw new BadRequestException('Only reviewing skills can be published');
@@ -209,7 +225,7 @@ export class SkillsService {
   }
 
   async archive(id: number, userId: number) {
-    const skill = await this.findOne(id);
+    const skill = await this.findEntityOrThrow(id);
 
     if (skill.status !== 'published') {
       throw new BadRequestException('Only published skills can be archived');
@@ -234,7 +250,7 @@ export class SkillsService {
   }
 
   async getPackageZip(id: number): Promise<{ filename: string; buffer: Buffer }> {
-    const skill = await this.findOne(id);
+    const skill = await this.findEntityOrThrow(id, ['owner', 'versions']);
     const pkg = buildSkillPackage(skill as any);
     const filename = `${pkg.namespace}-${pkg.version}.zip`.replace(/[^a-zA-Z0-9._-]/g, '_');
 
@@ -245,7 +261,7 @@ export class SkillsService {
   }
 
   async createVersion(id: number, dto: CreateSkillVersionDto, userId: number) {
-    const skill = await this.findOne(id);
+    const skill = await this.findEntityOrThrow(id);
 
     if (skill.ownerId !== userId) {
       throw new BadRequestException('Only owner can create new version');
@@ -340,6 +356,26 @@ export class SkillsService {
         output: latestVersion.output,
         dependencies: latestVersion.dependencies,
       } : null,
+    };
+  }
+
+  private async findEntityOrThrow(id: number, relations: string[] = []) {
+    const skill = await this.skillRepository.findOne({
+      where: { id },
+      relations,
+    });
+
+    if (!skill) {
+      throw new NotFoundException(`Skill #${id} not found`);
+    }
+
+    return skill;
+  }
+
+  private parseSkill(skill: Skill) {
+    return {
+      ...skill,
+      processArchitectureNodeIds: parseProcessArchitectureBinding(skill.processArchitectureNodeIds),
     };
   }
 

@@ -12,6 +12,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { SkillStatus, SkillScope, SkillType, SkillDomain, DomainLabels } from '../../types';
 import { skillsApi } from '../../services/api';
 import { useAuthStore } from '../../stores/useAuthStore';
+import ProcessArchitectureSelector from '../../components/process-architecture/ProcessArchitectureSelector';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -157,6 +158,7 @@ const SkillEdit: React.FC = () => {
           domain: data.domain,
           subDomain: data.subDomain,
           abilityName: data.abilityName,
+          processArchitectureNodeIds: data.processArchitectureNodeIds || [],
           scope: data.scope,
           type: data.type,
           sopSource: data.sopSource,
@@ -287,6 +289,14 @@ const SkillEdit: React.FC = () => {
           </Row>
           <Form.Item name="description" label="描述">
             <TextArea rows={4} placeholder="描述这个 Skill 的功能和用途" />
+          </Form.Item>
+
+          <Form.Item
+            name="processArchitectureNodeIds"
+            label="流程架构"
+            rules={[{ required: true, message: '请选择流程架构' }]}
+          >
+            <ProcessArchitectureSelector placeholder="选择这个 Skill 覆盖的流程节点" />
           </Form.Item>
 
           {/* 只读信息 */}

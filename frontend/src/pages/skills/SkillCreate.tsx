@@ -25,6 +25,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { DomainLabels, SkillDomain, SkillScope, SkillType, ISkillFile } from '../../types';
 import { skillsApi } from '../../services/api';
+import ProcessArchitectureSelector from '../../components/process-architecture/ProcessArchitectureSelector';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -177,6 +178,7 @@ const SkillCreate: React.FC = () => {
         manifest: JSON.stringify(manifest, null, 2),
         runtimePolicy: JSON.stringify(manifest.runtime, null, 2),
         triggerRules: JSON.stringify(triggers),
+        processArchitectureNodeIds: values.processArchitectureNodeIds,
         executionType: 'agent',
       } as any);
 
@@ -282,6 +284,13 @@ const SkillCreate: React.FC = () => {
       </Row>
       <Form.Item name="description" label="描述">
         <TextArea rows={3} placeholder="一句话说明这个 Skill 的用途" />
+      </Form.Item>
+      <Form.Item
+        name="processArchitectureNodeIds"
+        label="流程架构"
+        rules={[{ required: true, message: '请选择流程架构' }]}
+      >
+        <ProcessArchitectureSelector placeholder="选择这个 Skill 覆盖的流程节点" />
       </Form.Item>
       <Form.Item name="triggers" label="触发词">
         <Input placeholder="合同, 风险, 条款审查" />
@@ -423,6 +432,13 @@ const SkillCreate: React.FC = () => {
                             </Select.Option>
                           ))}
                         </Select>
+                      </Form.Item>
+                      <Form.Item
+                        name="processArchitectureNodeIds"
+                        label="流程架构"
+                        rules={[{ required: true, message: '请选择流程架构' }]}
+                      >
+                        <ProcessArchitectureSelector placeholder="选择这个 Skill 覆盖的流程节点" />
                       </Form.Item>
                     </Form>
                     <Button

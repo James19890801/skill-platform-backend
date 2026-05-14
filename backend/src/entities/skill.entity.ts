@@ -99,6 +99,9 @@ export class Skill {
   @Column({ nullable: true, type: 'text' })
   triggerRules: string; // JSON: Resolver 使用的触发规则 [{type,value}]
 
+  @Column({ nullable: true, type: 'text' })
+  processArchitectureNodeIds: string | null; // JSON: 本地流程架构节点 ID 列表
+
   @Column({ nullable: true })
   packageHash: string; // 当前 SkillPackage 的内容指纹，用于发布与回溯
 

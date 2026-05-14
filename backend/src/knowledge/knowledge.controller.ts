@@ -104,7 +104,7 @@ export class KnowledgeController {
   async uploadDocument(
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile() file: any,
-    @Body() body: { chunkSize?: string; chunkOverlap?: string },
+    @Body() body: { chunkSize?: string; chunkOverlap?: string; processArchitectureNodeIds?: unknown },
   ) {
     if (!file?.buffer) {
       throw new BadRequestException('请上传文件');
@@ -119,6 +119,7 @@ export class KnowledgeController {
     return this.knowledgeService.uploadDocument(id, file, {
       chunkSize: body.chunkSize ? Number(body.chunkSize) : undefined,
       chunkOverlap: body.chunkOverlap ? Number(body.chunkOverlap) : undefined,
+      processArchitectureNodeIds: body.processArchitectureNodeIds,
     });
   }
 
@@ -130,7 +131,7 @@ export class KnowledgeController {
   async uploadDocumentsBatch(
     @Param('id', ParseIntPipe) id: number,
     @UploadedFiles() files: any[],
-    @Body() body: { chunkSize?: string; chunkOverlap?: string },
+    @Body() body: { chunkSize?: string; chunkOverlap?: string; processArchitectureNodeIds?: unknown },
   ) {
     if (!Array.isArray(files) || files.length === 0) {
       throw new BadRequestException('请至少上传一个文件');
@@ -150,6 +151,7 @@ export class KnowledgeController {
     return this.knowledgeService.enqueueDocuments(id, files, {
       chunkSize: body.chunkSize ? Number(body.chunkSize) : undefined,
       chunkOverlap: body.chunkOverlap ? Number(body.chunkOverlap) : undefined,
+      processArchitectureNodeIds: body.processArchitectureNodeIds,
     });
   }
 
@@ -157,7 +159,7 @@ export class KnowledgeController {
   @ApiOperation({ summary: '写入纯文本并构建知识库索引' })
   async ingestText(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { name?: string; content: string; chunkSize?: number; chunkOverlap?: number },
+    @Body() body: { name?: string; content: string; chunkSize?: number; chunkOverlap?: number; processArchitectureNodeIds?: unknown },
   ) {
     if (!body.content?.trim()) {
       throw new BadRequestException('请输入文本内容');
@@ -168,6 +170,7 @@ export class KnowledgeController {
       content: body.content,
       chunkSize: body.chunkSize,
       chunkOverlap: body.chunkOverlap,
+      processArchitectureNodeIds: body.processArchitectureNodeIds,
     });
   }
 

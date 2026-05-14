@@ -42,6 +42,9 @@ export class KnowledgeChunk {
   embedding: number[];
 
   @Column({ type: 'simple-json', nullable: true })
+  processArchitectureNodeIds?: number[] | null;
+
+  @Column({ type: 'simple-json', nullable: true })
   metadata?: Record<string, unknown>;
 
   @CreateDateColumn()

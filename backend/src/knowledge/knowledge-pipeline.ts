@@ -199,10 +199,6 @@ export function inferProcessMetadata(text: string, documentName = ''): InferredP
   metadata.status = pickFirst(normalized, [
     /(?:当前状态|状态|文件状态)\s*[:：]\s*([^\n\r]{1,40})/i,
   ]);
-  metadata.domain = pickFirst(normalized, [
-    /(?:归口领域|所属领域|业务领域|流程领域|流程域|业务域|领域)\s*[:：]\s*([^\n\r]{1,80})/i,
-  ]);
-
   const departments = pickFirst(normalized, [
     /(?:适用部门|适用组织|适用范围)\s*[:：]\s*([^\n\r]{2,160})/i,
   ]);
@@ -215,10 +211,6 @@ export function inferProcessMetadata(text: string, documentName = ''): InferredP
   }
 
   const baseName = documentName.replace(/\.[^.]+$/, '');
-  const firstNamePart = baseName.split(/[-_—｜|]/)[0]?.trim();
-  if (!metadata.domain && firstNamePart && /[\u4e00-\u9fff]/u.test(firstNamePart) && firstNamePart.length <= 20) {
-    metadata.domain = firstNamePart;
-  }
   if (!metadata.version) {
     metadata.version = baseName.match(/\bV\d+(?:\.\d+){0,4}\b/i)?.[0];
   }

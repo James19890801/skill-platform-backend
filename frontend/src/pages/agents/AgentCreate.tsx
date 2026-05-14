@@ -48,6 +48,7 @@ import CapabilityTreeBuilder, {
   CapabilityNodeSnapshot,
   CapabilitySkillOption,
 } from '../../components/capabilities/CapabilityTreeBuilder';
+import ProcessArchitectureSelector from '../../components/process-architecture/ProcessArchitectureSelector';
 import {
   AGENT_ICON_LIBRARY,
   DEFAULT_AGENT_ICON,
@@ -69,6 +70,7 @@ interface AgentCreateProps {
     skills: string[];
     capabilityTreeId?: number | null;
     capabilityTreeSnapshot?: CapabilityNodeSnapshot[];
+    processArchitectureNodeIds?: number[];
     knowledgeBases: string[];
     mcpServers?: McpServerConfig[];
     memoryEnabled: boolean;
@@ -156,6 +158,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
         skills: initialData.skills || [],
         capabilityTreeId: initialData.capabilityTreeId || null,
         capabilityTreeSnapshot: initialData.capabilityTreeSnapshot || [],
+        processArchitectureNodeIds: initialData.processArchitectureNodeIds || [],
         knowledgeBases: initialData.knowledgeBases || [],
         mcpServers: initialData.mcpServers || [],
         memoryEnabled: initialData.memoryEnabled,
@@ -198,6 +201,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
         skills: form.getFieldValue('skills') || [],
         capabilityTreeId: form.getFieldValue('capabilityTreeId') || null,
         capabilityTreeSnapshot: form.getFieldValue('capabilityTreeSnapshot') || [],
+        processArchitectureNodeIds: form.getFieldValue('processArchitectureNodeIds') || [],
         knowledgeBases: values.knowledgeBases || [],
         mcpServers: form.getFieldValue('mcpServers') || [],
         memoryEnabled: values.memoryEnabled,
@@ -317,6 +321,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
             mcpServers: [],
             skills: [],
             capabilityTreeSnapshot: [],
+            processArchitectureNodeIds: [],
           }}
         >
           {/* Step 1: 基础配置 */}
@@ -339,6 +344,14 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
                   placeholder="描述这个 Agent 的主要功能和用途"
                   rows={3}
                 />
+              </Form.Item>
+
+              <Form.Item
+                name="processArchitectureNodeIds"
+                label="流程架构"
+                rules={[{ required: true, message: '请选择流程架构' }]}
+              >
+                <ProcessArchitectureSelector placeholder="选择这个 Agent 覆盖的流程节点" />
               </Form.Item>
 
               <Form.Item label="头像">

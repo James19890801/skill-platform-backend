@@ -8,6 +8,10 @@ import { Repository } from 'typeorm';
 import { Agent } from '../entities';
 import { CreateAgentDto, UpdateAgentDto } from './dto';
 import { McpService } from '../mcp/mcp.service';
+import {
+  parseProcessArchitectureBinding,
+  serializeProcessArchitectureBinding,
+} from '../process-architectures/process-architecture.logic';
 
 @Injectable()
 export class AgentsService {
@@ -41,6 +45,7 @@ export class AgentsService {
         'status',
         'ownerId',
         'capabilityTreeId',
+        'processArchitectureNodeIds',
         'createdAt',
         'updatedAt',
       ],
@@ -73,6 +78,7 @@ export class AgentsService {
       skills: dto.skills ? JSON.stringify(dto.skills) : '[]',
       capabilityTreeId: dto.capabilityTreeId ?? null,
       capabilityTreeSnapshot: dto.capabilityTreeSnapshot ? JSON.stringify(dto.capabilityTreeSnapshot) : '[]',
+      processArchitectureNodeIds: serializeProcessArchitectureBinding(dto.processArchitectureNodeIds),
       knowledgeBases: dto.knowledgeBases ? JSON.stringify(dto.knowledgeBases) : '[]',
       mcpServers: dto.mcpServers ? JSON.stringify(this.mcpService.normalize(dto.mcpServers)) : '[]',
       ownerId,
@@ -99,6 +105,9 @@ export class AgentsService {
     }
     if (dto.capabilityTreeSnapshot !== undefined) {
       updateData.capabilityTreeSnapshot = JSON.stringify(dto.capabilityTreeSnapshot);
+    }
+    if (dto.processArchitectureNodeIds !== undefined) {
+      updateData.processArchitectureNodeIds = serializeProcessArchitectureBinding(dto.processArchitectureNodeIds);
     }
     if (dto.knowledgeBases !== undefined) {
       updateData.knowledgeBases = JSON.stringify(dto.knowledgeBases);
@@ -135,6 +144,7 @@ export class AgentsService {
         ...agent,
         skills: [...agent.skills],
         capabilityTreeSnapshot: [...agent.capabilityTreeSnapshot],
+        processArchitectureNodeIds: [...agent.processArchitectureNodeIds],
         knowledgeBases: [...agent.knowledgeBases],
         mcpServers: [...agent.mcpServers],
       })),
@@ -146,6 +156,7 @@ export class AgentsService {
       ...agent,
       skills: this.parseJsonArray(agent.skills),
       capabilityTreeSnapshot: this.parseJsonArray(agent.capabilityTreeSnapshot),
+      processArchitectureNodeIds: parseProcessArchitectureBinding(agent.processArchitectureNodeIds),
       knowledgeBases: this.parseJsonArray(agent.knowledgeBases),
       mcpServers: this.parseJsonArray(agent.mcpServers),
     };

@@ -38,6 +38,9 @@ export class Agent {
   capabilityTreeSnapshot: string | null; // JSON: serialized capability tree used by this Agent
 
   @Column({ type: 'text', nullable: true })
+  processArchitectureNodeIds: string | null; // JSON: 本地流程架构节点 ID 列表
+
+  @Column({ type: 'text', nullable: true })
   knowledgeBases: string; // JSON: ['kb-1', 'kb-2']
 
   @Column({ type: 'text', nullable: true })

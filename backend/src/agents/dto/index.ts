@@ -41,6 +41,11 @@ export class CreateAgentDto {
   @IsOptional()
   capabilityTreeSnapshot?: unknown;
 
+  @ApiPropertyOptional({ description: '绑定的本地流程架构节点', type: [Number] })
+  @IsArray()
+  @IsOptional()
+  processArchitectureNodeIds?: Array<number | string>;
+
   @ApiPropertyOptional({ description: '关联知识库', type: [String] })
   @IsArray()
   @IsOptional()
@@ -107,6 +112,11 @@ export class UpdateAgentDto {
   @Allow()
   @IsOptional()
   capabilityTreeSnapshot?: unknown;
+
+  @ApiPropertyOptional({ description: '绑定的本地流程架构节点', type: [Number] })
+  @IsArray()
+  @IsOptional()
+  processArchitectureNodeIds?: Array<number | string>;
 
   @ApiPropertyOptional({ description: '关联知识库', type: [String] })
   @IsArray()

@@ -313,6 +313,7 @@ export interface KnowledgeChunk {
   knowledgeBaseName?: string;
   chunkIndex: number;
   content: string;
+  processArchitectureNodeIds?: number[];
   score?: number;
   metadata?: Record<string, unknown>;
   createdAt?: string;
@@ -327,6 +328,7 @@ export interface KnowledgeDocument {
   status: 'queued' | 'processing' | 'indexed' | 'error';
   textPreview?: string;
   chunkCount: number;
+  processArchitectureNodeIds?: number[];
   error?: string;
   createdAt?: string;
 }
@@ -361,6 +363,8 @@ export interface KnowledgeSearchFilters {
   domain?: string;
   processCode?: string;
   processName?: string;
+  processArchitectureNodeId?: number;
+  processArchitectureNodeIds?: number[];
   sectionTitle?: string;
   status?: string;
   version?: string;
@@ -388,6 +392,7 @@ export interface KnowledgeUploadProgress {
 export interface KnowledgeUploadOptions {
   chunkSize?: number;
   chunkOverlap?: number;
+  processArchitectureNodeIds?: number[];
   timeoutMs?: number;
   onUploadProgress?: (progress: KnowledgeUploadProgress) => void;
 }
@@ -417,6 +422,9 @@ export const knowledgeApi = {
     formData.append('file', file, file.name);
     if (options?.chunkSize !== undefined) formData.append('chunkSize', String(options.chunkSize));
     if (options?.chunkOverlap !== undefined) formData.append('chunkOverlap', String(options.chunkOverlap));
+    if (options?.processArchitectureNodeIds?.length) {
+      formData.append('processArchitectureNodeIds', JSON.stringify(options.processArchitectureNodeIds));
+    }
     return apiClient.post(`/knowledge-bases/${id}/documents`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: options?.timeoutMs ?? 600000,
@@ -435,6 +443,9 @@ export const knowledgeApi = {
     files.forEach((file) => formData.append('files', file, file.name));
     if (options?.chunkSize !== undefined) formData.append('chunkSize', String(options.chunkSize));
     if (options?.chunkOverlap !== undefined) formData.append('chunkOverlap', String(options.chunkOverlap));
+    if (options?.processArchitectureNodeIds?.length) {
+      formData.append('processArchitectureNodeIds', JSON.stringify(options.processArchitectureNodeIds));
+    }
     return apiClient.post(`/knowledge-bases/${id}/documents/batch`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: options?.timeoutMs ?? 600000,
@@ -448,7 +459,7 @@ export const knowledgeApi = {
     });
   },
 
-  ingestText: (id: number, data: { name?: string; content: string; chunkSize?: number; chunkOverlap?: number }): Promise<KnowledgeDocument> =>
+  ingestText: (id: number, data: { name?: string; content: string; chunkSize?: number; chunkOverlap?: number; processArchitectureNodeIds?: number[] }): Promise<KnowledgeDocument> =>
     apiClient.post(`/knowledge-bases/${id}/text`, data),
 
   listDocuments: (id: number): Promise<KnowledgeDocument[]> =>
@@ -524,6 +535,7 @@ export interface AgentDTO {
   skills: string[];
   capabilityTreeId?: number | null;
   capabilityTreeSnapshot?: CapabilityNodeSnapshot[];
+  processArchitectureNodeIds?: number[];
   knowledgeBases: string[];
   mcpServers: McpServerConfig[];
   memoryEnabled: boolean;
@@ -599,6 +611,133 @@ export const capabilityTreesApi = {
 
   delete: (id: number): Promise<void> =>
     apiClient.delete(`/capability-trees/${id}`),
+};
+
+// ============================================
+// Process Architecture API
+// ============================================
+export interface ProcessArchitectureNodeSnapshot {
+  id: number;
+  parentId: number | null;
+  code?: string | null;
+  name: string;
+  level: number;
+  sortOrder: number;
+  description?: string | null;
+  children: ProcessArchitectureNodeSnapshot[];
+}
+
+export interface ProcessArchitectureNodeDTO {
+  id: number;
+  treeId: number;
+  parentId: number | null;
+  code?: string | null;
+  name: string;
+  level: number;
+  sortOrder: number;
+  description?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ProcessArchitectureTreeDTO {
+  id: number;
+  name: string;
+  description?: string | null;
+  source: string;
+  version: string;
+  status: string;
+  nodes: ProcessArchitectureNodeDTO[];
+  snapshot: ProcessArchitectureNodeSnapshot[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProcessArchitectureCoverageItem {
+  id: number;
+  name: string;
+  description?: string | null;
+  namespace?: string | null;
+  model?: string;
+  avatar?: string | null;
+  status?: string;
+  domain?: string;
+  subDomain?: string;
+  abilityName?: string;
+  processArchitectureNodeIds: number[];
+  updatedAt?: string;
+}
+
+export interface ProcessArchitectureKnowledgeDocumentItem {
+  id: number;
+  name: string;
+  status?: string;
+  chunkCount?: number;
+  processArchitectureNodeIds: number[];
+  updatedAt?: string;
+}
+
+export interface ProcessArchitectureNodeCoverage {
+  nodeId: number;
+  directAgentCount: number;
+  directSkillCount: number;
+  directKnowledgeDocumentCount: number;
+  agentCount: number;
+  skillCount: number;
+  knowledgeDocumentCount: number;
+}
+
+export interface ProcessArchitectureCoverageDTO {
+  tree: Omit<ProcessArchitectureTreeDTO, 'nodes' | 'snapshot'>;
+  nodes: ProcessArchitectureNodeDTO[];
+  snapshot: ProcessArchitectureNodeSnapshot[];
+  selectedNodeId: number | null;
+  selectedNodeIds: number[];
+  selectedNode: ProcessArchitectureNodeDTO | null;
+  agents: ProcessArchitectureCoverageItem[];
+  skills: ProcessArchitectureCoverageItem[];
+  knowledgeDocuments: ProcessArchitectureKnowledgeDocumentItem[];
+  agentCount: number;
+  skillCount: number;
+  knowledgeDocumentCount: number;
+  nodeCoverage: ProcessArchitectureNodeCoverage[];
+  unboundAgentCount: number;
+  unboundSkillCount: number;
+  unboundKnowledgeDocumentCount: number;
+}
+
+export const processArchitectureApi = {
+  list: (): Promise<{ items: ProcessArchitectureTreeDTO[]; total: number }> =>
+    apiClient.get('/process-architectures'),
+
+  getActive: (): Promise<ProcessArchitectureTreeDTO> =>
+    apiClient.get('/process-architectures/active'),
+
+  getCoverage: (params?: { treeId?: number; nodeId?: number | null }): Promise<ProcessArchitectureCoverageDTO> =>
+    apiClient.get('/process-architectures/coverage', {
+      params: {
+        treeId: params?.treeId,
+        nodeId: params?.nodeId ?? undefined,
+      },
+    }),
+
+  create: (data: Record<string, unknown>): Promise<ProcessArchitectureTreeDTO> =>
+    apiClient.post('/process-architectures', data),
+
+  update: (id: number, data: Record<string, unknown>): Promise<ProcessArchitectureTreeDTO> =>
+    apiClient.put(`/process-architectures/${id}`, data),
+
+  delete: (id: number): Promise<void> =>
+    apiClient.delete(`/process-architectures/${id}`),
+
+  createNode: (treeId: number, data: Record<string, unknown>): Promise<ProcessArchitectureNodeDTO> =>
+    apiClient.post(`/process-architectures/${treeId}/nodes`, data),
+
+  updateNode: (treeId: number, nodeId: number, data: Record<string, unknown>): Promise<ProcessArchitectureNodeDTO> =>
+    apiClient.put(`/process-architectures/${treeId}/nodes/${nodeId}`, data),
+
+  deleteNode: (treeId: number, nodeId: number): Promise<void> =>
+    apiClient.delete(`/process-architectures/${treeId}/nodes/${nodeId}`),
 };
 
 // ============================================

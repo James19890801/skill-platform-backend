@@ -104,13 +104,13 @@ test('inferProcessMetadata extracts process fields for filtering', () => {
 
   assert.equal(metadata.processCode, 'FIN-PAY-001');
   assert.equal(metadata.processName, '付款申请流程');
-  assert.equal(metadata.domain, '财务域');
+  assert.equal(metadata.domain, undefined);
   assert.equal(metadata.version, 'V2.1');
   assert.equal(metadata.status, '现行');
   assert.deepEqual(metadata.departments, ['财务部', '采购部']);
 });
 
-test('inferProcessMetadata extracts domain from process field labels', () => {
+test('inferProcessMetadata does not treat ownership fields as retrieval domains', () => {
   const metadata = inferProcessMetadata(
     [
       '流程编号：OPS-CHG-001',
@@ -121,5 +121,5 @@ test('inferProcessMetadata extracts domain from process field labels', () => {
     'OPS-CHG-001 系统变更流程.txt',
   );
 
-  assert.equal(metadata.domain, '运维');
+  assert.equal(metadata.domain, undefined);
 });

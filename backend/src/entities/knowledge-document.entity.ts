@@ -45,6 +45,9 @@ export class KnowledgeDocument {
   @Column({ type: 'text', nullable: true })
   error?: string;
 
+  @Column({ type: 'simple-json', nullable: true })
+  processArchitectureNodeIds?: number[] | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
