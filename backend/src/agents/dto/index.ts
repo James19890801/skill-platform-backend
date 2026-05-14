@@ -31,6 +31,16 @@ export class CreateAgentDto {
   @IsOptional()
   skills?: string[];
 
+  @ApiPropertyOptional({ description: '绑定的能力树 ID' })
+  @IsNumber()
+  @IsOptional()
+  capabilityTreeId?: number;
+
+  @ApiPropertyOptional({ description: '能力树快照，用于 Agent 运行时读取 SKU' })
+  @Allow()
+  @IsOptional()
+  capabilityTreeSnapshot?: unknown;
+
   @ApiPropertyOptional({ description: '关联知识库', type: [String] })
   @IsArray()
   @IsOptional()
@@ -87,6 +97,16 @@ export class UpdateAgentDto {
   @IsArray()
   @IsOptional()
   skills?: string[];
+
+  @ApiPropertyOptional({ description: '绑定的能力树 ID' })
+  @IsNumber()
+  @IsOptional()
+  capabilityTreeId?: number;
+
+  @ApiPropertyOptional({ description: '能力树快照，用于 Agent 运行时读取 SKU' })
+  @Allow()
+  @IsOptional()
+  capabilityTreeSnapshot?: unknown;
 
   @ApiPropertyOptional({ description: '关联知识库', type: [String] })
   @IsArray()

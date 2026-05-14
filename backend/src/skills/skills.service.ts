@@ -17,6 +17,7 @@ import {
 import {
   buildSkillPackage,
   buildSkillPackageZip,
+  normalizeToolDefinitionList,
   parseSkillPackageZip,
 } from '../skill-runtime/skill-package';
 
@@ -285,7 +286,7 @@ export class SkillsService {
     });
 
     return {
-      tools: skills.map(skill => this.formatAsOpenAITool(skill)),
+      tools: skills.flatMap(skill => this.formatAsOpenAITools(skill)),
       skills: skills.map(skill => ({
         namespace: skill.namespace,
         name: skill.name,
@@ -331,7 +332,8 @@ export class SkillsService {
         errorHandling: skill.errorHandling ? JSON.parse(skill.errorHandling) : null,
         agentPrompt: skill.agentPrompt,
       },
-      tool: this.formatAsOpenAITool(skill),
+      tool: this.formatAsOpenAITools(skill)[0],
+      tools: this.formatAsOpenAITools(skill),
       version: latestVersion ? {
         version: latestVersion.version,
         input: latestVersion.input,
@@ -341,16 +343,13 @@ export class SkillsService {
     };
   }
 
-  private formatAsOpenAITool(skill: any) {
-    if (skill.toolDefinition) {
-      try {
-        return JSON.parse(skill.toolDefinition);
-      } catch {
-        // fallback
-      }
+  private formatAsOpenAITools(skill: any): any[] {
+    const tools = normalizeToolDefinitionList(skill.toolDefinition);
+    if (tools.length > 0) {
+      return tools;
     }
 
-    return {
+    return [{
       type: 'function',
       function: {
         name: skill.namespace.replace(/\./g, '_'),
@@ -361,7 +360,7 @@ export class SkillsService {
           required: [],
         },
       },
-    };
+    }];
   }
 
   private async refreshPackageHash(skillId: number): Promise<void> {

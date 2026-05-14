@@ -5,9 +5,15 @@ import {
   buildSkillPackage,
   buildSkillPackageZip,
   buildSkillWorkspaceId,
+  normalizeToolDefinitionList,
   parseSkillPackageZip,
   resolveSkillCandidates,
 } from '../src/skill-runtime/skill-package';
+import { buildAgentSkillLookupClause, normalizeAgentSkillBindings } from '../src/ai/skill-binding';
+import {
+  buildCapabilityTreeSnapshot,
+  collectSkillNamespacesFromSnapshot,
+} from '../src/capabilities/capability-tree';
 import {
   createRuntimeEvent,
   filterEventsAfter,
@@ -53,6 +59,78 @@ test('buildSkillPackage turns a legacy database skill into a runnable package', 
   assert.equal(pkg.tools[0].function.name, 'contract_risk_extract');
   assert.equal(pkg.permissions.network, 'none');
   assert.match(pkg.packageHash, /^[a-f0-9]{64}$/);
+});
+
+test('legacy tool definitions are normalized into OpenAI-compatible tools', () => {
+  const tools = normalizeToolDefinitionList(JSON.stringify([
+    {
+      name: 'search_web',
+      description: '搜索网络获取最新法律法规参考',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+        },
+        required: ['query'],
+      },
+    },
+  ]));
+
+  assert.deepEqual(tools, [
+    {
+      type: 'function',
+      function: {
+        name: 'search_web',
+        description: '搜索网络获取最新法律法规参考',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+          },
+          required: ['query'],
+        },
+      },
+    },
+  ]);
+});
+
+test('agent skill bindings are matched by namespace before legacy names', () => {
+  const bindings = normalizeAgentSkillBindings([
+    'legal.contract.risk-check',
+    '合同条款风险识别',
+    'legal.contract.risk-check',
+    '',
+  ]);
+  const lookup = buildAgentSkillLookupClause(bindings);
+
+  assert.deepEqual(bindings, ['legal.contract.risk-check', '合同条款风险识别']);
+  assert.equal(
+    lookup?.clause,
+    '(skill.namespace IN (:...skillBindings) OR skill.name IN (:...skillBindings))',
+  );
+  assert.deepEqual(lookup?.params, {
+    skillBindings: ['legal.contract.risk-check', '合同条款风险识别'],
+  });
+});
+
+test('capability tree snapshots preserve parent-child SKU structure', () => {
+  const snapshot = buildCapabilityTreeSnapshot([
+    { id: 1, parentId: null, nodeType: 'domain', label: '法务合规', domain: 'legal', orderIndex: 0 },
+    { id: 2, parentId: 1, nodeType: 'stage', label: '合同审查', domain: 'legal', subDomain: 'contract', orderIndex: 0 },
+    {
+      id: 3,
+      parentId: 2,
+      nodeType: 'skill',
+      label: '合同条款风险识别',
+      skillId: 12,
+      namespace: 'legal.contract.risk-check',
+      orderIndex: 0,
+    },
+  ]);
+
+  assert.equal(snapshot.length, 1);
+  assert.equal(snapshot[0].children[0].children[0].namespace, 'legal.contract.risk-check');
+  assert.deepEqual(collectSkillNamespacesFromSnapshot(snapshot), ['legal.contract.risk-check']);
 });
 
 test('buildSkillPackageZip emits the standard multi-file skill bundle', async () => {

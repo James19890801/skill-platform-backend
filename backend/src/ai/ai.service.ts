@@ -12,6 +12,11 @@ import { SkillResolverService } from '../skill-runtime/skill-resolver.service';
 import { KnowledgeService, KnowledgeSourceReference } from '../knowledge/knowledge.service';
 import { LlmService } from '../llm/llm.service';
 import { PersonalContextService } from '../personal-context/personal-context.service';
+import { buildAgentSkillLookupClause, normalizeAgentSkillBindings } from './skill-binding';
+import {
+  collectSkillNamespacesFromSnapshot,
+  parseCapabilityTreeSnapshot,
+} from '../capabilities/capability-tree';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -563,15 +568,26 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
             systemPrompt += `\n\n以下是当前用户的个人记忆，仅对该用户生效，不能泄露给其他用户：\n${personalContext.memoryContext}`;
           }
 
-          const agentSkills: string[] = agent.skills
-            ? (typeof agent.skills === 'string' ? JSON.parse(agent.skills) : agent.skills)
-            : (skills || []);
+          const capabilitySkillNamespaces = collectSkillNamespacesFromSnapshot(
+            parseCapabilityTreeSnapshot((agent as any).capabilityTreeSnapshot),
+          );
+          const agentSkills = normalizeAgentSkillBindings([
+            ...capabilitySkillNamespaces,
+            ...(
+            agent.skills
+              ? (typeof agent.skills === 'string' ? JSON.parse(agent.skills) : agent.skills)
+              : (skills || [])
+            ),
+          ]);
 
           if (agentSkills.length > 0) {
-            const skillDefs = await this.skillRepository
-              .createQueryBuilder('skill')
-              .where('skill.name IN (:...names)', { names: agentSkills })
-              .getMany();
+            const lookup = buildAgentSkillLookupClause(agentSkills);
+            const skillDefs = lookup
+              ? await this.skillRepository
+                .createQueryBuilder('skill')
+                .where(lookup.clause, lookup.params)
+                .getMany()
+              : [];
 
             if (skillDefs.length > 0) {
               const skillsContext = skillDefs.map((s) => {

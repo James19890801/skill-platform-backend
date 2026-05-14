@@ -2,7 +2,7 @@
  * AgentCreate - 创建 Agent 页面
  * 配置 Agent 的模型、Skills、知识库、记忆等
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Card,
   Form,
@@ -25,6 +25,7 @@ import {
   Alert,
   Modal,
   Tooltip,
+  Tabs,
 } from 'antd';
 import { useAuthStore } from '../../stores/useAuthStore';
 import {
@@ -43,6 +44,10 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { SkillDomain, DomainLabels } from '../../types';
 import { LlmModel, McpServerConfig, llmApi, knowledgeApi, mcpApi } from '../../services/api';
+import CapabilityTreeBuilder, {
+  CapabilityNodeSnapshot,
+  CapabilitySkillOption,
+} from '../../components/capabilities/CapabilityTreeBuilder';
 import {
   AGENT_ICON_LIBRARY,
   DEFAULT_AGENT_ICON,
@@ -62,6 +67,8 @@ interface AgentCreateProps {
     model: string;
     systemPrompt?: string;
     skills: string[];
+    capabilityTreeId?: number | null;
+    capabilityTreeSnapshot?: CapabilityNodeSnapshot[];
     knowledgeBases: string[];
     mcpServers?: McpServerConfig[];
     memoryEnabled: boolean;
@@ -75,20 +82,13 @@ interface AgentCreateProps {
 const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
   const navigate = useNavigate();
   const [form] = Form.useForm();
-  const selectedSkillIds = Form.useWatch('skills', form);
+  const selectedSkillIds = (Form.useWatch('skills', form) || []) as string[];
   const selectedMcpServers = (Form.useWatch('mcpServers', form) || []) as McpServerConfig[];
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [selectedSubDomain, setSelectedSubDomain] = useState<string | null>(null);
-  const [availableSkills, setAvailableSkills] = useState<Array<{
-    id: string;
-    name: string;
-    description: string;
-    domain?: string;
-    subDomain?: string;
-    abilityName?: string;
-  }>>([]);
+  const [availableSkills, setAvailableSkills] = useState<CapabilitySkillOption[]>([]);
   const [availableModels, setAvailableModels] = useState<LlmModel[]>([]);
   const [availableKnowledgeBases, setAvailableKnowledgeBases] = useState<Array<{ id: number; name: string; documentCount: number }>>([]);
   const [mcpMarketplace, setMcpMarketplace] = useState<McpServerConfig[]>([]);
@@ -108,6 +108,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
           setAvailableSkills(
             json.data.items.map((s: any) => ({
               id: s.namespace || `skill-${s.id}`,
+              skillId: s.id,
               name: s.name,
               description: s.description || '',
               domain: s.domain,
@@ -153,6 +154,8 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
         model: initialData.model,
         systemPrompt: initialData.systemPrompt || '',
         skills: initialData.skills || [],
+        capabilityTreeId: initialData.capabilityTreeId || null,
+        capabilityTreeSnapshot: initialData.capabilityTreeSnapshot || [],
         knowledgeBases: initialData.knowledgeBases || [],
         mcpServers: initialData.mcpServers || [],
         memoryEnabled: initialData.memoryEnabled,
@@ -192,7 +195,9 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
         model: values.model,
         avatar,
         systemPrompt: values.systemPrompt,
-        skills: values.skills || [],
+        skills: form.getFieldValue('skills') || [],
+        capabilityTreeId: form.getFieldValue('capabilityTreeId') || null,
+        capabilityTreeSnapshot: form.getFieldValue('capabilityTreeSnapshot') || [],
         knowledgeBases: values.knowledgeBases || [],
         mcpServers: form.getFieldValue('mcpServers') || [],
         memoryEnabled: values.memoryEnabled,
@@ -273,6 +278,14 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
     return server.url || '';
   };
 
+  const handleCapabilitySkillsChange = useCallback((ids: string[]) => {
+    form.setFieldValue('skills', ids);
+  }, [form]);
+
+  const handleCapabilitySnapshotChange = useCallback((snapshot: CapabilityNodeSnapshot[]) => {
+    form.setFieldValue('capabilityTreeSnapshot', snapshot);
+  }, [form]);
+
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: 24 }}>
       <Title level={3} style={{ textAlign: 'center', marginBottom: 24 }}>
@@ -302,6 +315,8 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
             memoryEnabled: true,
             temperature: 0.7,
             mcpServers: [],
+            skills: [],
+            capabilityTreeSnapshot: [],
           }}
         >
           {/* Step 1: 基础配置 */}
@@ -526,143 +541,166 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
           {/* Step 2: 能力配置 */}
           <div style={{ display: currentStep === 1 ? 'block' : 'none' }}>
             <>
-              <Form.Item
-                name="skills"
-                label={<Title level={5} style={{ margin: 0 }}>选择 Skills</Title>}
-              >
-                <Checkbox.Group style={{ width: '100%' }}>
-                  {/* === 领域筛选 === */}
-                  {(() => {
-                    const allDomains = [...new Set(availableSkills.map(s => s.domain).filter(Boolean))] as string[];
-                    return (
-                      <div style={{ marginBottom: 16 }}>
-                        <Text type="secondary" style={{ fontSize: 12, marginBottom: 6, display: 'block' }}>
-                          按领域筛选
-                        </Text>
-                        <Space wrap size={[4, 8]}>
-                          <Tag.CheckableTag
-                            checked={selectedDomain === null}
-                            onChange={() => { setSelectedDomain(null); setSelectedSubDomain(null); }}
-                            style={{ borderRadius: 12, padding: '2px 14px' }}
-                          >
-                            全部
-                          </Tag.CheckableTag>
-                          {allDomains.map(domain => (
-                            <Tag.CheckableTag
-                              key={domain}
-                              checked={selectedDomain === domain}
-                              onChange={() => {
-                                setSelectedDomain(domain === selectedDomain ? null : domain);
-                                setSelectedSubDomain(null);
-                              }}
-                              style={{ borderRadius: 12, padding: '2px 14px' }}
-                            >
-                              {DomainLabels[domain as SkillDomain] || domain}
-                            </Tag.CheckableTag>
-                          ))}
-                        </Space>
-                      </div>
-                    );
-                  })()}
+              <div style={{ marginBottom: 8 }}>
+                <Title level={5} style={{ margin: 0 }}>能力装配</Title>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  默认使用能力树组织 SKU，快速选择保留原有卡片交互。
+                </Text>
+              </div>
 
-                  {/* === 子域筛选 === */}
-                  {selectedDomain && (() => {
-                    const subDomains = [...new Set(
-                      availableSkills.filter(s => s.domain === selectedDomain).map(s => s.subDomain).filter(Boolean)
-                    )] as string[];
-                    if (subDomains.length === 0) return null;
-                    return (
-                      <div style={{ marginBottom: 16, marginLeft: 8 }}>
-                        <Text type="secondary" style={{ fontSize: 12, marginBottom: 6, display: 'block' }}>
-                          子域
-                        </Text>
-                        <Space wrap size={[4, 8]}>
-                          <Tag.CheckableTag
-                            checked={selectedSubDomain === null}
-                            onChange={() => setSelectedSubDomain(null)}
-                            style={{ borderRadius: 12, padding: '2px 14px' }}
-                          >
-                            全部子域
-                          </Tag.CheckableTag>
-                          {subDomains.map(sd => (
-                            <Tag.CheckableTag
-                              key={sd}
-                              checked={selectedSubDomain === sd}
-                              onChange={checked => setSelectedSubDomain(checked ? sd : null)}
-                              style={{ borderRadius: 12, padding: '2px 14px' }}
-                            >
-                              {sd.replace(/_/g, ' ')}
-                            </Tag.CheckableTag>
-                          ))}
-                        </Space>
-                      </div>
-                    );
-                  })()}
-
-                  {/* === 已选计数 === */}
-                  <Text style={{
-                    fontSize: 12, marginBottom: 12, display: 'block',
-                    color: (selectedSkillIds?.length || 0) > 0 ? '#6366f1' : '#999',
-                  }}>
-                    {(selectedSkillIds?.length || 0) > 0
-                      ? `已选择 ${selectedSkillIds.length} 个 Skill`
-                      : '尚未选择任何 Skill'
-                    }
-                  </Text>
-
-                  {/* === Skill 卡片列表 === */}
-                  <div style={{ maxHeight: 300, overflowY: 'auto', overflowX: 'hidden', paddingRight: 4, marginRight: -4 }}>
-                    <Row gutter={[12, 12]}>
-                    {(() => {
-                      let filtered = availableSkills;
-                      if (selectedDomain) filtered = filtered.filter(s => s.domain === selectedDomain);
-                      if (selectedSubDomain) filtered = filtered.filter(s => s.subDomain === selectedSubDomain);
-                      return filtered.length > 0 ? filtered.map((skill) => (
-                        <Col xs={24} md={12} key={skill.id}>
-                          <Card
-                            hoverable
-                            style={{ borderRadius: 10, border: '1px solid #e8e8e8', height: 118, overflow: 'hidden' }}
-                            bodyStyle={{ padding: 12, height: '100%' }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                              <Checkbox value={skill.id} style={{ marginTop: 3 }} />
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
-                                  <Text strong style={{ fontSize: 14, maxWidth: 180 }} ellipsis>{skill.name}</Text>
-                                  {skill.abilityName && (
-                                    <Tag style={{ fontSize: 10, lineHeight: '18px', marginRight: 0 }}>{skill.abilityName}</Tag>
-                                  )}
-                                  {skill.domain && (
-                                    <Tag color="blue" style={{ fontSize: 10, lineHeight: '18px', marginRight: 0 }}>
-                                      {DomainLabels[skill.domain as SkillDomain] || skill.domain}
-                                    </Tag>
-                                  )}
-                                </div>
-                                <Text type="secondary" style={{
-                                  fontSize: 12,
-                                  display: '-webkit-box',
-                                  WebkitLineClamp: 2,
-                                  WebkitBoxOrient: 'vertical',
-                                  overflow: 'hidden',
-                                }}>
-                                  {skill.description}
+              <Tabs
+                defaultActiveKey="tree"
+                items={[
+                  {
+                    key: 'tree',
+                    label: '能力树',
+                    children: (
+                      <CapabilityTreeBuilder
+                        skills={availableSkills}
+                        selectedSkillIds={selectedSkillIds}
+                        onSkillsChange={handleCapabilitySkillsChange}
+                        onSnapshotChange={handleCapabilitySnapshotChange}
+                      />
+                    ),
+                  },
+                  {
+                    key: 'quick',
+                    label: '快速选择',
+                    children: (
+                      <Form.Item name="skills" noStyle>
+                        <Checkbox.Group style={{ width: '100%' }}>
+                          {(() => {
+                            const allDomains = [...new Set(availableSkills.map(s => s.domain).filter(Boolean))] as string[];
+                            return (
+                              <div style={{ marginBottom: 16 }}>
+                                <Text type="secondary" style={{ fontSize: 12, marginBottom: 6, display: 'block' }}>
+                                  按领域筛选
                                 </Text>
+                                <Space wrap size={[4, 8]}>
+                                  <Tag.CheckableTag
+                                    checked={selectedDomain === null}
+                                    onChange={() => { setSelectedDomain(null); setSelectedSubDomain(null); }}
+                                    style={{ borderRadius: 12, padding: '2px 14px' }}
+                                  >
+                                    全部
+                                  </Tag.CheckableTag>
+                                  {allDomains.map(domain => (
+                                    <Tag.CheckableTag
+                                      key={domain}
+                                      checked={selectedDomain === domain}
+                                      onChange={() => {
+                                        setSelectedDomain(domain === selectedDomain ? null : domain);
+                                        setSelectedSubDomain(null);
+                                      }}
+                                      style={{ borderRadius: 12, padding: '2px 14px' }}
+                                    >
+                                      {DomainLabels[domain as SkillDomain] || domain}
+                                    </Tag.CheckableTag>
+                                  ))}
+                                </Space>
                               </div>
-                            </div>
-                          </Card>
-                        </Col>
-                      )) : (
-                        <Col span={24}>
-                          <div style={{ padding: '40px 0' }}>
-                            <Empty description="该分类下暂无 Skill" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                            );
+                          })()}
+
+                          {selectedDomain && (() => {
+                            const subDomains = [...new Set(
+                              availableSkills.filter(s => s.domain === selectedDomain).map(s => s.subDomain).filter(Boolean)
+                            )] as string[];
+                            if (subDomains.length === 0) return null;
+                            return (
+                              <div style={{ marginBottom: 16, marginLeft: 8 }}>
+                                <Text type="secondary" style={{ fontSize: 12, marginBottom: 6, display: 'block' }}>
+                                  子域
+                                </Text>
+                                <Space wrap size={[4, 8]}>
+                                  <Tag.CheckableTag
+                                    checked={selectedSubDomain === null}
+                                    onChange={() => setSelectedSubDomain(null)}
+                                    style={{ borderRadius: 12, padding: '2px 14px' }}
+                                  >
+                                    全部子域
+                                  </Tag.CheckableTag>
+                                  {subDomains.map(sd => (
+                                    <Tag.CheckableTag
+                                      key={sd}
+                                      checked={selectedSubDomain === sd}
+                                      onChange={checked => setSelectedSubDomain(checked ? sd : null)}
+                                      style={{ borderRadius: 12, padding: '2px 14px' }}
+                                    >
+                                      {sd.replace(/_/g, ' ')}
+                                    </Tag.CheckableTag>
+                                  ))}
+                                </Space>
+                              </div>
+                            );
+                          })()}
+
+                          <Text style={{
+                            fontSize: 12, marginBottom: 12, display: 'block',
+                            color: selectedSkillIds.length > 0 ? '#6366f1' : '#999',
+                          }}>
+                            {selectedSkillIds.length > 0
+                              ? `已选择 ${selectedSkillIds.length} 个 Skill`
+                              : '尚未选择任何 Skill'
+                            }
+                          </Text>
+
+                          <div style={{ maxHeight: 300, overflowY: 'auto', overflowX: 'hidden', paddingRight: 4, marginRight: -4 }}>
+                            <Row gutter={[12, 12]}>
+                              {(() => {
+                                let filtered = availableSkills;
+                                if (selectedDomain) filtered = filtered.filter(s => s.domain === selectedDomain);
+                                if (selectedSubDomain) filtered = filtered.filter(s => s.subDomain === selectedSubDomain);
+                                return filtered.length > 0 ? filtered.map((skill) => (
+                                  <Col xs={24} md={12} key={skill.id}>
+                                    <Card
+                                      hoverable
+                                      style={{ borderRadius: 10, border: '1px solid #e8e8e8', height: 118, overflow: 'hidden' }}
+                                      bodyStyle={{ padding: 12, height: '100%' }}
+                                    >
+                                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                        <Checkbox value={skill.id} style={{ marginTop: 3 }} />
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
+                                            <Text strong style={{ fontSize: 14, maxWidth: 180 }} ellipsis>{skill.name}</Text>
+                                            {skill.abilityName && (
+                                              <Tag style={{ fontSize: 10, lineHeight: '18px', marginRight: 0 }}>{skill.abilityName}</Tag>
+                                            )}
+                                            {skill.domain && (
+                                              <Tag color="blue" style={{ fontSize: 10, lineHeight: '18px', marginRight: 0 }}>
+                                                {DomainLabels[skill.domain as SkillDomain] || skill.domain}
+                                              </Tag>
+                                            )}
+                                          </div>
+                                          <Text type="secondary" style={{
+                                            fontSize: 12,
+                                            display: '-webkit-box',
+                                            WebkitLineClamp: 2,
+                                            WebkitBoxOrient: 'vertical',
+                                            overflow: 'hidden',
+                                          }}>
+                                            {skill.description}
+                                          </Text>
+                                        </div>
+                                      </div>
+                                    </Card>
+                                  </Col>
+                                )) : (
+                                  <Col span={24}>
+                                    <div style={{ padding: '40px 0' }}>
+                                      <Empty description="该分类下暂无 Skill" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                                    </div>
+                                  </Col>
+                                );
+                              })()}
+                            </Row>
                           </div>
-                        </Col>
-                      );
-                    })()}
-                    </Row>
-                  </div>
-                </Checkbox.Group>
-              </Form.Item>
+                        </Checkbox.Group>
+                      </Form.Item>
+                    ),
+                  },
+                ]}
+              />
 
               <Divider />
 

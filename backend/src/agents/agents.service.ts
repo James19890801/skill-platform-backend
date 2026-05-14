@@ -41,6 +41,8 @@ export class AgentsService {
     const agent = this.agentRepository.create({
       ...dto,
       skills: dto.skills ? JSON.stringify(dto.skills) : '[]',
+      capabilityTreeId: dto.capabilityTreeId ?? null,
+      capabilityTreeSnapshot: dto.capabilityTreeSnapshot ? JSON.stringify(dto.capabilityTreeSnapshot) : '[]',
       knowledgeBases: dto.knowledgeBases ? JSON.stringify(dto.knowledgeBases) : '[]',
       mcpServers: dto.mcpServers ? JSON.stringify(this.mcpService.normalize(dto.mcpServers)) : '[]',
       ownerId,
@@ -60,6 +62,12 @@ export class AgentsService {
     const updateData: any = { ...dto };
     if (dto.skills !== undefined) {
       updateData.skills = JSON.stringify(dto.skills);
+    }
+    if (dto.capabilityTreeId !== undefined) {
+      updateData.capabilityTreeId = dto.capabilityTreeId;
+    }
+    if (dto.capabilityTreeSnapshot !== undefined) {
+      updateData.capabilityTreeSnapshot = JSON.stringify(dto.capabilityTreeSnapshot);
     }
     if (dto.knowledgeBases !== undefined) {
       updateData.knowledgeBases = JSON.stringify(dto.knowledgeBases);
@@ -87,6 +95,7 @@ export class AgentsService {
     return {
       ...agent,
       skills: this.parseJsonArray(agent.skills),
+      capabilityTreeSnapshot: this.parseJsonArray(agent.capabilityTreeSnapshot),
       knowledgeBases: this.parseJsonArray(agent.knowledgeBases),
       mcpServers: this.parseJsonArray(agent.mcpServers),
     };

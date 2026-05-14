@@ -522,6 +522,8 @@ export interface AgentDTO {
   model: string;
   systemPrompt?: string;
   skills: string[];
+  capabilityTreeId?: number | null;
+  capabilityTreeSnapshot?: CapabilityNodeSnapshot[];
   knowledgeBases: string[];
   mcpServers: McpServerConfig[];
   memoryEnabled: boolean;
@@ -547,6 +549,56 @@ export const agentsApi = {
 
   delete: (id: number): Promise<void> =>
     apiClient.delete(`/agents/${id}`),
+};
+
+// ============================================
+// Capability Tree API
+// ============================================
+export interface CapabilityNodeSnapshot {
+  id: number;
+  parentId: number | null;
+  nodeType: 'domain' | 'stage' | 'group' | 'skill';
+  label: string;
+  domain?: string | null;
+  subDomain?: string | null;
+  skillId?: number | null;
+  namespace?: string | null;
+  orderIndex?: number;
+  loopPolicy?: unknown;
+  conditionExpression?: string | null;
+  children: CapabilityNodeSnapshot[];
+}
+
+export interface CapabilityTreeDTO {
+  id: number;
+  name: string;
+  description?: string | null;
+  ownerId?: number | null;
+  scope: string;
+  version: string;
+  status: string;
+  nodes?: unknown[];
+  edges?: unknown[];
+  snapshot?: CapabilityNodeSnapshot[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const capabilityTreesApi = {
+  list: (): Promise<{ items: CapabilityTreeDTO[]; total: number }> =>
+    apiClient.get('/capability-trees'),
+
+  getById: (id: number): Promise<CapabilityTreeDTO> =>
+    apiClient.get(`/capability-trees/${id}`),
+
+  create: (data: Record<string, unknown>): Promise<CapabilityTreeDTO> =>
+    apiClient.post('/capability-trees', data),
+
+  update: (id: number, data: Record<string, unknown>): Promise<CapabilityTreeDTO> =>
+    apiClient.put(`/capability-trees/${id}`, data),
+
+  delete: (id: number): Promise<void> =>
+    apiClient.delete(`/capability-trees/${id}`),
 };
 
 // ============================================

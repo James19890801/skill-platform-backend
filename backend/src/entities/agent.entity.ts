@@ -29,6 +29,12 @@ export class Agent {
   @Column({ type: 'text', nullable: true })
   skills: string; // JSON: ['skill-id-1', 'skill-id-2']
 
+  @Column({ type: 'integer', nullable: true })
+  capabilityTreeId: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  capabilityTreeSnapshot: string | null; // JSON: serialized capability tree used by this Agent
+
   @Column({ type: 'text', nullable: true })
   knowledgeBases: string; // JSON: ['kb-1', 'kb-2']
 

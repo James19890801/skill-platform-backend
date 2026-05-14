@@ -282,10 +282,53 @@ function normalizeFiles(files: unknown[]): SkillPackageFile[] {
     });
 }
 
+export function normalizeToolDefinitionList(raw: string | null | undefined): any[] {
+  return normalizeTools(parseToolDefinitions(raw));
+}
+
 function normalizeTools(tools: unknown[]): any[] {
   return tools
-    .flatMap((tool) => Array.isArray(tool) ? tool : [tool])
-    .filter((tool) => isRecord(tool) && isRecord(tool.function) && typeof tool.function.name === 'string');
+    .flatMap((tool) => Array.isArray(tool) ? normalizeTools(tool) : [normalizeToolDefinition(tool)])
+    .filter((tool): tool is any => tool !== null);
+}
+
+function normalizeToolDefinition(tool: unknown): any | null {
+  if (!isRecord(tool)) return null;
+
+  if (isRecord(tool.function)) {
+    const name = pickString(tool.function.name);
+    if (!name) return null;
+
+    return {
+      type: 'function',
+      function: {
+        name,
+        description: pickString(tool.function.description, tool.description, name),
+        parameters: normalizeToolParameters(tool.function.parameters),
+      },
+    };
+  }
+
+  const legacyName = pickString(tool.name);
+  if (!legacyName) return null;
+
+  return {
+    type: 'function',
+    function: {
+      name: legacyName,
+      description: pickString(tool.description, legacyName),
+      parameters: normalizeToolParameters(tool.parameters),
+    },
+  };
+}
+
+function normalizeToolParameters(value: unknown): Record<string, unknown> {
+  if (isRecord(value)) return value;
+  return {
+    type: 'object',
+    properties: {},
+    required: [],
+  };
 }
 
 function normalizeTriggers(triggers: unknown[]): SkillTriggerRule[] {

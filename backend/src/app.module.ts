@@ -24,6 +24,7 @@ import { McpModule } from './mcp/mcp.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { PersonalContextModule } from './personal-context/personal-context.module';
 import { AutomationsModule } from './automations/automations.module';
+import { CapabilitiesModule } from './capabilities/capabilities.module';
 import {
   User,
   Skill,
@@ -45,6 +46,9 @@ import {
   SkillRuntimeArtifact,
   SkillRuntimeEvent,
   SkillRuntimeStep,
+  CapabilityTree,
+  CapabilityNode,
+  CapabilityEdge,
   ThreadEntity,
   MessageEntity,
   RunEntity,
@@ -112,6 +116,9 @@ const entities = [
   SkillRuntimeArtifact,
   SkillRuntimeEvent,
   SkillRuntimeStep,
+  CapabilityTree,
+  CapabilityNode,
+  CapabilityEdge,
   ThreadEntity,
   MessageEntity,
   RunEntity,
@@ -177,6 +184,7 @@ function buildTypeOrmOptions(): TypeOrmModuleOptions {
     MonitoringModule,
     PersonalContextModule,
     AutomationsModule,
+    CapabilitiesModule,
     ProtocolModule,
     OpenAiCompatibleModule,
   ],
