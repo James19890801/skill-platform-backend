@@ -131,6 +131,40 @@ test('findAll seeds platform automation blueprints with no runs', async () => {
   assert.equal(result.items.some((item) => item.triggerType === 'flow'), true);
 });
 
+test('findAll does not seed blueprint demo data in production by default', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousSeedFlag = process.env.AUTOMATION_SEED_BLUEPRINTS;
+  process.env.NODE_ENV = 'production';
+  delete process.env.AUTOMATION_SEED_BLUEPRINTS;
+
+  try {
+    const taskRepo = makeRepository<any>();
+    const runRepo = makeRepository<any>();
+    const protocol = makeProtocolService();
+    const ai = makeAiService();
+    const resolver = makeSkillResolver();
+    const executor = makeSkillExecutor();
+    const service = new AutomationsService(
+      taskRepo as any,
+      runRepo as any,
+      protocol as any,
+      ai as any,
+      resolver as any,
+      executor as any,
+    );
+
+    const result = await service.findAll();
+
+    assert.equal(result.total, 0);
+    assert.equal(taskRepo.items.length, 0);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousSeedFlag === undefined) delete process.env.AUTOMATION_SEED_BLUEPRINTS;
+    else process.env.AUTOMATION_SEED_BLUEPRINTS = previousSeedFlag;
+  }
+});
+
 test('runAutomation executes the automation prompt through AI and records the result', async () => {
   const taskRepo = makeRepository<any>([
     {

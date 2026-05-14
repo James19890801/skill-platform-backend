@@ -423,6 +423,8 @@ export class AutomationsService {
   }
 
   private async seedIfEmpty() {
+    if (!this.shouldSeedBlueprints()) return;
+
     const total = await this.automationRepository.count();
     if (total > 0) return;
 
@@ -443,6 +445,14 @@ export class AutomationsService {
     }));
 
     await this.automationRepository.save(tasks);
+  }
+
+  private shouldSeedBlueprints() {
+    const flag = process.env.AUTOMATION_SEED_BLUEPRINTS?.trim().toLowerCase();
+    if (flag) {
+      return ['1', 'true', 'yes', 'on'].includes(flag);
+    }
+    return process.env.NODE_ENV !== 'production';
   }
 
   private toTaskDto(task: AutomationTask, runs: AutomationRun[] = []) {
