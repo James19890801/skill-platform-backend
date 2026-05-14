@@ -214,6 +214,45 @@ test('runAutomation executes the automation prompt through AI and records the re
   assert.match(run.outputPreview, /Skill「晨会纪要」已实际执行完成/);
 });
 
+test('runAutomation falls back to direct AI execution when configured skills are unavailable', async () => {
+  const taskRepo = makeRepository<any>([
+    {
+      id: 9,
+      name: '临时业务自动化',
+      description: '没有可执行 Skill 时仍然要输出结果。',
+      status: 'active',
+      triggerType: 'event',
+      triggerLabel: '手动触发',
+      prompt: '生成业务摘要',
+      skills: '["不存在的发布Skill"]',
+      orchestration: '{"nodes":["trigger","agent_result"]}',
+    },
+  ]);
+  const runRepo = makeRepository<any>();
+  const protocol = makeProtocolService();
+  const ai = makeAiService('AI 直接执行结果');
+  const resolver = makeSkillResolver();
+  const executor = makeSkillExecutor();
+  const service = new AutomationsService(
+    taskRepo as any,
+    runRepo as any,
+    protocol as any,
+    ai as any,
+    resolver as any,
+    executor as any,
+  );
+
+  const run = await service.runAutomation(9, { trigger: 'manual' });
+
+  assert.equal(run.status, 'completed');
+  assert.match(run.outputPreview, /AI 直接执行结果/);
+  assert.equal(ai.calls.length, 1);
+  assert.equal(executor.calls.length, 0);
+  const assistantMessage = protocol.calls.find((call) => call.type === 'appendMessage' && call.input.role === 'assistant').input;
+  assert.equal(assistantMessage.metadata.executionMode, 'ai-fallback');
+  assert.deepEqual(assistantMessage.metadata.missingSkills, ['不存在的发布Skill']);
+});
+
 test('runAutomation records a failed run when AI execution fails', async () => {
   const taskRepo = makeRepository<any>([
     {

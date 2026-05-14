@@ -297,7 +297,21 @@ export class AutomationsService {
         };
       }
 
-      throw new Error(`未找到可执行 Skill：${skills.join('、')}`);
+      const content = await this.aiService.chatStream(
+        this.buildMissingSkillFallbackInput(executionInput, skills),
+        null,
+        undefined,
+        automation.agentId,
+        [],
+        threadId,
+      );
+      return {
+        content,
+        metadata: {
+          executionMode: 'ai-fallback',
+          missingSkills: skills,
+        },
+      };
     }
 
     const content = await this.aiService.chatStream(
@@ -366,6 +380,16 @@ export class AutomationsService {
       `上一次输出：\n${previousOutput}`,
       '# 请重新输出',
       '请不要输出 JSON 工具调用。请直接给出最终报告；如果缺少实时数据或工具不可用，请明确说明缺口、采用截至当前可得信息的谨慎结论，并给出下一步行动。',
+    ].join('\n\n');
+  }
+
+  private buildMissingSkillFallbackInput(executionInput: string, skills: string[]) {
+    return [
+      executionInput,
+      '# 执行约束',
+      `当前环境未找到这些可执行 Skill：${skills.join('、')}。`,
+      '请不要声称已经调用这些 Skill。请改用通用 AI 能力直接完成自动化任务，并在结果开头简要说明本次为“未找到配置 Skill 后的直接执行”。',
+      '如果缺少实时数据、业务上下文或系统连接，请明确列出缺口，并给出当前可执行的结论和下一步动作。',
     ].join('\n\n');
   }
 
