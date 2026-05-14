@@ -97,10 +97,12 @@ export class CapabilitiesService {
     await this.edgeRepository.delete({ treeId });
     await this.nodeRepository.delete({ treeId });
 
+    const clientNodeIdToSavedId = new Map<number, number>();
+
     if (dto.nodes?.length) {
-      await this.nodeRepository.save(dto.nodes.map((node, index) => this.nodeRepository.create({
+      const savedNodes = await this.nodeRepository.save(dto.nodes.map((node, index) => this.nodeRepository.create({
         treeId,
-        parentId: node.parentId ?? null,
+        parentId: null,
         nodeType: node.nodeType || 'group',
         label: node.label,
         domain: node.domain || null,
@@ -111,13 +113,31 @@ export class CapabilitiesService {
         loopPolicy: node.loopPolicy === undefined ? null : JSON.stringify(node.loopPolicy),
         conditionExpression: node.conditionExpression || null,
       })));
+
+      savedNodes.forEach((node, index) => {
+        const clientId = dto.nodes?.[index]?.id ?? index + 1;
+        clientNodeIdToSavedId.set(clientId, node.id);
+      });
+
+      const nodesWithParents = savedNodes
+        .map((savedNode, index) => {
+          const clientParentId = dto.nodes?.[index]?.parentId;
+          if (clientParentId == null) return null;
+          savedNode.parentId = clientNodeIdToSavedId.get(clientParentId) ?? clientParentId;
+          return savedNode;
+        })
+        .filter((node): node is CapabilityNode => Boolean(node));
+
+      if (nodesWithParents.length) {
+        await this.nodeRepository.save(nodesWithParents);
+      }
     }
 
     if (dto.edges?.length) {
       await this.edgeRepository.save(dto.edges.map((edge, index) => this.edgeRepository.create({
         treeId,
-        sourceNodeId: edge.sourceNodeId,
-        targetNodeId: edge.targetNodeId,
+        sourceNodeId: clientNodeIdToSavedId.get(edge.sourceNodeId) ?? edge.sourceNodeId,
+        targetNodeId: clientNodeIdToSavedId.get(edge.targetNodeId) ?? edge.targetNodeId,
         edgeType: edge.edgeType || 'sequence',
         conditionExpression: edge.conditionExpression || null,
         priority: edge.priority ?? index,
