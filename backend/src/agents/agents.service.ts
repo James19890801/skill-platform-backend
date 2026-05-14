@@ -11,6 +11,9 @@ import { McpService } from '../mcp/mcp.service';
 
 @Injectable()
 export class AgentsService {
+  private readonly listCacheTtlMs = Math.max(Number(process.env.AGENTS_LIST_CACHE_TTL_MS || 15000), 0);
+  private listCache: { expiresAt: number; payload: { items: ReturnType<AgentsService['parseAgent']>[]; total: number } } | null = null;
+
   constructor(
     @InjectRepository(Agent)
     private agentRepository: Repository<Agent>,
@@ -18,13 +21,40 @@ export class AgentsService {
   ) {}
 
   async findAll() {
+    const now = Date.now();
+    if (this.listCache && this.listCache.expiresAt > now) {
+      return this.cloneAgentListPayload(this.listCache.payload);
+    }
+
     const [items, total] = await this.agentRepository.findAndCount({
+      select: [
+        'id',
+        'name',
+        'description',
+        'avatar',
+        'model',
+        'skills',
+        'knowledgeBases',
+        'memoryEnabled',
+        'temperature',
+        'maxTokens',
+        'status',
+        'ownerId',
+        'capabilityTreeId',
+        'createdAt',
+        'updatedAt',
+      ],
       order: { updatedAt: 'DESC' },
     });
-    return {
+    const payload = {
       items: items.map((agent) => this.parseAgent(agent)),
       total,
     };
+    this.listCache = {
+      expiresAt: now + this.listCacheTtlMs,
+      payload,
+    };
+    return this.cloneAgentListPayload(payload);
   }
 
   async findOne(id: number) {
@@ -48,6 +78,7 @@ export class AgentsService {
       ownerId,
     });
     const saved = await this.agentRepository.save(agent);
+    this.invalidateListCache();
     return this.parseAgent(saved);
   }
 
@@ -76,6 +107,7 @@ export class AgentsService {
       updateData.mcpServers = JSON.stringify(this.mcpService.normalize(dto.mcpServers));
     }
     await this.agentRepository.update(id, updateData);
+    this.invalidateListCache();
     return this.findOne(id);
   }
 
@@ -88,7 +120,25 @@ export class AgentsService {
     }
 
     await this.agentRepository.delete(id);
+    this.invalidateListCache();
     return agent;
+  }
+
+  private invalidateListCache() {
+    this.listCache = null;
+  }
+
+  private cloneAgentListPayload(payload: { items: ReturnType<AgentsService['parseAgent']>[]; total: number }) {
+    return {
+      total: payload.total,
+      items: payload.items.map((agent) => ({
+        ...agent,
+        skills: [...agent.skills],
+        capabilityTreeSnapshot: [...agent.capabilityTreeSnapshot],
+        knowledgeBases: [...agent.knowledgeBases],
+        mcpServers: [...agent.mcpServers],
+      })),
+    };
   }
 
   private parseAgent(agent: Agent) {

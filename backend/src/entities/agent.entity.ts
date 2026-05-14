@@ -1,5 +1,6 @@
 import {
   Entity,
+  Index,
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
@@ -7,6 +8,7 @@ import {
 } from 'typeorm';
 
 @Entity('agents')
+@Index(['updatedAt'])
 export class Agent {
   @PrimaryGeneratedColumn()
   id: number;

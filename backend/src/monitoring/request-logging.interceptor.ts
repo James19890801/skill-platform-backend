@@ -69,13 +69,29 @@ export function shouldRecordHttpRequest(input: {
   statusCode: number;
   durationMs: number;
   slowRequestMs?: number;
+  successSampleRate?: number;
 }) {
   const slowRequestMs = input.slowRequestMs ?? Number(process.env.SLOW_REQUEST_MS || 8000);
   const pathOnly = normalizeRequestPath(input.path);
   const routePath = pathOnly.replace(/^\/api(?=\/)/, '');
   const isMonitoringRead = routePath === '/monitoring/summary' || routePath === '/monitoring/events';
-  if (!isMonitoringRead) return true;
-  return input.statusCode >= 400 || input.durationMs >= slowRequestMs;
+  const isImportant = input.statusCode >= 400 || input.durationMs >= slowRequestMs;
+  if (isImportant) return true;
+  if (isMonitoringRead) return false;
+  const successSampleRate = getSuccessSampleRate(input.successSampleRate);
+  return successSampleRate > 0 && Math.random() < successSampleRate;
+}
+
+function getSuccessSampleRate(inputRate?: number) {
+  if (inputRate !== undefined) return clampSampleRate(inputRate);
+  const envRate = process.env.HTTP_SUCCESS_SAMPLE_RATE;
+  if (envRate !== undefined) return clampSampleRate(Number(envRate));
+  return process.env.NODE_ENV === 'production' ? 0 : 1;
+}
+
+function clampSampleRate(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
 }
 
 function normalizeRequestPath(path: string) {

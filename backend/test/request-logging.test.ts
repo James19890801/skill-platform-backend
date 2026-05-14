@@ -47,3 +47,29 @@ test('monitoring requests are still recorded when they are slow or failing', () 
     slowRequestMs: 8000,
   }), true);
 });
+
+test('successful non-monitoring requests are sampled instead of always written', () => {
+  assert.equal(shouldRecordHttpRequest({
+    path: '/api/agents',
+    statusCode: 200,
+    durationMs: 120,
+    slowRequestMs: 8000,
+    successSampleRate: 0,
+  }), false);
+
+  assert.equal(shouldRecordHttpRequest({
+    path: '/api/agents',
+    statusCode: 200,
+    durationMs: 120,
+    slowRequestMs: 8000,
+    successSampleRate: 1,
+  }), true);
+
+  assert.equal(shouldRecordHttpRequest({
+    path: '/api/agents',
+    statusCode: 200,
+    durationMs: 9000,
+    slowRequestMs: 8000,
+    successSampleRate: 0,
+  }), true);
+});

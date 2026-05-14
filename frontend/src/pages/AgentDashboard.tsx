@@ -71,6 +71,9 @@ type AgentWithSignals = AgentDTO & {
   _statusText: string;
 };
 
+const AGENT_LIST_CACHE_KEY = 'agent-dashboard:last-list:v1';
+const AGENT_LIST_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
 const localBlueprints = [
   {
     title: '审批快速分析',
@@ -118,6 +121,46 @@ function normalizeQueueStatus(payload: unknown): QueueStatus | null {
   return null;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function readCachedAgentList(): AgentDTO[] | null {
+  try {
+    const raw = window.localStorage.getItem(AGENT_LIST_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt?: number; items?: AgentDTO[] };
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > AGENT_LIST_CACHE_MAX_AGE_MS) return null;
+    return Array.isArray(parsed.items) ? parsed.items : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedAgentList(items: AgentDTO[]) {
+  try {
+    window.localStorage.setItem(AGENT_LIST_CACHE_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      items,
+    }));
+  } catch {
+    // Ignore storage quota or private-mode failures; the live API remains authoritative.
+  }
+}
+
+async function loadAgentsWithRetry() {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await agentsApi.list();
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) await sleep(500);
+    }
+  }
+  throw lastError;
+}
+
 function getAgentScore(agent: AgentDTO) {
   const skillCount = agent.skills?.length || 0;
   const kbCount = agent.knowledgeBases?.length || 0;
@@ -156,6 +199,7 @@ const AgentDashboard: React.FC = () => {
   const [sortBy, setSortBy] = useState<SortMode>('hot');
   const [likedAgents, setLikedAgents] = useState<Set<number>>(new Set());
   const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
+  const [agentDetailsById, setAgentDetailsById] = useState<Record<number, AgentDTO>>({});
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
   const { isAuthenticated, isAdmin } = useAuthStore();
@@ -163,13 +207,21 @@ const AgentDashboard: React.FC = () => {
   const fetchAgents = async () => {
     setLoading(true);
     try {
-      const data = await agentsApi.list();
+      const data = await loadAgentsWithRetry();
       const items = data?.items || [];
       setAgents(items);
       setSelectedAgentId((current) => current ?? items[0]?.id ?? null);
+      writeCachedAgentList(items);
     } catch (error) {
       console.error('获取 Agent 列表失败:', error);
-      message.warning('Agent 列表加载失败，已保留本地工作台入口');
+      const cachedItems = readCachedAgentList();
+      if (cachedItems?.length) {
+        setAgents(cachedItems);
+        setSelectedAgentId((current) => current ?? cachedItems[0]?.id ?? null);
+        message.warning('网络暂时不稳定，已展示上次成功加载的 Agent 列表');
+      } else {
+        message.warning('Agent 列表加载失败，请稍后重试');
+      }
     } finally {
       setLoading(false);
     }
@@ -223,6 +275,32 @@ const AgentDashboard: React.FC = () => {
     return agentsWithSignals.find((agent) => agent.id === selectedAgentId) || filteredAndSorted[0] || agentsWithSignals[0] || null;
   }, [agentsWithSignals, filteredAndSorted, selectedAgentId]);
 
+  useEffect(() => {
+    if (!selectedAgent?.id || agentDetailsById[selectedAgent.id]) return;
+    let cancelled = false;
+    agentsApi
+      .getById(selectedAgent.id)
+      .then((detail) => {
+        if (cancelled) return;
+        setAgentDetailsById((current) => ({
+          ...current,
+          [selectedAgent.id]: detail,
+        }));
+      })
+      .catch(() => {
+        // The list card is still usable; detail can be fetched again when the user reselects.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentDetailsById, selectedAgent?.id]);
+
+  const selectedAgentView = useMemo(() => {
+    if (!selectedAgent) return null;
+    const detail = agentDetailsById[selectedAgent.id];
+    return detail ? { ...selectedAgent, ...detail } : selectedAgent;
+  }, [agentDetailsById, selectedAgent]);
+
   const metrics = useMemo(() => {
     const skillBindings = agents.reduce((sum, agent) => sum + (agent.skills?.length || 0), 0);
     const knowledgeBindings = agents.reduce((sum, agent) => sum + (agent.knowledgeBases?.length || 0), 0);
@@ -274,6 +352,11 @@ const AgentDashboard: React.FC = () => {
           await agentsApi.delete(agentId);
           message.success('Agent 已删除');
           if (selectedAgentId === agentId) setSelectedAgentId(null);
+          setAgentDetailsById((current) => {
+            const next = { ...current };
+            delete next[agentId];
+            return next;
+          });
           fetchAgents();
         } catch (error: any) {
           const detail = error?.response?.data?.message || error?.message || '删除失败';
@@ -486,12 +569,12 @@ const AgentDashboard: React.FC = () => {
               </Tooltip>
             </div>
 
-            {selectedAgent ? (
+            {selectedAgentView ? (
               <>
                 <div className="selected-agent-score">
                   <Progress
                     type="circle"
-                    percent={selectedAgent._score}
+                    percent={selectedAgentView._score}
                     size={84}
                     strokeColor="#2563eb"
                     trailColor="#e5e7eb"
@@ -503,22 +586,22 @@ const AgentDashboard: React.FC = () => {
                 </div>
 
                 <div className="capability-stack">
-                  <div><ThunderboltOutlined /> {(selectedAgent.skills || []).length} 个 Skill</div>
-                  <div><DatabaseOutlined /> {(selectedAgent.knowledgeBases || []).length} 个知识库</div>
-                  <div><CloudOutlined /> {selectedAgent.memoryEnabled ? '长期记忆已开' : '长期记忆未开'}</div>
-                  <div><ApiOutlined /> {selectedAgent.model || '模型未配置'}</div>
+                  <div><ThunderboltOutlined /> {(selectedAgentView.skills || []).length} 个 Skill</div>
+                  <div><DatabaseOutlined /> {(selectedAgentView.knowledgeBases || []).length} 个知识库</div>
+                  <div><CloudOutlined /> {selectedAgentView.memoryEnabled ? '长期记忆已开' : '长期记忆未开'}</div>
+                  <div><ApiOutlined /> {selectedAgentView.model || '模型未配置'}</div>
                 </div>
 
                 <div className="prompt-preview">
                   <span>系统提示词</span>
-                  <p>{selectedAgent.systemPrompt || '暂无系统提示词，建议补齐角色、边界和工具使用策略。'}</p>
+                  <p>{selectedAgentView.systemPrompt || '暂无系统提示词，建议补齐角色、边界和工具使用策略。'}</p>
                 </div>
 
                 <Space wrap>
-                  <Button icon={<EditOutlined />} onClick={() => navigate('/agents/edit/' + selectedAgent.id)}>
+                  <Button icon={<EditOutlined />} onClick={() => navigate('/agents/edit/' + selectedAgentView.id)}>
                     编辑配置
                   </Button>
-                  <Button icon={<MessageOutlined />} onClick={() => navigate('/chat/' + selectedAgent.id)}>
+                  <Button icon={<MessageOutlined />} onClick={() => navigate('/chat/' + selectedAgentView.id)}>
                     打开会话
                   </Button>
                 </Space>

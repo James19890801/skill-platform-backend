@@ -1,6 +1,10 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity('operational_events')
+@Index(['createdAt'])
+@Index(['level', 'createdAt'])
+@Index(['category', 'createdAt'])
+@Index(['durationMs'])
 export class OperationalEvent {
   @PrimaryGeneratedColumn()
   id: number;
