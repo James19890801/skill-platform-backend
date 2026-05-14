@@ -53,6 +53,8 @@ import {
   FileOutlined,
   ReloadOutlined,
   PlusOutlined,
+  LeftOutlined,
+  RightOutlined,
   ThunderboltOutlined,
   GlobalOutlined,
   SettingOutlined,
@@ -81,6 +83,15 @@ interface Message {
   timestamp: Date;
   artifacts?: Artifact[];
   knowledgeSources?: KnowledgeSourceReference[];
+  status?: 'normal' | 'error';
+  retryPayload?: ChatRetryPayload;
+}
+
+type ChatAttachment = { name: string; type: string; dataUrl: string };
+
+interface ChatRetryPayload {
+  content: string;
+  attachments: ChatAttachment[];
 }
 
 interface Artifact {
@@ -138,6 +149,9 @@ interface WorkspaceFile {
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
+const STREAM_IDLE_TIMEOUT_MS = 45_000;
+const CHAT_REQUEST_TIMEOUT_MS = 10 * 60_000;
+const INITIAL_STREAM_RETRY_LIMIT = 2;
 
 const AgentChatCanvas: React.FC = () => {
   const { agentId } = useParams();
@@ -167,6 +181,7 @@ const AgentChatCanvas: React.FC = () => {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [historyVisible, setHistoryVisible] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Workspace 文件管理
   const [workspaceVisible, setWorkspaceVisible] = useState(false);
@@ -174,7 +189,7 @@ const AgentChatCanvas: React.FC = () => {
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
 
   // 附件上传状态
-  const [attachments, setAttachments] = useState<Array<{ name: string; type: string; dataUrl: string }>>([]);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [chatSkills, setChatSkills] = useState<ISkill[]>([]);
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
 
@@ -1016,13 +1031,18 @@ const AgentChatCanvas: React.FC = () => {
     };
   }, [isDragging]);
 
-  const sendMessage = async () => {
-    if (!inputValue.trim() || isLoading) return;
+  const sendMessage = async (retryPayload?: ChatRetryPayload) => {
+    const outgoingContent = (retryPayload?.content ?? inputValue).trim();
+    if (!outgoingContent || isLoading) return;
+
+    const outgoingAttachments = retryPayload?.attachments
+      ? retryPayload.attachments.map((item) => ({ ...item }))
+      : attachments.map((item) => ({ ...item }));
 
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
       role: 'user',
-      content: inputValue.trim(),
+      content: outgoingContent,
       timestamp: new Date(),
     };
 
@@ -1041,87 +1061,159 @@ const AgentChatCanvas: React.FC = () => {
       timestamp: new Date(),
     }]);
 
+    let assistantContent = '';
+    let hasAssistantContent = false;
+    let knowledgeSources: KnowledgeSourceReference[] = [];
+
+    const updateAssistantMessage = (content: string, patch: Partial<Message> = {}) => {
+      setMessages((prev) => {
+        const lastMsg = prev[prev.length - 1];
+        const nextMessage: Message = {
+          ...(lastMsg?.role === 'assistant' && lastMsg.id.startsWith('msg-assistant')
+            ? lastMsg
+            : {
+                id: `msg-assistant-${Date.now()}`,
+                role: 'assistant' as const,
+                timestamp: new Date(),
+              }),
+          content,
+          knowledgeSources,
+          status: 'normal',
+          retryPayload: undefined,
+          ...patch,
+        };
+        if (lastMsg?.role === 'assistant' && lastMsg.id.startsWith('msg-assistant')) {
+          return [...prev.slice(0, -1), nextMessage];
+        }
+        return [...prev, nextMessage];
+      });
+    };
+
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const getReadableChatError = (error: any) => {
+      const raw = String(error?.message || error || '未知错误');
+      if (!navigator.onLine) return '当前网络已断开，请恢复网络后重试';
+      if (raw.includes('Failed to fetch') || raw.includes('NetworkError')) {
+        return '无法连接到服务，可能是网络波动或后端服务暂时不可用';
+      }
+      return raw;
+    };
+
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-      let response = await fetch(`${API_BASE}/threads/${encodeURIComponent(currentThreadId)}/runs/stream`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          input: userMessage.content,
-          model: selectedModel,
-          agent_id: agentId ? Number(agentId) : undefined,
-          stream: true,
-          attachments: attachments.length > 0 ? attachments.map(a => ({ name: a.name, type: a.type, dataUrl: a.dataUrl })) : undefined,
-        }),
+      const streamRequestBody = JSON.stringify({
+        input: userMessage.content,
+        model: selectedModel,
+        agent_id: agentId ? Number(agentId) : undefined,
+        stream: true,
+        attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
+      });
+      const chatRequestBody = JSON.stringify({
+        thread_id: currentThreadId,
+        message: userMessage.content,
+        model: selectedModel,
+        agentId: agentId ? Number(agentId) : undefined,
+        stream: true,
+        attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
       });
 
-      if (response.status === 404) {
-        response = await fetch(`${API_BASE}/ai/chat`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            thread_id: currentThreadId,
-            message: userMessage.content,
-            model: selectedModel,
-            agentId: agentId ? Number(agentId) : undefined,
-            stream: true,
-            attachments: attachments.length > 0 ? attachments.map(a => ({ name: a.name, type: a.type, dataUrl: a.dataUrl })) : undefined,
-          }),
-        });
-      }
+      const runStreamAttempt = async () => {
+        const controller = new AbortController();
+        let streamStarted = false;
+        let abortReason = '请求已取消';
+        let idleTimer: ReturnType<typeof setTimeout> | null = null;
+        const totalTimer = setTimeout(() => {
+          abortReason = '回答执行超过 10 分钟，已停止等待';
+          controller.abort();
+        }, CHAT_REQUEST_TIMEOUT_MS);
 
-      if (!response.ok) {
-        throw new Error(`API 响应失败: ${response.status}`);
-      }
+        const resetIdleTimer = () => {
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => {
+            abortReason = '连接长时间没有新内容，已停止等待';
+            controller.abort();
+          }, STREAM_IDLE_TIMEOUT_MS);
+        };
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let assistantContent = '';
-      let hasAssistantContent = false;
-      let pendingBuffer = '';
-      let knowledgeSources: KnowledgeSourceReference[] = [];
+        const clearTimers = () => {
+          if (idleTimer) clearTimeout(idleTimer);
+          clearTimeout(totalTimer);
+        };
 
-      const updateAssistantMessage = (content: string) => {
-        setMessages((prev) => {
-          const lastMsg = prev[prev.length - 1];
-          if (lastMsg?.role === 'assistant' && lastMsg.id.startsWith('msg-assistant')) {
-            return [...prev.slice(0, -1), { ...lastMsg, content, knowledgeSources }];
+        try {
+          resetIdleTimer();
+          let response = await fetch(`${API_BASE}/threads/${encodeURIComponent(currentThreadId)}/runs/stream`, {
+            method: 'POST',
+            headers,
+            body: streamRequestBody,
+            signal: controller.signal,
+          });
+          resetIdleTimer();
+
+          if (response.status === 404) {
+            response = await fetch(`${API_BASE}/ai/chat`, {
+              method: 'POST',
+              headers,
+              body: chatRequestBody,
+              signal: controller.signal,
+            });
+            resetIdleTimer();
           }
-          return [...prev, {
-            id: `msg-assistant-${Date.now()}`,
-            role: 'assistant',
-            content,
-            timestamp: new Date(),
-            knowledgeSources,
-          }];
-        });
-      };
 
-      if (reader) {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) {
-            if (pendingBuffer.trim()) {
-              pendingBuffer += '\n';
+          if (!response.ok) {
+            const bodyText = await response.text().catch(() => '');
+            const apiError = new Error(`API 响应失败: ${response.status}${bodyText ? `，${bodyText.slice(0, 180)}` : ''}`);
+            (apiError as any).retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+            throw apiError;
+          }
+
+          streamStarted = true;
+          const reader = response.body?.getReader();
+          if (!reader) {
+            throw new Error('浏览器没有收到可读取的响应流');
+          }
+
+          const decoder = new TextDecoder();
+          let pendingBuffer = '';
+
+          for (;;) {
+            const { done, value } = await reader.read();
+            resetIdleTimer();
+            if (done) {
+              if (pendingBuffer.trim()) {
+                pendingBuffer += '\n';
+              } else {
+                break;
+              }
             } else {
-              break;
+              pendingBuffer += decoder.decode(value, { stream: true });
             }
-          } else {
-            pendingBuffer += decoder.decode(value, { stream: true });
-          }
 
-          const lines = pendingBuffer.split('\n');
-          pendingBuffer = lines.pop() || '';
+            const lines = pendingBuffer.split('\n');
+            pendingBuffer = lines.pop() || '';
 
-          for (const line of lines) {
-            if (line.startsWith('data:')) {
-              const dataStr = line.slice(5).trim();
-              if (dataStr === '[DONE]' || dataStr === '') continue;
+            for (const line of lines) {
+              if (line.startsWith('data:')) {
+                const dataStr = line.slice(5).trim();
+                if (dataStr === '[DONE]' || dataStr === '') continue;
 
-              try {
-                const data = JSON.parse(dataStr);
+                let data: any;
+                try {
+                  data = JSON.parse(dataStr);
+                } catch {
+                  continue;
+                }
+
+                if (data.type === 'heartbeat') {
+                  continue;
+                }
+
+                if (data.type === 'error' || data.error) {
+                  throw new Error(data.content || data.error || 'AI 服务返回错误');
+                }
 
                 // ★ 处理 Skill 执行事件
                 if (data.type === 'execution_start') {
@@ -1133,8 +1225,8 @@ const AgentChatCanvas: React.FC = () => {
                     status: 'running',
                     startTime: Date.now(),
                   });
-                  // 在对话中插入一个标记
                   assistantContent += `\n\n> **Skill 执行中**: ${data.data.skillName}\n`;
+                  updateAssistantMessage(assistantContent);
                   continue;
                 }
 
@@ -1169,8 +1261,8 @@ const AgentChatCanvas: React.FC = () => {
                       output: doneData.output,
                     };
                   });
-                  // 在对话中追加完成信息
-                  assistantContent += `\n✅ **${doneData.skillName}** 执行完成！共 ${doneData.totalRounds} 轮，耗时 ${(doneData.totalDurationMs / 1000).toFixed(1)} 秒，产出 ${doneData.artifacts?.length || 0} 个交付物。`;
+                  assistantContent += `\n${doneData.skillName} 执行完成。共 ${doneData.totalRounds} 轮，耗时 ${(doneData.totalDurationMs / 1000).toFixed(1)} 秒，产出 ${doneData.artifacts?.length || 0} 个交付物。`;
+                  updateAssistantMessage(assistantContent);
                   continue;
                 }
 
@@ -1193,13 +1285,33 @@ const AgentChatCanvas: React.FC = () => {
                   assistantContent += data.content;
                   updateAssistantMessage(assistantContent);
                 }
-              } catch (e) {
-                // 忽略解析错误
               }
             }
-          }
 
-          if (done) break;
+            if (done) break;
+          }
+        } catch (error: any) {
+          if (controller.signal.aborted) {
+            error = new Error(abortReason);
+          }
+          error.streamStarted = streamStarted;
+          throw error;
+        } finally {
+          clearTimers();
+        }
+      };
+
+      for (let attempt = 1; attempt <= INITIAL_STREAM_RETRY_LIMIT; attempt += 1) {
+        try {
+          await runStreamAttempt();
+          break;
+        } catch (error: any) {
+          const canAutoRetry = attempt < INITIAL_STREAM_RETRY_LIMIT && error.retryable !== false && !error.streamStarted && !hasAssistantContent;
+          if (!canAutoRetry) {
+            throw error;
+          }
+          updateAssistantMessage(`连接中断，正在自动重试（${attempt + 1}/${INITIAL_STREAM_RETRY_LIMIT}）...`);
+          await delay(800 * attempt);
         }
       }
 
@@ -1214,23 +1326,30 @@ const AgentChatCanvas: React.FC = () => {
       });
 
     } catch (error: any) {
+      const readableError = getReadableChatError(error);
+      const partialContent = assistantContent.trim();
+      const errorContent = partialContent
+        ? `${partialContent}\n\n---\n\n回答中断：${readableError}`
+        : `回答中断：${readableError}\n\n你可以检查网络后重试，或稍后再试。`;
       // 更新占位消息为错误信息
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
+        const retryMessagePatch = {
+          content: errorContent,
+          status: 'error' as const,
+          retryPayload: { content: userMessage.content, attachments: outgoingAttachments },
+          timestamp: new Date(),
+        };
         if (lastMsg?.role === 'assistant' && lastMsg.id.startsWith('msg-assistant')) {
-          return [...prev.slice(0, -1), {
-            ...lastMsg,
-            content: `⚠️ API 连接失败，请检查配置。\n\n错误信息: ${error.message}`,
-            timestamp: new Date(),
-          }];
+          return [...prev.slice(0, -1), { ...lastMsg, ...retryMessagePatch }];
         }
         return [...prev, {
           id: `msg-fallback-${Date.now()}`,
           role: 'assistant',
-          content: `⚠️ API 连接失败，请检查配置。\n\n错误信息: ${error.message}`,
-          timestamp: new Date(),
+          ...retryMessagePatch,
         }];
       });
+      message.error('回答中断，可点击重试');
     }
 
     setIsLoading(false);
@@ -2227,52 +2346,71 @@ const AgentChatCanvas: React.FC = () => {
       </div>
 
       {/* 主区域：对话 + Canvas */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+      <div
+        className={`agent-chat-body ${sidebarCollapsed ? 'agent-chat-body-sidebar-collapsed' : ''}`}
+        style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}
+      >
         {!isMobile && (
-          <aside className="agent-chat-sidebar">
-            <div className="agent-chat-sidebar-header">
-              <Button icon={<AppstoreOutlined />} block onClick={() => navigate('/dashboard')} className="agent-sidebar-plaza">
-                广场
-              </Button>
-              <Button type="primary" icon={<PlusOutlined />} block onClick={newConversation}>
-                新对话
-              </Button>
-            </div>
-            <div className="agent-chat-list">
-              {loadingHistory ? (
-                <div style={{ padding: 24, textAlign: 'center' }}><Spin size="small" /></div>
-              ) : sidebarItems.length === 0 ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有会话" style={{ marginTop: 40 }} />
-              ) : (
-                sidebarItems.map((item) => (
-                  <div
-                    key={item.threadId}
-                    className={`agent-chat-item ${item.threadId === currentThreadId ? 'active' : ''}`}
-                    onClick={() => item.threadId !== currentThreadId && switchConversation(item.threadId)}
-                  >
-                    <div className="agent-chat-item-title">{item.firstMessage || '未命名对话'}</div>
-                    <div className="agent-chat-item-meta">{item.messageCount} 条消息 · #{item.threadId.slice(-6)}</div>
+          <>
+            <aside className={`agent-chat-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''}`} aria-hidden={sidebarCollapsed}>
+              {!sidebarCollapsed && (
+                <>
+                  <div className="agent-chat-sidebar-header">
+                    <Button icon={<AppstoreOutlined />} block onClick={() => navigate('/dashboard')} className="agent-sidebar-plaza">
+                      广场
+                    </Button>
+                    <Button type="primary" icon={<PlusOutlined />} block onClick={newConversation}>
+                      新对话
+                    </Button>
                   </div>
-                ))
+                  <div className="agent-chat-list">
+                    {loadingHistory ? (
+                      <div style={{ padding: 24, textAlign: 'center' }}><Spin size="small" /></div>
+                    ) : sidebarItems.length === 0 ? (
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有会话" style={{ marginTop: 40 }} />
+                    ) : (
+                      sidebarItems.map((item) => (
+                        <div
+                          key={item.threadId}
+                          className={`agent-chat-item ${item.threadId === currentThreadId ? 'active' : ''}`}
+                          onClick={() => item.threadId !== currentThreadId && switchConversation(item.threadId)}
+                        >
+                          <div className="agent-chat-item-title">{item.firstMessage || '未命名对话'}</div>
+                          <div className="agent-chat-item-meta">{item.messageCount} 条消息 · #{item.threadId.slice(-6)}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div
+                    className="agent-chat-sidebar-footer agent-chat-sidebar-footer-clickable"
+                    onClick={() => setPersonalContextOpen(true)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') setPersonalContextOpen(true);
+                    }}
+                  >
+                    <Avatar size={28} icon={<UserOutlined />} style={{ background: '#2563eb' }} />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <Text strong style={{ display: 'block', fontSize: 13 }} ellipsis>{currentUser?.email || '个人设置'}</Text>
+                      <Text type="secondary" style={{ fontSize: 11 }}>知识库 · MCP · 记忆</Text>
+                    </div>
+                    <SettingOutlined style={{ color: '#94a3b8', fontSize: 14 }} />
+                  </div>
+                </>
               )}
-            </div>
-            <div
-              className="agent-chat-sidebar-footer agent-chat-sidebar-footer-clickable"
-              onClick={() => setPersonalContextOpen(true)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') setPersonalContextOpen(true);
-              }}
-            >
-              <Avatar size={28} icon={<UserOutlined />} style={{ background: '#2563eb' }} />
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <Text strong style={{ display: 'block', fontSize: 13 }} ellipsis>{currentUser?.email || '个人设置'}</Text>
-                <Text type="secondary" style={{ fontSize: 11 }}>知识库 · MCP · 记忆</Text>
-              </div>
-              <SettingOutlined style={{ color: '#94a3b8', fontSize: 14 }} />
-            </div>
-          </aside>
+            </aside>
+            <Tooltip title={sidebarCollapsed ? '展开会话列表' : '收起会话列表'} placement="right">
+              <Button
+                type="text"
+                size="small"
+                className={`agent-chat-sidebar-toggle ${sidebarCollapsed ? 'is-collapsed' : ''}`}
+                icon={sidebarCollapsed ? <RightOutlined /> : <LeftOutlined />}
+                onClick={() => setSidebarCollapsed((value) => !value)}
+                aria-label={sidebarCollapsed ? '展开会话列表' : '收起会话列表'}
+              />
+            </Tooltip>
+          </>
         )}
         {/* 左侧：对话区 */}
         <div
@@ -2327,6 +2465,7 @@ const AgentChatCanvas: React.FC = () => {
                 const isLastAssistant = msg.role === 'assistant' && idx === messages.length - 1;
                 const showGlobalActions = isLastAssistant && !isLoading;
                 const isUser = msg.role === 'user';
+                const isAssistantError = msg.role === 'assistant' && msg.status === 'error';
                 return (
                   <div
                     key={msg.id}
@@ -2359,10 +2498,10 @@ const AgentChatCanvas: React.FC = () => {
                         marginLeft: isUser ? 0 : 8,
                         padding: isUser ? '4px 2px 6px' : '8px 16px',
                         borderRadius: isUser ? 0 : 10,
-                        background: isUser ? 'transparent' : '#fff',
+                        background: isUser ? 'transparent' : isAssistantError ? '#fff7ed' : '#fff',
                         color: '#111827',
                         boxShadow: isUser ? 'none' : '0 1px 2px rgba(0,0,0,0.04)',
-                        border: isUser ? 'none' : '1px solid var(--border-color)',
+                        border: isUser ? 'none' : isAssistantError ? '1px solid #fdba74' : '1px solid var(--border-color)',
                         lineHeight: isUser ? 1.72 : 1.55,
                         fontSize: isUser ? 15 : undefined,
                         fontWeight: isUser ? 450 : undefined,
@@ -2401,6 +2540,19 @@ const AgentChatCanvas: React.FC = () => {
                               {source.knowledgeBaseName} · {source.documentName} · #{source.chunkIndex + 1}
                             </Button>
                           ))}
+                        </div>
+                      )}
+
+                      {msg.role === 'assistant' && msg.status === 'error' && msg.retryPayload && (
+                        <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <Button
+                            size="small"
+                            icon={<ReloadOutlined />}
+                            onClick={() => msg.retryPayload && sendMessage(msg.retryPayload)}
+                            disabled={isLoading}
+                          >
+                            重试
+                          </Button>
                         </div>
                       )}
                       
@@ -2640,7 +2792,7 @@ const AgentChatCanvas: React.FC = () => {
                     type="primary"
                     shape="circle"
                     icon={<SendOutlined />}
-                    onClick={sendMessage}
+                    onClick={() => sendMessage()}
                     loading={isLoading}
                     size="small"
                     style={{ background: '#2563eb', border: 'none', width: 28, height: 28 }}
