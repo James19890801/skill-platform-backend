@@ -109,3 +109,17 @@ test('inferProcessMetadata extracts process fields for filtering', () => {
   assert.equal(metadata.status, '现行');
   assert.deepEqual(metadata.departments, ['财务部', '采购部']);
 });
+
+test('inferProcessMetadata extracts domain from process field labels', () => {
+  const metadata = inferProcessMetadata(
+    [
+      '流程编号：OPS-CHG-001',
+      '流程名称：系统变更流程',
+      '归口领域：运维',
+      '四级字段：申请人提交变更单，负责人审批，运维执行并复盘。',
+    ].join('\n'),
+    'OPS-CHG-001 系统变更流程.txt',
+  );
+
+  assert.equal(metadata.domain, '运维');
+});
