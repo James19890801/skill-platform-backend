@@ -4,6 +4,7 @@ import type { Response } from 'express';
 import { AiService } from '../ai/ai.service';
 import { OptionalAuthGuard } from '../auth/guards/optional-auth.guard';
 import { ProtocolService } from './protocol.service';
+import { RunConcurrencyLimiter, RunQueueRejectedError, RunSlot } from './run-concurrency-limiter';
 
 interface RunBody {
   agent_id?: number;
@@ -21,6 +22,7 @@ export class RunsController {
   constructor(
     private readonly protocolService: ProtocolService,
     private readonly aiService: AiService,
+    private readonly runLimiter: RunConcurrencyLimiter,
   ) {}
 
   @Post('api/threads/:threadId/runs/stream')
@@ -54,10 +56,12 @@ export class RunsController {
     const input = this.getInput(body);
     const agentId = body.agentId ?? body.agent_id;
     const run = await this.protocolService.createRun({ threadId, agentId, input: body });
-    await this.protocolService.markRunRunning(run.id);
     await this.protocolService.appendMessage({ threadId, role: 'user', content: input });
 
+    let slot: RunSlot | null = null;
     try {
+      slot = await this.runLimiter.acquire();
+      await this.protocolService.markRunRunning(run.id);
       const output = await this.aiService.chatStream(
         input,
         null,
@@ -74,7 +78,12 @@ export class RunsController {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Run 执行失败';
       await this.protocolService.markRunFailed(run.id, message);
-      throw new HttpException({ message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        { message },
+        err instanceof RunQueueRejectedError ? HttpStatus.TOO_MANY_REQUESTS : HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    } finally {
+      slot?.release();
     }
   }
 
@@ -111,13 +120,39 @@ export class RunsController {
       (res as any).flushHeaders();
     }
 
-    res.write(`data: ${JSON.stringify({ type: 'status', content: '正在准备回答...' })}\n\n`);
+    let streamClosed = false;
+    const safeWrite = (payload: string) => {
+      if (streamClosed || res.destroyed) return;
+      res.write(payload);
+    };
+    const heartbeatTimer = setInterval(() => {
+      safeWrite(`data: ${JSON.stringify({ type: 'heartbeat', timestamp: new Date().toISOString() })}\n\n`);
+    }, 15000);
+    if (typeof heartbeatTimer.unref === 'function') {
+      heartbeatTimer.unref();
+    }
+    res.on('close', () => {
+      streamClosed = true;
+      clearInterval(heartbeatTimer);
+    });
+
+    safeWrite(`data: ${JSON.stringify({ type: 'status', content: '正在准备回答...' })}\n\n`);
 
     let run: Awaited<ReturnType<ProtocolService['createRun']>> | null = null;
+    let slot: RunSlot | null = null;
     try {
       run = await this.protocolService.createRun({ threadId, agentId, input: body });
-      await this.protocolService.markRunRunning(run.id);
       await this.protocolService.appendMessage({ threadId, role: 'user', content: input });
+      slot = await this.runLimiter.acquire((snapshot) => {
+        safeWrite(`data: ${JSON.stringify({
+          type: 'status',
+          content: `当前对话较多，正在排队中：运行 ${snapshot.running}，等待 ${snapshot.queued}`,
+        })}\n\n`);
+      });
+      if (slot.queuedMs > 0) {
+        safeWrite(`data: ${JSON.stringify({ type: 'status', content: '已进入执行队列，开始生成回答...' })}\n\n`);
+      }
+      await this.protocolService.markRunRunning(run.id);
 
       const output = await this.aiService.chatStream(
         input,
@@ -128,14 +163,14 @@ export class RunsController {
             try {
               const parsed = JSON.parse(trimmed);
               if (parsed && typeof parsed === 'object' && typeof parsed.type === 'string') {
-                res.write(`data: ${trimmed}\n\n`);
+                safeWrite(`data: ${trimmed}\n\n`);
                 return;
               }
             } catch {
               // fall through and stream as text
             }
           }
-          res.write(`data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`);
+          safeWrite(`data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`);
         },
         body.model,
         agentId,
@@ -147,17 +182,20 @@ export class RunsController {
 
       await this.protocolService.appendMessage({ threadId, role: 'assistant', content: output });
       await this.protocolService.markRunCompleted(run.id, output, { model: body.model });
-      res.write(`event: done\ndata: ${JSON.stringify({ status: 'completed', run_id: run.id })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
+      safeWrite(`event: done\ndata: ${JSON.stringify({ status: 'completed', run_id: run.id })}\n\n`);
+      safeWrite('data: [DONE]\n\n');
+      if (!streamClosed) res.end();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Run 执行失败';
       if (run) {
         await this.protocolService.markRunFailed(run.id, message);
       }
-      res.write(`event: error\ndata: ${JSON.stringify({ error: message, run_id: run?.id })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
+      safeWrite(`event: error\ndata: ${JSON.stringify({ type: 'error', content: message, error: message, run_id: run?.id })}\n\n`);
+      safeWrite('data: [DONE]\n\n');
+      if (!streamClosed) res.end();
+    } finally {
+      slot?.release();
+      clearInterval(heartbeatTimer);
     }
   }
 

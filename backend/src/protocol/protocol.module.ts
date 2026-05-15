@@ -5,6 +5,7 @@ import { MessageEntity, RunEntity, ThreadEntity } from '../entities';
 import { RunsController } from './runs.controller';
 import { ThreadsController } from './threads.controller';
 import { ProtocolService } from './protocol.service';
+import { RunConcurrencyLimiter } from './run-concurrency-limiter';
 
 @Module({
   imports: [
@@ -12,7 +13,7 @@ import { ProtocolService } from './protocol.service';
     AiModule,
   ],
   controllers: [ThreadsController, RunsController],
-  providers: [ProtocolService],
+  providers: [ProtocolService, RunConcurrencyLimiter],
   exports: [ProtocolService],
 })
 export class ProtocolModule {}
