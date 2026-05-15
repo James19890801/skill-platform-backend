@@ -84,6 +84,9 @@ interface KnowledgeIndexingOptions {
 @Injectable()
 export class KnowledgeService {
   private readonly logger = new Logger(KnowledgeService.name);
+  private readonly listCacheTtlMs = Math.max(Number(process.env.KNOWLEDGE_LIST_CACHE_TTL_MS || 60000), 0);
+  private listCache: { expiresAt: number; payload: KnowledgeBase[] } | null = null;
+  private listCachePromise: Promise<KnowledgeBase[]> | null = null;
   private readonly embeddingClient: OpenAI;
   private readonly embeddingModel = process.env.EMBEDDING_MODEL || 'text-embedding-v4';
   private readonly embeddingBatchSize = positiveIntegerEnv('KNOWLEDGE_EMBEDDING_BATCH_SIZE', 16, 1);
@@ -123,10 +126,36 @@ export class KnowledgeService {
     knowledgeBase.status = createKnowledgeBaseDto.status || KnowledgeStatus.CONNECTED;
     knowledgeBase.userId = userId;
 
-    return await this.knowledgeRepository.save(knowledgeBase);
+    const saved = await this.knowledgeRepository.save(knowledgeBase);
+    this.invalidateListCache();
+    return saved;
   }
 
   async findAll(): Promise<KnowledgeBase[]> {
+    const now = Date.now();
+    if (this.listCacheTtlMs > 0 && this.listCache && this.listCache.expiresAt > now) {
+      return this.listCache.payload;
+    }
+    if (this.listCachePromise) {
+      return this.listCachePromise;
+    }
+
+    this.listCachePromise = this.loadAllKnowledgeBases();
+    try {
+      const payload = await this.listCachePromise;
+      if (this.listCacheTtlMs > 0) {
+        this.listCache = {
+          expiresAt: now + this.listCacheTtlMs,
+          payload,
+        };
+      }
+      return payload;
+    } finally {
+      this.listCachePromise = null;
+    }
+  }
+
+  private async loadAllKnowledgeBases(): Promise<KnowledgeBase[]> {
     const knowledgeBases = await this.knowledgeRepository.find({
       order: { createdAt: 'DESC' },
     });
@@ -188,7 +217,9 @@ export class KnowledgeService {
     Object.assign(knowledgeBase, updateKnowledgeBaseDto);
     knowledgeBase.updatedAt = new Date();
 
-    return await this.knowledgeRepository.save(knowledgeBase);
+    const saved = await this.knowledgeRepository.save(knowledgeBase);
+    this.invalidateListCache();
+    return saved;
   }
 
   async updateForUser(id: number, updateKnowledgeBaseDto: UpdateKnowledgeBaseDto, userId: number): Promise<KnowledgeBase> {
@@ -200,7 +231,9 @@ export class KnowledgeService {
     Object.assign(knowledgeBase, updateKnowledgeBaseDto);
     knowledgeBase.updatedAt = new Date();
 
-    return await this.knowledgeRepository.save(knowledgeBase);
+    const saved = await this.knowledgeRepository.save(knowledgeBase);
+    this.invalidateListCache();
+    return saved;
   }
 
   async remove(id: number): Promise<void> {
@@ -208,6 +241,7 @@ export class KnowledgeService {
     await this.chunkRepository.delete({ knowledgeBaseId: id });
     await this.documentRepository.delete({ knowledgeBaseId: id });
     await this.knowledgeRepository.remove(knowledgeBase);
+    this.invalidateListCache();
   }
 
   async removeForUser(id: number, userId: number): Promise<void> {
@@ -215,6 +249,7 @@ export class KnowledgeService {
     await this.chunkRepository.delete({ knowledgeBaseId: id });
     await this.documentRepository.delete({ knowledgeBaseId: id });
     await this.knowledgeRepository.remove(knowledgeBase);
+    this.invalidateListCache();
   }
 
   async sync(apiKey: string, kbId: string): Promise<{ success: boolean; message: string }> {
@@ -291,6 +326,7 @@ export class KnowledgeService {
     knowledgeBase.documentCount = await this.documentRepository.count({ where: { knowledgeBaseId } });
     knowledgeBase.status = 'syncing';
     await this.knowledgeRepository.save(knowledgeBase);
+    this.invalidateListCache();
     this.scheduleIngestionQueue();
 
     return {
@@ -380,6 +416,7 @@ export class KnowledgeService {
       knowledgeBase.documentCount = await this.documentRepository.count({ where: { knowledgeBaseId: document.knowledgeBaseId } });
       knowledgeBase.status = KnowledgeStatus.CONNECTED;
       await this.knowledgeRepository.save(knowledgeBase);
+      this.invalidateListCache();
       await this.recordKnowledgeEvent('info', 'knowledge.upload.indexed', `${displayName} 已完成索引`, {
         knowledgeBaseId: document.knowledgeBaseId,
         documentId: document.id,
@@ -798,6 +835,11 @@ export class KnowledgeService {
       normalized.chunkCount = chunkCounts.get(normalized.id) ?? 0;
       return normalized;
     });
+  }
+
+  private invalidateListCache() {
+    this.listCache = null;
+    this.listCachePromise = null;
   }
 
   private async getDocumentNameMap(documentIds: number[]): Promise<Map<number, string>> {

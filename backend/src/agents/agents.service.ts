@@ -17,6 +17,7 @@ import {
 export class AgentsService {
   private readonly listCacheTtlMs = Math.max(Number(process.env.AGENTS_LIST_CACHE_TTL_MS || 15000), 0);
   private listCache: { expiresAt: number; payload: { items: ReturnType<AgentsService['parseAgent']>[]; total: number } } | null = null;
+  private listCachePromise: Promise<{ items: ReturnType<AgentsService['parseAgent']>[]; total: number }> | null = null;
 
   constructor(
     @InjectRepository(Agent)
@@ -30,6 +31,24 @@ export class AgentsService {
       return this.cloneAgentListPayload(this.listCache.payload);
     }
 
+    if (this.listCachePromise) {
+      return this.cloneAgentListPayload(await this.listCachePromise);
+    }
+
+    this.listCachePromise = this.loadAgentListPayload();
+    try {
+      const payload = await this.listCachePromise;
+      this.listCache = {
+        expiresAt: now + this.listCacheTtlMs,
+        payload,
+      };
+      return this.cloneAgentListPayload(payload);
+    } finally {
+      this.listCachePromise = null;
+    }
+  }
+
+  private async loadAgentListPayload() {
     const [items, total] = await this.agentRepository.findAndCount({
       select: [
         'id',
@@ -55,11 +74,7 @@ export class AgentsService {
       items: items.map((agent) => this.parseAgent(agent)),
       total,
     };
-    this.listCache = {
-      expiresAt: now + this.listCacheTtlMs,
-      payload,
-    };
-    return this.cloneAgentListPayload(payload);
+    return payload;
   }
 
   async findOne(id: number) {
@@ -135,6 +150,7 @@ export class AgentsService {
 
   private invalidateListCache() {
     this.listCache = null;
+    this.listCachePromise = null;
   }
 
   private cloneAgentListPayload(payload: { items: ReturnType<AgentsService['parseAgent']>[]; total: number }) {

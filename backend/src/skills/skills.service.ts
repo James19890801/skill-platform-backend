@@ -27,6 +27,10 @@ import {
 
 @Injectable()
 export class SkillsService {
+  private readonly listCacheTtlMs = Math.max(Number(process.env.SKILLS_LIST_CACHE_TTL_MS || 60000), 0);
+  private readonly listCache = new Map<string, { expiresAt: number; payload: Awaited<ReturnType<SkillsService['loadFindAll']>> }>();
+  private readonly listCachePromises = new Map<string, Promise<Awaited<ReturnType<SkillsService['loadFindAll']>>>>();
+
   constructor(
     @InjectRepository(Skill)
     private skillRepository: Repository<Skill>,
@@ -37,6 +41,35 @@ export class SkillsService {
   ) {}
 
   async findAll(query: SkillQueryDto) {
+    const cacheKey = this.getListCacheKey(query);
+    const now = Date.now();
+    const cached = this.listCache.get(cacheKey);
+    if (this.listCacheTtlMs > 0 && cached && cached.expiresAt > now) {
+      return cached.payload;
+    }
+
+    const existingPromise = this.listCachePromises.get(cacheKey);
+    if (existingPromise) {
+      return existingPromise;
+    }
+
+    const promise = this.loadFindAll(query);
+    this.listCachePromises.set(cacheKey, promise);
+    try {
+      const payload = await promise;
+      if (this.listCacheTtlMs > 0) {
+        this.listCache.set(cacheKey, {
+          expiresAt: now + this.listCacheTtlMs,
+          payload,
+        });
+      }
+      return payload;
+    } finally {
+      this.listCachePromises.delete(cacheKey);
+    }
+  }
+
+  private async loadFindAll(query: SkillQueryDto) {
     const { domain, status, scope, page = 1, limit = 10, search, processArchitectureNodeId } = query;
 
     const where: any = {};
@@ -107,6 +140,7 @@ export class SkillsService {
 
     const savedSkill = await this.skillRepository.save(skill);
     await this.refreshPackageHash(savedSkill.id);
+    this.invalidateListCache();
 
     const version = this.versionRepository.create({
       skillId: savedSkill.id,
@@ -163,6 +197,7 @@ export class SkillsService {
     Object.assign(skill, updateData);
     await this.skillRepository.save(skill);
     await this.refreshPackageHash(id);
+    this.invalidateListCache();
 
     return this.findOne(id);
   }
@@ -178,6 +213,7 @@ export class SkillsService {
     await this.versionRepository.delete({ skillId: id });
     await this.reviewRepository.delete({ skillId: id });
     await this.skillRepository.delete(id);
+    this.invalidateListCache();
 
     return { success: true };
   }
@@ -200,6 +236,7 @@ export class SkillsService {
 
     skill.status = 'reviewing';
     await this.skillRepository.save(skill);
+    this.invalidateListCache();
 
     return this.findOne(id);
   }
@@ -220,6 +257,7 @@ export class SkillsService {
 
     skill.status = 'published';
     await this.skillRepository.save(skill);
+    this.invalidateListCache();
 
     return this.findOne(id);
   }
@@ -233,6 +271,7 @@ export class SkillsService {
 
     skill.status = 'archived';
     await this.skillRepository.save(skill);
+    this.invalidateListCache();
 
     return this.findOne(id);
   }
@@ -370,6 +409,24 @@ export class SkillsService {
     }
 
     return skill;
+  }
+
+  private invalidateListCache() {
+    this.listCache.clear();
+    this.listCachePromises.clear();
+  }
+
+  private getListCacheKey(query: SkillQueryDto) {
+    const normalized = {
+      domain: query.domain || '',
+      status: query.status || '',
+      scope: query.scope || '',
+      page: Number(query.page || 1),
+      limit: Number(query.limit || 10),
+      search: query.search || '',
+      processArchitectureNodeId: query.processArchitectureNodeId ? Number(query.processArchitectureNodeId) : '',
+    };
+    return JSON.stringify(normalized);
   }
 
   private parseSkill(skill: Skill) {
