@@ -7,6 +7,11 @@ import { User } from '../entities/user.entity';
 
 @Injectable()
 export class AuthService {
+  private readonly loginAuditDelayMs = Math.max(Number(process.env.AUTH_LOGIN_AUDIT_DELAY_MS || 10000), 0);
+  private readonly pendingLoginAudits = new Map<number, { count: number; lastLoginAt: Date }>();
+  private loginAuditTimer: NodeJS.Timeout | null = null;
+  private flushingLoginAudits = false;
+
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
@@ -75,10 +80,11 @@ export class AuthService {
       });
       user = await this.userRepository.save(user);
     } else {
-      // 已有用户，更新登录信息
-      user.lastLoginAt = new Date();
+      // 已有用户的登录审计不阻塞登录主路径，避免培训入场时形成数据库写尖峰。
+      const loggedInAt = new Date();
+      this.scheduleLoginAudit(user.id, loggedInAt);
+      user.lastLoginAt = loggedInAt;
       user.loginCount += 1;
-      await this.userRepository.save(user);
     }
 
     user = await this.applyAdminPolicy(user);
@@ -107,6 +113,51 @@ export class AuthService {
         loginCount: user.loginCount,
       },
     };
+  }
+
+  private scheduleLoginAudit(userId: number, lastLoginAt: Date) {
+    const existing = this.pendingLoginAudits.get(userId);
+    this.pendingLoginAudits.set(userId, {
+      count: (existing?.count || 0) + 1,
+      lastLoginAt,
+    });
+
+    this.scheduleLoginAuditFlush();
+  }
+
+  private scheduleLoginAuditFlush() {
+    if (this.loginAuditTimer) return;
+
+    this.loginAuditTimer = setTimeout(() => {
+      this.loginAuditTimer = null;
+      void this.flushPendingLoginAudits();
+    }, this.loginAuditDelayMs);
+    if (typeof this.loginAuditTimer.unref === 'function') {
+      this.loginAuditTimer.unref();
+    }
+  }
+
+  async flushPendingLoginAudits() {
+    if (this.flushingLoginAudits || this.pendingLoginAudits.size === 0) return;
+    this.flushingLoginAudits = true;
+    const entries = [...this.pendingLoginAudits.entries()];
+    this.pendingLoginAudits.clear();
+
+    try {
+      for (const [id, audit] of entries) {
+        try {
+          await this.userRepository.update({ id }, { lastLoginAt: audit.lastLoginAt });
+          await this.userRepository.increment({ id }, 'loginCount', audit.count);
+        } catch (err) {
+          console.warn('登录审计异步写入失败（非致命）:', err instanceof Error ? err.message : err);
+        }
+      }
+    } finally {
+      this.flushingLoginAudits = false;
+      if (this.pendingLoginAudits.size > 0 && !this.loginAuditTimer) {
+        this.scheduleLoginAuditFlush();
+      }
+    }
   }
 
   async getProfile(userId: number) {
