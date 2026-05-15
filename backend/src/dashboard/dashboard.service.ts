@@ -5,9 +5,6 @@ import { Skill, SkillReview, User } from '../entities';
 
 @Injectable()
 export class DashboardService {
-  private readonly statsCacheTtlMs = Math.max(Number(process.env.DASHBOARD_STATS_CACHE_TTL_MS || 60000), 0);
-  private statsCache: { expiresAt: number; payload: Awaited<ReturnType<DashboardService['buildStats']>> } | null = null;
-
   constructor(
     @InjectRepository(Skill)
     private skillRepository: Repository<Skill>,
@@ -18,22 +15,6 @@ export class DashboardService {
   ) {}
 
   async getStats() {
-    const now = Date.now();
-    if (this.statsCacheTtlMs > 0 && this.statsCache && this.statsCache.expiresAt > now) {
-      return this.statsCache.payload;
-    }
-
-    const payload = await this.buildStats();
-    if (this.statsCacheTtlMs > 0) {
-      this.statsCache = {
-        expiresAt: now + this.statsCacheTtlMs,
-        payload,
-      };
-    }
-    return payload;
-  }
-
-  private async buildStats() {
     const [
       totalSkills,
       publishedSkills,
