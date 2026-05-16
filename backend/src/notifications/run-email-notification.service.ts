@@ -122,17 +122,34 @@ export class RunEmailNotificationService {
     }
 
     try {
-      await this.transporter.sendMail({
+      await this.withSendTimeout(this.transporter.sendMail({
         from: this.getFromAddress(),
         to,
         subject,
         text,
         html: `<pre style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; white-space: pre-wrap; line-height: 1.6;">${this.escapeHtml(text)}</pre>`,
-      });
+      }));
       return { sent: true };
     } catch (err) {
       this.logger.warn(`Run 邮件通知发送失败: ${err instanceof Error ? err.message : String(err)}`);
       return { sent: false, reason: 'send_failed' };
+    }
+  }
+
+  private async withSendTimeout<T>(sendPromise: Promise<T>): Promise<T> {
+    const timeoutMs = Math.max(Number(process.env.RUN_EMAIL_SEND_TIMEOUT_MS || 15_000), 0);
+    if (timeoutMs === 0) return sendPromise;
+
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`邮件发送超时 ${timeoutMs}ms`)), timeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
+    });
+
+    try {
+      return await Promise.race([sendPromise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -191,6 +208,9 @@ export class RunEmailNotificationService {
       port: Number(process.env.SMTP_PORT || 465),
       secure: (process.env.SMTP_SECURE || 'true').toLowerCase() !== 'false',
       auth: { user, pass },
+      connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 10_000),
+      greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS || 10_000),
+      socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 15_000),
     });
   }
 
