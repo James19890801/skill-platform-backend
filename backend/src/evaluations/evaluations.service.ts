@@ -54,6 +54,11 @@ function benchmarkVersion() {
   return new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
 }
 
+function normalizeLegacySkillText<T extends string | null | undefined>(value: T): T {
+  if (typeof value !== 'string') return value;
+  return value.replace(/\bsku\b/gi, 'Skill') as T;
+}
+
 const CASE_GENERATION_RESPONSE_FORMAT = {
   type: 'json_schema',
   json_schema: {
@@ -251,7 +256,8 @@ export class EvaluationsService {
     const matcher = (name: string, description?: string | null) => {
       if (!query?.trim()) return true;
       const needle = query.trim().toLowerCase();
-      return `${name} ${description || ''}`.toLowerCase().includes(needle);
+      const haystack = `${normalizeLegacySkillText(name)} ${normalizeLegacySkillText(description) || ''}`;
+      return haystack.toLowerCase().includes(needle);
     };
 
     const [agents, skills, knowledgeBases, processNodes, capabilityTrees] = await Promise.all([
@@ -279,8 +285,8 @@ export class EvaluationsService {
           .map((item) => ({
             targetType: 'agent',
             targetId: item.id,
-            targetName: item.name,
-            description: item.description,
+            targetName: normalizeLegacySkillText(item.name),
+            description: normalizeLegacySkillText(item.description),
             status: item.status,
             updatedAt: item.updatedAt,
           })),
@@ -289,8 +295,8 @@ export class EvaluationsService {
           .map((item) => ({
             targetType: 'skill',
             targetId: item.id,
-            targetName: item.name,
-            description: item.description,
+            targetName: normalizeLegacySkillText(item.name),
+            description: normalizeLegacySkillText(item.description),
             status: item.status,
             namespace: item.namespace,
             updatedAt: item.updatedAt,
@@ -300,8 +306,8 @@ export class EvaluationsService {
           .map((item) => ({
             targetType: 'knowledge',
             targetId: item.id,
-            targetName: item.name,
-            description: item.description,
+            targetName: normalizeLegacySkillText(item.name),
+            description: normalizeLegacySkillText(item.description),
             status: item.status,
             updatedAt: item.updatedAt,
           })),
@@ -310,8 +316,8 @@ export class EvaluationsService {
           .map((item) => ({
             targetType: 'workflow',
             targetId: item.id,
-            targetName: item.name,
-            description: item.description,
+            targetName: normalizeLegacySkillText(item.name),
+            description: normalizeLegacySkillText(item.description),
             status: 'active',
             source: 'process-node',
             updatedAt: item.updatedAt,
@@ -321,8 +327,8 @@ export class EvaluationsService {
           .map((item) => ({
             targetType: 'workflow',
             targetId: item.id,
-            targetName: item.name,
-            description: item.description,
+            targetName: normalizeLegacySkillText(item.name),
+            description: normalizeLegacySkillText(item.description),
             status: item.status,
             source: 'capability-tree',
             updatedAt: item.updatedAt,
@@ -1081,8 +1087,8 @@ export class EvaluationsService {
       return {
         targetType: normalized,
         targetId: agent.id,
-        targetName: agent.name,
-        description: agent.description,
+        targetName: normalizeLegacySkillText(agent.name),
+        description: normalizeLegacySkillText(agent.description),
         metadata: {
           model: agent.model,
           status: agent.status,
@@ -1099,8 +1105,8 @@ export class EvaluationsService {
       return {
         targetType: normalized,
         targetId: skill.id,
-        targetName: skill.name,
-        description: skill.description,
+        targetName: normalizeLegacySkillText(skill.name),
+        description: normalizeLegacySkillText(skill.description),
         metadata: {
           namespace: skill.namespace,
           domain: skill.domain,
@@ -1119,8 +1125,8 @@ export class EvaluationsService {
       return {
         targetType: normalized,
         targetId: knowledge.id,
-        targetName: knowledge.name,
-        description: knowledge.description,
+        targetName: normalizeLegacySkillText(knowledge.name),
+        description: normalizeLegacySkillText(knowledge.description),
         metadata: {
           source: knowledge.source,
           status: knowledge.status,
@@ -1134,8 +1140,8 @@ export class EvaluationsService {
       return {
         targetType: normalized,
         targetId: processNode.id,
-        targetName: processNode.name,
-        description: processNode.description,
+        targetName: normalizeLegacySkillText(processNode.name),
+        description: normalizeLegacySkillText(processNode.description),
         metadata: {
           source: 'process-node',
           treeId: processNode.treeId,
@@ -1150,8 +1156,8 @@ export class EvaluationsService {
     return {
       targetType: normalized,
       targetId: capabilityTree.id,
-      targetName: capabilityTree.name,
-      description: capabilityTree.description,
+      targetName: normalizeLegacySkillText(capabilityTree.name),
+      description: normalizeLegacySkillText(capabilityTree.description),
       metadata: {
         source: 'capability-tree',
         status: capabilityTree.status,
