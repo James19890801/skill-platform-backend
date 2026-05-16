@@ -22,7 +22,7 @@
 2. **Traffic ceiling:** confirm whether 300 concurrent chat/model calls may be attempted, or only 300 logged-in users with staggered chat.
 3. **Model cost and quota:** confirm DashScope/Qwen quota, rate limits, and acceptable spend for the run.
 4. **Test users:** approve creating 300 temporary production users with unique emails and phone numbers.
-5. **Data cleanup:** decide whether to keep or later remove generated users, threads, messages, runs, and knowledge/SKU test data.
+5. **Data cleanup:** decide whether to keep or later remove generated users, threads, messages, runs, and knowledge/Skill test data.
 6. **Provider safeguards:** confirm whether to stop immediately on provider `429`, elevated latency, or cost alarms.
 
 ## Recommended Load Test Shape
@@ -38,7 +38,7 @@
 - Backend `/api/monitoring/summary`
 - Login with 1 test user
 - One existing Agent chat run
-- One existing SKU/OpenAI-compatible call
+- One existing Skill/OpenAI-compatible call
 
 **Exit criteria:** all checks healthy, no new 5xx, runtime connected.
 
@@ -68,7 +68,7 @@
 - Mix:
   - 70% normal Agent chat.
   - 15% knowledge recall chat.
-  - 10% SKU/OpenAI-compatible call.
+  - 10% Skill/OpenAI-compatible call.
   - 5% tool-call chat.
 
 **Stop criteria:**
@@ -100,7 +100,7 @@
 - Each sampled thread has user and assistant messages.
 - Runs are completed or failed with clear reason.
 - Knowledge recall still returns expected sources.
-- SKU registry still returns published SKU.
+- Skill registry still returns published Skill.
 - Monitoring summary shows no recent error spike.
 
 ## Known Capacity Risks From Current Code

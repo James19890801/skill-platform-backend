@@ -85,7 +85,7 @@ const localBlueprints = [
   {
     title: '流程挖掘与诊断',
     subtitle: '流程轨迹、瓶颈定位、改进动作',
-    source: '流程管理 SKU',
+    source: '流程管理 Skill',
     tags: ['process-mining', '流程运营', '监控'],
     tone: 'green',
   },
@@ -99,7 +99,7 @@ const localBlueprints = [
   {
     title: '数字化咨询报告',
     subtitle: '问题拆解、方案框架、CEO 摘要',
-    source: '咨询报告 SKU',
+    source: '咨询报告 Skill',
     tags: ['方案框架', '写报告', 'CEO汇报'],
     tone: 'violet',
   },

@@ -27,6 +27,7 @@ import { AutomationsModule } from './automations/automations.module';
 import { CapabilitiesModule } from './capabilities/capabilities.module';
 import { ProcessArchitecturesModule } from './process-architectures/process-architectures.module';
 import { ProductWikiModule } from './product-wiki/product-wiki.module';
+import { EvaluationsModule } from './evaluations/evaluations.module';
 import {
   User,
   Skill,
@@ -59,6 +60,13 @@ import {
   OperationalEvent,
   AutomationTask,
   AutomationRun,
+  EvaluationTargetSnapshot,
+  EvaluationSuite,
+  EvaluationCase,
+  EvaluationRun,
+  EvaluationCaseResult,
+  EvaluationBenchmark,
+  EvaluationTrace,
 } from './entities';
 
 const configuredDatabasePath = process.env.DATABASE_PATH?.trim() || 'database.sqlite';
@@ -131,6 +139,13 @@ const entities = [
   OperationalEvent,
   AutomationTask,
   AutomationRun,
+  EvaluationTargetSnapshot,
+  EvaluationSuite,
+  EvaluationCase,
+  EvaluationRun,
+  EvaluationCaseResult,
+  EvaluationBenchmark,
+  EvaluationTrace,
 ];
 
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
@@ -193,6 +208,7 @@ function buildTypeOrmOptions(): TypeOrmModuleOptions {
     CapabilitiesModule,
     ProcessArchitecturesModule,
     ProductWikiModule,
+    EvaluationsModule,
     ProtocolModule,
     OpenAiCompatibleModule,
   ],

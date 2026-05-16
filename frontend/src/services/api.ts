@@ -952,6 +952,153 @@ export const automationsApi = {
 };
 
 // ============================================
+// Evaluations API
+// ============================================
+export type EvaluationTargetType = 'agent' | 'skill' | 'knowledge' | 'workflow';
+
+export interface EvaluationSummaryDTO {
+  suiteCount: number;
+  caseCount: number;
+  runCount: number;
+  benchmarkCount: number;
+  activeBenchmarkCount: number;
+  averageScore: number;
+  byTargetType: Array<{
+    targetType: EvaluationTargetType;
+    benchmarkCount: number;
+    averageScore: number;
+  }>;
+  latestRuns: EvaluationRunDTO[];
+}
+
+export interface EvaluationTargetDTO {
+  targetType: EvaluationTargetType;
+  targetId: number;
+  targetName: string;
+  description?: string | null;
+  status?: string;
+  namespace?: string;
+  source?: string;
+  updatedAt?: string;
+}
+
+export interface EvaluationCaseDTO {
+  id: number;
+  suiteId: number;
+  caseKey: string;
+  category: string;
+  stage: string;
+  level: string;
+  input: string;
+  expected?: string;
+  labels: Record<string, unknown>;
+  assertions: Array<Record<string, unknown>>;
+  weight: number;
+  priority: string;
+  status: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface EvaluationRunDTO {
+  id: number;
+  suiteId: number;
+  targetType: EvaluationTargetType;
+  targetId: number;
+  targetName: string;
+  status: string;
+  mode: string;
+  score: number;
+  grade?: string;
+  summary?: any;
+  createdAt: string;
+  completedAt?: string;
+  results?: EvaluationCaseResultDTO[];
+}
+
+export interface EvaluationCaseResultDTO {
+  id: number;
+  runId: number;
+  caseId: number;
+  status: string;
+  output?: string;
+  score: number;
+  evidence?: string;
+  reviewStatus?: string;
+}
+
+export interface EvaluationBenchmarkDTO {
+  id: number;
+  targetType: EvaluationTargetType;
+  targetId: number;
+  targetName: string;
+  name: string;
+  version: string;
+  status: string;
+  runId: number;
+  score: number;
+  grade?: string;
+  createdAt: string;
+}
+
+export interface EvaluationSuiteDTO {
+  id: number;
+  name: string;
+  targetType: EvaluationTargetType;
+  targetId: number;
+  targetName: string;
+  level: string;
+  stage: string;
+  status: string;
+  caseCount: number;
+  createdAt?: string;
+  updatedAt?: string;
+  latestRun?: EvaluationRunDTO | null;
+  benchmark?: EvaluationBenchmarkDTO | null;
+  cases?: EvaluationCaseDTO[];
+  runs?: EvaluationRunDTO[];
+  benchmarks?: EvaluationBenchmarkDTO[];
+}
+
+export const evaluationsApi = {
+  summary: (): Promise<EvaluationSummaryDTO> =>
+    apiClient.get('/evaluations/summary'),
+
+  targets: (params?: { targetType?: EvaluationTargetType; query?: string }): Promise<{ items: EvaluationTargetDTO[] }> =>
+    apiClient.get('/evaluations/targets', { params }),
+
+  listSuites: (params?: { targetType?: EvaluationTargetType }): Promise<{ items: EvaluationSuiteDTO[]; total: number }> =>
+    apiClient.get('/evaluations/suites', { params }),
+
+  getSuite: (id: number): Promise<EvaluationSuiteDTO> =>
+    apiClient.get(`/evaluations/suites/${id}`),
+
+  createSuite: (data: { name: string; targetType: EvaluationTargetType; targetId: number; level?: string; stage?: string }): Promise<EvaluationSuiteDTO> =>
+    apiClient.post('/evaluations/suites', data),
+
+  generateCases: (suiteId: number, data?: { replace?: boolean }): Promise<{ items: EvaluationCaseDTO[]; total: number }> =>
+    apiClient.post(`/evaluations/suites/${suiteId}/generate-cases`, data || { replace: true }),
+
+  updateCase: (id: number, data: Partial<EvaluationCaseDTO>): Promise<EvaluationCaseDTO> =>
+    apiClient.put(`/evaluations/cases/${id}`, data),
+
+  createRun: (data: { suiteId: number; mode?: string }): Promise<EvaluationRunDTO> =>
+    apiClient.post('/evaluations/runs', data),
+
+  getRun: (id: number): Promise<EvaluationRunDTO> =>
+    apiClient.get(`/evaluations/runs/${id}`),
+
+  promoteBenchmark: (data: { runId: number; name?: string; version?: string; makeActive?: boolean }): Promise<EvaluationBenchmarkDTO & { artifacts?: Record<string, string> }> =>
+    apiClient.post('/evaluations/benchmarks/promote', data),
+
+  listBenchmarks: (params?: { targetType?: EvaluationTargetType }): Promise<{ items: EvaluationBenchmarkDTO[]; total: number }> =>
+    apiClient.get('/evaluations/benchmarks', { params }),
+
+  exportBenchmark: (id: number): Promise<{ benchmark: EvaluationBenchmarkDTO; artifacts: Record<string, string> }> =>
+    apiClient.get(`/evaluations/benchmarks/${id}/export`),
+};
+
+// ============================================
 // Architecture API
 // ============================================
 export interface IArchFileResponse {

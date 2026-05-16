@@ -557,7 +557,7 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
               <div style={{ marginBottom: 8 }}>
                 <Title level={5} style={{ margin: 0 }}>能力装配</Title>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  默认使用能力树组织 SKU，快速选择保留原有卡片交互。
+                  默认使用能力树组织 Skill，快速选择保留原有卡片交互。
                 </Text>
               </div>
 

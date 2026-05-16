@@ -36,7 +36,7 @@ export class CreateAgentDto {
   @IsOptional()
   capabilityTreeId?: number;
 
-  @ApiPropertyOptional({ description: '能力树快照，用于 Agent 运行时读取 SKU' })
+  @ApiPropertyOptional({ description: '能力树快照，用于 Agent 运行时读取 Skill' })
   @Allow()
   @IsOptional()
   capabilityTreeSnapshot?: unknown;
@@ -108,7 +108,7 @@ export class UpdateAgentDto {
   @IsOptional()
   capabilityTreeId?: number;
 
-  @ApiPropertyOptional({ description: '能力树快照，用于 Agent 运行时读取 SKU' })
+  @ApiPropertyOptional({ description: '能力树快照，用于 Agent 运行时读取 Skill' })
   @Allow()
   @IsOptional()
   capabilityTreeSnapshot?: unknown;

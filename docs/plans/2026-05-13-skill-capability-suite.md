@@ -1,10 +1,10 @@
-# SKU Capability Suite Technical Plan
+# Skill Capability Suite Technical Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Upgrade the current Skill/SKU area from a simple marketplace into a full capability lifecycle: build, organize, publish, consume, evaluate, and read SKUs reliably from Agent runtime.
+**Goal:** Upgrade the current Skill area from a simple marketplace into a full capability lifecycle: build, organize, publish, consume, evaluate, and read Skills reliably from Agent runtime.
 
-**Architecture:** Keep the current React + Ant Design frontend and NestJS + TypeORM backend. Reuse the existing Skill package, zip import/export, runtime queue, event trace, and artifact tables, then add the missing domain objects for capability trees, agent bindings, evaluations, and consumption metrics. The key product shift is from card-based selection to a tree/graph-based capability architecture where a SKU can be a leaf capability, a parent capability group, or an orchestrated loop.
+**Architecture:** Keep the current React + Ant Design frontend and NestJS + TypeORM backend. Reuse the existing Skill package, zip import/export, runtime queue, event trace, and artifact tables, then add the missing domain objects for capability trees, agent bindings, evaluations, and consumption metrics. The key product shift is from card-based selection to a tree/graph-based capability architecture where a Skill can be a leaf capability, a parent capability group, or an orchestrated loop.
 
 **Tech Stack:** React 18, TypeScript, Ant Design Tree/TreeSelect/Tabs/Table, NestJS, TypeORM, SQLite/PostgreSQL-compatible entities, OpenAI-compatible DashScope runtime, existing Agent Runtime tools.
 
@@ -12,12 +12,12 @@
 
 ## Current Findings
 
-1. The SKU frontend is split across `SkillHub`, `SkillList`, `SkillDetail`, `SkillCreate`, and `SkillEdit`. It already has marketplace, package import/export, content editing, runtime policy, and execution configuration fields.
+1. The Skill frontend is split across `SkillHub`, `SkillList`, `SkillDetail`, `SkillCreate`, and `SkillEdit`. It already has marketplace, package import/export, content editing, runtime policy, and execution configuration fields.
 2. The backend already has a real Skill package foundation: `Skill`, `SkillVersion`, `SkillExecution`, `SkillRuntimeEvent`, `SkillRuntimeStep`, `SkillRuntimeArtifact`, `SkillLoaderService`, and `SkillExecutorService`.
 3. The deployed backend on 2026-05-13 reports 8 total Skills, 6 published Skills, and an active Agent Runtime with 49 tools.
 4. The public registry endpoint exists, but one returned tool is malformed: `toolDefinition` can be stored as a plain `{ name, description, parameters }` object or array, while OpenAI tools require `{ type: "function", function: ... }`.
 5. The Agent builder currently uses card + checkbox selection in `frontend/src/pages/agents/AgentCreate.tsx`. It does not represent parent/child capability groups, dependencies, ordering, routing, or loops.
-6. Agent runtime currently stores selected skills as namespace strings, but later queries by `skill.name IN (...)` in `backend/src/ai/ai.service.ts`. This means selected SKUs can fail to load into the runtime prompt.
+6. Agent runtime currently stores selected skills as namespace strings, but later queries by `skill.name IN (...)` in `backend/src/ai/ai.service.ts`. This means selected Skills can fail to load into the runtime prompt.
 7. Detail pages still contain mock sections for process links, job bindings, and version history; install/distribution also uses mock organization and job data.
 
 ## Reference Projects
@@ -30,37 +30,37 @@
 
 ## Target Product Model
 
-The SKU module should become four connected surfaces:
+The Skill module should become four connected surfaces:
 
-1. **SKU 广场**
-   - Published SKU discovery.
+1. **Skill 广场**
+   - Published Skill discovery.
    - Domain/subdomain tree navigation.
    - Readiness indicators: package completeness, runnable status, eval score, usage count, latest successful run.
    - Actions: view, test run, install/bind, download package.
 
-2. **SKU 构建中心**
+2. **Skill 构建中心**
    - Manual `SKILL.md` builder.
    - Zip package import.
    - Manifest editor.
    - File/resource manager for `references/`, `templates/`, `scripts/`, `assets/`, `data/`.
    - Package validation before publish.
 
-3. **SKU 编排树**
+3. **Skill 编排树**
    - Replace card-only selection with a capability tree.
    - Parent nodes represent business capability groups or workflow stages.
    - Leaf nodes bind to runnable Skill packages.
    - Edges represent sequence, fallback, parallel, conditional route, or loop.
    - Agent builder consumes a `capabilityTreeId` or `agent_skill_bindings` graph, not only `skills: string[]`.
 
-4. **SKU 评测与消费**
-   - Test cases and datasets per SKU.
+4. **Skill 评测与消费**
+   - Test cases and datasets per Skill.
    - Manual, rule-based, and model-graded evaluation.
    - Execution history, trace replay, artifacts, cost, success rate, latency.
    - Consumption API: registry, execute, queue, event stream, artifact list, install/bind, usage metrics.
 
 ## Data Model Changes
 
-### Task 1: Fix SKU Readability First
+### Task 1: Fix Skill Readability First
 
 **Files:**
 - Modify: `backend/src/ai/ai.service.ts`
@@ -103,7 +103,7 @@ The SKU module should become four connected surfaces:
 - `loop`
 
 **Acceptance:**
-- A SKU can be placed under a parent capability node.
+- A Skill can be placed under a parent capability node.
 - A parent node can contain children and define loop behavior.
 - A tree can be serialized for frontend rendering and runtime planning.
 
@@ -122,7 +122,7 @@ The SKU module should become four connected surfaces:
 1. Keep the existing simple multi-select as a fallback tab named “快速选择”.
 2. Add a default tab named “能力树”.
 3. Render domains/subdomains as parent nodes.
-4. Let users attach published SKUs as leaf nodes.
+4. Let users attach published Skills as leaf nodes.
 5. Support drag ordering and explicit parent-child placement.
 6. Persist `capabilityTreeId` and a denormalized snapshot on the Agent.
 
@@ -131,7 +131,7 @@ The SKU module should become four connected surfaces:
 - Existing Agents still load through legacy `skills` arrays.
 - New Agents can bind a capability tree and still run in chat.
 
-### Task 4: Build SKU Lifecycle Pages
+### Task 4: Build Skill Lifecycle Pages
 
 **Files:**
 - Modify: `frontend/src/pages/skills/SkillHub.tsx`
@@ -151,7 +151,7 @@ The SKU module should become four connected surfaces:
 - Versions
 
 **Acceptance:**
-- A user can create/import a SKU, validate it, publish it, test-run it, inspect trace/artifacts, and see evaluation results from one detail page.
+- A user can create/import a Skill, validate it, publish it, test-run it, inspect trace/artifacts, and see evaluation results from one detail page.
 
 ### Task 5: Add Evaluation Backend
 
@@ -171,8 +171,8 @@ The SKU module should become four connected surfaces:
 - `human_review`
 
 **Acceptance:**
-- A SKU has a visible quality score.
-- Published SKUs can be gated by “package valid + at least one passing eval suite”.
+- A Skill has a visible quality score.
+- Published Skills can be gated by “package valid + at least one passing eval suite”.
 - Eval runs link back to execution traces and artifacts.
 
 ### Task 6: Add Consumption And Distribution Closure
@@ -194,20 +194,20 @@ The SKU module should become four connected surfaces:
 
 **Acceptance:**
 - Install/distribution is no longer mock data.
-- SKU has organization/job/agent bindings.
-- API callers can read SKU registry, execute it, and trace the result.
+- Skill has organization/job/agent bindings.
+- API callers can read Skill registry, execute it, and trace the result.
 
 ## UI Principles
 
 1. Keep the current Ant Design operational product style. No landing page, no heavy decoration.
 2. Use dense but readable enterprise layouts: tree on the left, inspector/detail on the right.
-3. Cards are allowed only for repeated SKUs, run summaries, and test cases.
+3. Cards are allowed only for repeated Skills, run summaries, and test cases.
 4. Replace text-heavy buttons with icons where possible, with tooltips.
-5. Avoid changing global shell navigation too much; add deeper SKU capability inside current “Skill 市场/资源管理”.
+5. Avoid changing global shell navigation too much; add deeper Skill capability inside current “Skill 市场/资源管理”.
 
 ## Rollout Order
 
-1. Fix SKU readability and tool normalization.
+1. Fix Skill readability and tool normalization.
 2. Add capability tree read/write backend.
 3. Add tree builder in Agent creation while preserving legacy selection.
 4. Upgrade Skill detail into lifecycle cockpit.
@@ -224,10 +224,10 @@ The SKU module should become four connected surfaces:
 
 ## Acceptance For The Whole Upgrade
 
-- A SKU can be created from `SKILL.md` or zip.
-- A SKU can be read by registry and Agent runtime.
-- A SKU can be organized under a parent capability tree.
-- A SKU can be selected by Agent through the tree, not just cards.
-- A SKU can be queued, executed, traced, and inspected.
-- A SKU can be evaluated with repeatable test cases.
-- A SKU can be distributed to Agent/org/job bindings.
+- A Skill can be created from `SKILL.md` or zip.
+- A Skill can be read by registry and Agent runtime.
+- A Skill can be organized under a parent capability tree.
+- A Skill can be selected by Agent through the tree, not just cards.
+- A Skill can be queued, executed, traced, and inspected.
+- A Skill can be evaluated with repeatable test cases.
+- A Skill can be distributed to Agent/org/job bindings.

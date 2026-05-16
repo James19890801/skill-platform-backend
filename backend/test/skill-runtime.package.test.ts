@@ -113,7 +113,7 @@ test('agent skill bindings are matched by namespace before legacy names', () => 
   });
 });
 
-test('capability tree snapshots preserve parent-child SKU structure', () => {
+test('capability tree snapshots preserve parent-child Skill structure', () => {
   const snapshot = buildCapabilityTreeSnapshot([
     { id: 1, parentId: null, nodeType: 'domain', label: '法务合规', domain: 'legal', orderIndex: 0 },
     { id: 2, parentId: 1, nodeType: 'stage', label: '合同审查', domain: 'legal', subDomain: 'contract', orderIndex: 0 },

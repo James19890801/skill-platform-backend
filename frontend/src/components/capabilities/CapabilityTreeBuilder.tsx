@@ -194,7 +194,7 @@ const CapabilityTreeBuilder: React.FC<CapabilityTreeBuilderProps> = ({
       <Alert
         type="info"
         showIcon
-        message="能力树会按业务域、子域和 SKU 叶子节点组织 Agent 能力。运行时优先读取叶子节点 namespace。"
+        message="能力树会按业务域、子域和 Skill 叶子节点组织 Agent 能力。运行时优先读取叶子节点 namespace。"
         style={{ borderRadius: 10, marginBottom: 14 }}
       />
       <Row gutter={14}>
@@ -218,7 +218,7 @@ const CapabilityTreeBuilder: React.FC<CapabilityTreeBuilderProps> = ({
                 style={{ maxHeight: 360, overflow: 'auto' }}
               />
             ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可装配 SKU" />
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可装配 Skill" />
             )}
           </Card>
         </Col>
@@ -230,7 +230,7 @@ const CapabilityTreeBuilder: React.FC<CapabilityTreeBuilderProps> = ({
           >
             {selectedSkills.length > 0 ? (
               <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                <Text type="secondary">当前 Agent 将读取 {selectedSkills.length} 个 SKU 叶子能力。</Text>
+                <Text type="secondary">当前 Agent 将读取 {selectedSkills.length} 个 Skill 叶子能力。</Text>
                 {snapshot.map((domain) => (
                   <div key={domain.id} style={{ padding: 10, borderRadius: 10, background: '#f8fafc' }}>
                     <Text strong>{domain.label}</Text>
@@ -246,7 +246,7 @@ const CapabilityTreeBuilder: React.FC<CapabilityTreeBuilderProps> = ({
                 ))}
               </Space>
             ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先在左侧选择 SKU" />
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先在左侧选择 Skill" />
             )}
           </Card>
         </Col>

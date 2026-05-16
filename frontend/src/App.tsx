@@ -15,6 +15,7 @@ const KnowledgeManager = lazy(() => import('./pages/knowledge/KnowledgeManager')
 const MemoryManager = lazy(() => import('./pages/memory/MemoryManager'));
 const IntegrationCenter = lazy(() => import('./pages/integration/IntegrationCenter'));
 const AutomationCenter = lazy(() => import('./pages/automation/AutomationCenter'));
+const EvaluationCenter = lazy(() => import('./pages/evaluations/EvaluationCenter'));
 const MonitoringDashboard = lazy(() => import('./pages/monitoring/MonitoringDashboard'));
 const ProcessArchitectureView = lazy(() => import('./pages/process-architecture/ProcessArchitectureView'));
 const Settings = lazy(() => import('./pages/settings/Settings'));
@@ -54,6 +55,7 @@ function App() {
             <Route path="memory" element={<MemoryManager />} />
             <Route path="automations" element={<AutomationCenter />} />
             <Route path="integrations" element={<IntegrationCenter />} />
+            <Route path="evaluations" element={<EvaluationCenter />} />
             <Route path="monitoring" element={<MonitoringDashboard />} />
 
             {/* 设置 */}
