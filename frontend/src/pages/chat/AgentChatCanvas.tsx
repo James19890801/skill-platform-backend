@@ -85,6 +85,7 @@ interface Message {
   knowledgeSources?: KnowledgeSourceReference[];
   status?: 'normal' | 'error';
   retryPayload?: ChatRetryPayload;
+  runId?: string;
 }
 
 type ChatAttachment = { name: string; type: string; dataUrl: string };
@@ -137,6 +138,9 @@ interface ExecutionState {
   artifacts: RuntimeArtifact[];
   status: 'running' | 'completed' | 'failed';
   startTime: number;
+  runId?: string;
+  lastHeartbeatAt?: number;
+  heartbeatCount?: number;
   output?: string;
   totalRounds?: number;
   totalDurationMs?: number;
@@ -224,6 +228,7 @@ const AgentChatCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartX = useRef(0);
   const dragStartLeftWidth = useRef(0);
+  const activeRunIdRef = useRef<string | null>(null);
 
   const getSkillCommand = useCallback((value: string) => {
     const slashIndex = value.lastIndexOf('/');
@@ -909,6 +914,8 @@ const AgentChatCanvas: React.FC = () => {
     const statusColor = isRunning ? '#6366f1' : exec.status === 'completed' ? '#10b981' : '#ef4444';
     const statusBg = isRunning ? '#eef2ff' : exec.status === 'completed' ? '#ecfdf5' : '#fef2f2';
     const statusText = isRunning ? '执行中...' : exec.status === 'completed' ? '执行完成' : '执行失败';
+    const latestLog = exec.logs[exec.logs.length - 1];
+    const liveStatusText = latestLog?.data?.message || (isRunning ? '正在等待后台进度...' : statusText);
 
     // 工具调用统计
     const totalCalls = exec.logs.filter(l => l.type === 'tool_call').length;
@@ -946,8 +953,18 @@ const AgentChatCanvas: React.FC = () => {
           </div>
           <Text type="secondary" style={{ fontSize: 11 }}>
             {exec.logs.length} 步 · {(totalMs / 1000).toFixed(1)}s
+            {exec.heartbeatCount ? ` · 心跳 ${exec.heartbeatCount}` : ''}
           </Text>
         </div>
+        {isRunning && (
+          <div style={{
+            padding: '6px 12px',
+            background: '#f8fafc',
+            borderBottom: '1px solid #edf2f7',
+          }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>{liveStatusText}</Text>
+          </div>
+        )}
 
         {/* 日志列表 — 固定高度可滚动 */}
         <div style={{
@@ -1011,7 +1028,9 @@ const AgentChatCanvas: React.FC = () => {
           {isRunning && (
             <div style={{ padding: '6px 12px', textAlign: 'center' }}>
               <Spin size="small" />
-              <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>AI 正在决策下一步...</Text>
+              <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
+                后台仍在运行，断线后会尝试接回当前任务
+              </Text>
             </div>
           )}
         </div>
@@ -1132,6 +1151,8 @@ const AgentChatCanvas: React.FC = () => {
     let assistantContent = '';
     let hasAssistantContent = false;
     let knowledgeSources: KnowledgeSourceReference[] = [];
+    let activeRunId = '';
+    activeRunIdRef.current = null;
 
     const updateAssistantMessage = (content: string, patch: Partial<Message> = {}) => {
       setMessages((prev) => {
@@ -1166,6 +1187,58 @@ const AgentChatCanvas: React.FC = () => {
         return '无法连接到服务，可能是网络波动或后端服务暂时不可用';
       }
       return raw;
+    };
+
+    const pollRunUntilDone = async (runId: string, headers: Record<string, string>) => {
+      const startedAt = Date.now();
+      let pollCount = 0;
+      updateAssistantMessage(`${assistantContent || '后台任务已开始。'}\n\n连接中断，正在接回当前任务...`, {
+        runId,
+      });
+
+      while (Date.now() - startedAt < CHAT_REQUEST_TIMEOUT_MS) {
+        pollCount += 1;
+        await delay(Math.min(2500 + pollCount * 500, 6000));
+
+        const resp = await fetch(`${API_BASE}/threads/${encodeURIComponent(currentThreadId)}/runs/${encodeURIComponent(runId)}`, {
+          headers,
+        });
+        if (!resp.ok) {
+          throw new Error(`后台任务状态查询失败: ${resp.status}`);
+        }
+
+        const body = await resp.json();
+        const run = body?.data || body;
+        const status = run?.status || 'unknown';
+
+        setExecutionState((prev) => prev && prev.status === 'running'
+          ? {
+              ...prev,
+              runId,
+              lastHeartbeatAt: Date.now(),
+              heartbeatCount: (prev.heartbeatCount || 0) + 1,
+            }
+          : prev);
+
+        if (status === 'completed') {
+          const output = String(run.output || '后台任务已完成。');
+          assistantContent = output;
+          hasAssistantContent = true;
+          updateAssistantMessage(output, { runId });
+          return;
+        }
+
+        if (status === 'failed' || status === 'cancelled') {
+          throw new Error(run.error || `后台任务${status === 'cancelled' ? '已取消' : '执行失败'}`);
+        }
+
+        const base = assistantContent || '后台任务仍在执行中。';
+        updateAssistantMessage(`${base}\n\n连接已恢复为状态轮询：${status}，已等待 ${Math.round((Date.now() - startedAt) / 1000)} 秒...`, {
+          runId,
+        });
+      }
+
+      throw new Error('后台任务仍未完成，请稍后从历史会话查看结果');
     };
 
     try {
@@ -1276,7 +1349,37 @@ const AgentChatCanvas: React.FC = () => {
                 }
 
                 if (data.type === 'heartbeat') {
+                  setExecutionState((prev) => prev && prev.status === 'running'
+                    ? {
+                        ...prev,
+                        lastHeartbeatAt: Date.now(),
+                        heartbeatCount: (prev.heartbeatCount || 0) + 1,
+                      }
+                    : prev);
                   continue;
+                }
+
+                if (data.type === 'run_start' && data.data?.runId) {
+                  activeRunId = data.data.runId;
+                  activeRunIdRef.current = activeRunId;
+                  updateAssistantMessage('后台任务已创建，正在进入执行队列...', { runId: activeRunId });
+                  continue;
+                }
+
+                if (data.type === 'run_status' && data.data?.runId) {
+                  activeRunId = data.data.runId;
+                  activeRunIdRef.current = activeRunId;
+                  if (!hasAssistantContent) {
+                    updateAssistantMessage(data.data.status === 'running' ? '后台任务运行中，正在等待执行进度...' : `后台任务状态：${data.data.status}`, {
+                      runId: activeRunId,
+                    });
+                  }
+                  continue;
+                }
+
+                if (data.run_id && data.status) {
+                  activeRunId = data.run_id;
+                  activeRunIdRef.current = activeRunId;
                 }
 
                 if (data.type === 'error' || data.error) {
@@ -1292,9 +1395,11 @@ const AgentChatCanvas: React.FC = () => {
                     artifacts: [],
                     status: 'running',
                     startTime: Date.now(),
+                    runId: activeRunId || undefined,
                   });
                   assistantContent += `\n\n> **Skill 执行中**: ${data.data.skillName}\n`;
-                  updateAssistantMessage(assistantContent);
+                  hasAssistantContent = true;
+                  updateAssistantMessage(assistantContent, { runId: activeRunId || undefined });
                   continue;
                 }
 
@@ -1341,7 +1446,7 @@ const AgentChatCanvas: React.FC = () => {
                   if (artifactLines.length > 0) {
                     assistantContent += `\n\n交付物\n${artifactLines.join('\n')}`;
                   }
-                  updateAssistantMessage(assistantContent);
+                  updateAssistantMessage(assistantContent, { runId: activeRunId || undefined });
                   continue;
                 }
 
@@ -1385,6 +1490,10 @@ const AgentChatCanvas: React.FC = () => {
           await runStreamAttempt();
           break;
         } catch (error: any) {
+          if (error.streamStarted && activeRunId) {
+            await pollRunUntilDone(activeRunId, headers);
+            break;
+          }
           const canAutoRetry = attempt < INITIAL_STREAM_RETRY_LIMIT && error.retryable !== false && !error.streamStarted && !hasAssistantContent;
           if (!canAutoRetry) {
             throw error;
@@ -1440,6 +1549,7 @@ const AgentChatCanvas: React.FC = () => {
     setCurrentArtifact(null);
     setLeftWidth(100);
     setExecutionState(null);
+    activeRunIdRef.current = null;
   };
 
   // ★ 导出整个对话为 Word

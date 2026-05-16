@@ -142,6 +142,10 @@ export class RunsController {
     let slot: RunSlot | null = null;
     try {
       run = await this.protocolService.createRun({ threadId, agentId, input: body });
+      safeWrite(`data: ${JSON.stringify({
+        type: 'run_start',
+        data: { runId: run.id, threadId, status: run.status },
+      })}\n\n`);
       await this.protocolService.appendMessage({ threadId, role: 'user', content: input });
       slot = await this.runLimiter.acquire((snapshot) => {
         safeWrite(`data: ${JSON.stringify({
@@ -153,6 +157,10 @@ export class RunsController {
         safeWrite(`data: ${JSON.stringify({ type: 'status', content: '已进入执行队列，开始生成回答...' })}\n\n`);
       }
       await this.protocolService.markRunRunning(run.id);
+      safeWrite(`data: ${JSON.stringify({
+        type: 'run_status',
+        data: { runId: run.id, threadId, status: 'running' },
+      })}\n\n`);
 
       const output = await this.aiService.chatStream(
         input,
