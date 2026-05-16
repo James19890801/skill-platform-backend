@@ -229,6 +229,7 @@ export class SkillExecutorService {
 
       // 4. 构建系统提示
       const systemPrompt = this.buildSystemPrompt(skill, pkg);
+      const isLongFormHtmlSkill = this.requiresLongFormHtml(pkg);
 
       // 5. 解析工具定义
       const tools = await this.buildTools(pkg);
@@ -240,7 +241,8 @@ export class SkillExecutorService {
       ];
 
       let finalOutput = '';
-      while (round < pkg.maxRounds) {
+      const effectiveMaxRounds = isLongFormHtmlSkill ? Math.max(pkg.maxRounds, 3) : pkg.maxRounds;
+      while (round < effectiveMaxRounds) {
         round++;
         const roundStart = Date.now();
 
@@ -253,11 +255,12 @@ export class SkillExecutorService {
         if (onProgress) onProgress({ type: 'round_start', data: logs[logs.length - 1] });
 
         // 6a. AI 响应（带工具）
+        const allowTools = tools.length > 0 && (!isLongFormHtmlSkill || round === 1);
         const completion = await this.client.chat.completions.create({
           model: this.model,
           messages,
-          tools: tools.length > 0 ? tools : undefined,
-          tool_choice: tools.length > 0 ? 'auto' : undefined,
+          tools: allowTools ? tools : undefined,
+          tool_choice: allowTools ? 'auto' : undefined,
           temperature: 0.7,
           max_tokens: this.SKILL_LLM_MAX_TOKENS,
         } as any);
@@ -385,13 +388,20 @@ export class SkillExecutorService {
       }
 
       // 7. 如果达到最大轮数仍未结束，强制终止
-      if (round >= pkg.maxRounds && !finalOutput) {
-        finalOutput = `执行已达到最大 ${pkg.maxRounds} 轮限制，强制终止。`;
+      if (round >= effectiveMaxRounds && !finalOutput) {
+        if (isLongFormHtmlSkill) {
+          finalOutput = await this.forceGenerateLongFormHtml(pkg, userInput, messages, addLog) || '';
+        }
+        if (!finalOutput) {
+          finalOutput = `执行已达到最大 ${effectiveMaxRounds} 轮限制，强制终止。`;
+        }
         addLog({
           round,
           action: 'think',
-          status: 'error',
-          message: `超过最大轮数 ${pkg.maxRounds}，执行终止`,
+          status: finalOutput.includes('<html') || finalOutput.toLowerCase().includes('<!doctype html') ? 'success' : 'error',
+          message: finalOutput.includes('<html') || finalOutput.toLowerCase().includes('<!doctype html')
+            ? '达到轮次上限后已强制生成公众号 HTML'
+            : `超过最大轮数 ${effectiveMaxRounds}，执行终止`,
         });
       }
 
@@ -949,6 +959,80 @@ export class SkillExecutorService {
         status: 'error',
         durationMs: Date.now() - started,
         message: `公众号 HTML 自动修复异常: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return null;
+    }
+  }
+
+  private async forceGenerateLongFormHtml(
+    pkg: SkillPackage,
+    userInput: string,
+    priorMessages: Array<any>,
+    addLog: (entry: ExecutionLogEntry) => void,
+  ): Promise<string | null> {
+    const started = Date.now();
+    addLog({
+      round: 0,
+      action: 'think',
+      toolName: 'force_html_generate',
+      status: 'pending',
+      message: '工具轮次已用尽，强制进入公众号 HTML 生成',
+    });
+
+    const toolContext = priorMessages
+      .filter((message) => message.role === 'tool')
+      .map((message) => String(message.content || '').slice(0, 2000))
+      .join('\n\n')
+      .slice(0, 6000);
+
+    try {
+      const completion = await this.client.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: [
+              `你正在执行 Skill「${pkg.name}」。`,
+              '现在禁止继续调用任何工具，必须立即交付完整 HTML。',
+              '只输出 HTML，不要 Markdown 代码围栏，不要解释，不要摘要。',
+              `HTML 可见正文不少于 ${this.WECHAT_MIN_VISIBLE_CHARS + 500} 个中文字符，文件体积必须超过 ${Math.round(this.WECHAT_MIN_HTML_BYTES / 1024)}KB。`,
+              '必须包含：詹老师 · AI产品专家 / 流程管理专家、13136092523、Canvas/getContext/toDataURL PNG 渲染逻辑、一键复制按钮。',
+              '文章要有具体观察、问题归因、机制解释、可执行方法论和不少于 250 字的充分结尾。',
+              '禁用套话开头、排比句和“综上所述”等机器腔。',
+            ].join('\n'),
+          },
+          {
+            role: 'user',
+            content: [
+              `用户需求：${userInput}`,
+              toolContext ? `可参考的核查/工具结果：\n${toolContext}` : '',
+              '请直接输出最终完整 HTML。',
+            ].filter(Boolean).join('\n\n'),
+          },
+        ],
+        temperature: 0.68,
+        max_tokens: this.SKILL_LLM_MAX_TOKENS,
+      } as any);
+
+      const html = this.extractHtmlDocument(completion.choices[0]?.message?.content || '');
+      addLog({
+        round: 0,
+        action: 'generate',
+        toolName: 'force_html_generate',
+        status: html ? 'success' : 'error',
+        durationMs: Date.now() - started,
+        message: html ? '强制公众号 HTML 生成完成' : '强制公众号 HTML 生成未返回完整 HTML',
+      });
+
+      return html || null;
+    } catch (err) {
+      addLog({
+        round: 0,
+        action: 'generate',
+        toolName: 'force_html_generate',
+        status: 'error',
+        durationMs: Date.now() - started,
+        message: `强制公众号 HTML 生成异常: ${err instanceof Error ? err.message : String(err)}`,
       });
       return null;
     }
