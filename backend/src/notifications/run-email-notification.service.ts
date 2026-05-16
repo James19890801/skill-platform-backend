@@ -6,7 +6,7 @@ interface RunNotificationUser {
   email?: string | null;
 }
 
-interface SendResult {
+export interface SendResult {
   sent: boolean;
   reason?: string;
 }

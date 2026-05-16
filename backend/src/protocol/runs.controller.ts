@@ -3,7 +3,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { AiService } from '../ai/ai.service';
 import { OptionalAuthGuard } from '../auth/guards/optional-auth.guard';
-import { RunEmailNotificationService } from '../notifications/run-email-notification.service';
+import { RunEmailNotificationService, SendResult } from '../notifications/run-email-notification.service';
 import { ProtocolService } from './protocol.service';
 import { RunConcurrencyLimiter, RunQueueRejectedError, RunSlot } from './run-concurrency-limiter';
 
@@ -89,6 +89,12 @@ export class RunsController {
         req.user?.id,
       );
       await this.protocolService.appendMessage({ threadId, role: 'assistant', content: output });
+      const failureMessage = this.getSkillFailureMessage(output);
+      if (failureMessage) {
+        await this.protocolService.markRunFailed(run.id, failureMessage, output);
+        await this.notifyRunFailed(threadId, run.id, failureMessage);
+        return this.protocolService.getRun(threadId, run.id);
+      }
       await this.protocolService.markRunCompleted(run.id, output, { model: body.model });
       await this.notifyRunCompleted(threadId, run.id, output);
       return this.protocolService.getRun(threadId, run.id);
@@ -214,6 +220,15 @@ export class RunsController {
       );
 
       await this.protocolService.appendMessage({ threadId, role: 'assistant', content: output });
+      const failureMessage = this.getSkillFailureMessage(output);
+      if (failureMessage) {
+        await this.protocolService.markRunFailed(run.id, failureMessage, output);
+        await this.notifyRunFailed(threadId, run.id, failureMessage);
+        safeWrite(`event: done\ndata: ${JSON.stringify({ status: 'failed', run_id: run.id })}\n\n`);
+        safeWrite('data: [DONE]\n\n');
+        if (!streamClosed) res.end();
+        return;
+      }
       await this.protocolService.markRunCompleted(run.id, output, { model: body.model });
       await this.notifyRunCompleted(threadId, run.id, output);
       safeWrite(`event: done\ndata: ${JSON.stringify({ status: 'completed', run_id: run.id })}\n\n`);
@@ -246,6 +261,7 @@ export class RunsController {
     try {
       const run = await this.protocolService.getRunForNotification(threadId, runId);
       const result = await this.runEmailNotifications.notifyRunCompleted(run, output);
+      await this.protocolService.markRunNotification(runId, this.toNotificationRecord(result));
       if (result.sent) {
         this.logger.log(`Run completion email sent for ${runId}`);
       }
@@ -258,11 +274,39 @@ export class RunsController {
     try {
       const run = await this.protocolService.getRunForNotification(threadId, runId);
       const result = await this.runEmailNotifications.notifyRunFailed(run, error);
+      await this.protocolService.markRunNotification(runId, this.toNotificationRecord(result));
       if (result.sent) {
         this.logger.log(`Run failure email sent for ${runId}`);
       }
     } catch (err) {
       this.logger.warn(`Run 失败邮件通知处理失败: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  private getSkillFailureMessage(output: string): string | null {
+    const text = String(output || '').trim();
+    if (!text) return null;
+    const failurePatterns = [
+      /Skill\s*执行失败[:：]?([\s\S]*)/i,
+      /Skill\s*执行失败，没有生成可用结果。?\s*原因[:：]?\s*([\s\S]*)/i,
+      /执行异常[:：]\s*([\s\S]*)/i,
+      /公众号 HTML 产物质量未达标[:：]?\s*([\s\S]*)/i,
+    ];
+    for (const pattern of failurePatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        return (match[1] || match[0]).trim().slice(0, 2000);
+      }
+    }
+    return null;
+  }
+
+  private toNotificationRecord(result: SendResult): { status: string; reason?: string } {
+    if (result.sent) return { status: 'sent' };
+    const failedReasons = new Set(['send_failed', 'smtp_unconfigured']);
+    return {
+      status: failedReasons.has(result.reason || '') ? 'failed' : 'skipped',
+      reason: result.reason,
+    };
   }
 }

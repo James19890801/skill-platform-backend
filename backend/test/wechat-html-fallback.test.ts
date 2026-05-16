@@ -97,3 +97,42 @@ test('wechat long-form execution prunes failed HTML artifacts after repair succe
   assert.equal(pruned, true);
   assert.deepEqual(artifacts.map((artifact) => artifact.name), ['skill_output_repaired.html']);
 });
+
+test('wechat long-form execution writes deterministic fallback when model repair times out', async () => {
+  const service = makeExecutor() as any;
+  const artifacts = [
+    { name: 'skill_output.html', path: 'skill_output.html', type: 'file', size: 16674 },
+  ];
+  let qualityChecks = 0;
+
+  service.evaluateHtmlArtifacts = async () => {
+    qualityChecks += 1;
+    return qualityChecks === 1
+      ? { ok: false, reason: 'skill_output.html: 文件过小 16674B < 18000B' }
+      : { ok: true, reason: '通过' };
+  };
+  service.tryRepairLongFormHtml = async () => null;
+  service.workspaceService = {
+    async writeFile(_threadId: string, name: string, content: string) {
+      return { name, path: name, type: 'file', size: Buffer.byteLength(content, 'utf8'), mimeType: 'text/html' };
+    },
+  };
+
+  const result = await service.ensureLongFormHtmlArtifacts({
+    pkg: { name: '公众号写作', namespace: 'wechat_article_writer' },
+    userInput: '你帮我写一个关于如何学好ai的公众号，不要问我太多问题，直接干。',
+    finalOutput: '<!doctype html><html><body>短 HTML</body></html>',
+    messages: [],
+    threadId: 'thread-wechat-timeout',
+    artifacts,
+    addLog: () => undefined,
+    execution: {},
+    execId: 9,
+    skillId: 70,
+  });
+
+  const quality = service.evaluateHtmlQuality(result.finalOutput, Buffer.byteLength(result.finalOutput, 'utf8'));
+  assert.equal(result.quality.ok, true);
+  assert.equal(quality.ok, true, quality.reason);
+  assert.equal(artifacts.some((artifact) => artifact.name.startsWith('skill_output_fallback_')), true);
+});

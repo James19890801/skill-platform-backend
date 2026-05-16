@@ -39,6 +39,15 @@ export class RunEntity {
   @Column({ type: 'text', nullable: true })
   usage: string;
 
+  @Column({ length: 40, nullable: true })
+  notificationStatus: string;
+
+  @Column({ length: 120, nullable: true })
+  notificationReason: string;
+
+  @Column({ nullable: true })
+  notificationSentAt: Date;
+
   @Column({ nullable: true })
   startedAt: Date;
 

@@ -158,6 +158,9 @@ export class ProtocolService {
         output: true,
         error: true,
         usage: true,
+        notificationStatus: true,
+        notificationReason: true,
+        notificationSentAt: true,
         startedAt: true,
         completedAt: true,
         createdAt: true,
@@ -180,11 +183,23 @@ export class ProtocolService {
     });
   }
 
-  async markRunFailed(id: string, error: string): Promise<void> {
+  async markRunFailed(id: string, error: string, output?: string): Promise<void> {
     await this.runRepository.update({ id }, {
       status: 'failed',
       error,
+      output,
       completedAt: new Date(),
+    });
+  }
+
+  async markRunNotification(
+    id: string,
+    notification: { status: string; reason?: string },
+  ): Promise<void> {
+    await this.runRepository.update({ id }, {
+      notificationStatus: notification.status,
+      notificationReason: notification.reason,
+      notificationSentAt: notification.status === 'sent' ? new Date() : () => 'NULL',
     });
   }
 
