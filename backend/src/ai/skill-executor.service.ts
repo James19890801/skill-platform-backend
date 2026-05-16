@@ -2,6 +2,10 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import OpenAI from 'openai';
+import { execFile } from 'child_process';
+import { promises as fs } from 'fs';
+import * as path from 'path';
+import { promisify } from 'util';
 import { Skill } from '../entities/skill.entity';
 import { SkillExecution } from '../entities/skill-execution.entity';
 import { ToolBridgeService } from './tool-bridge.service';
@@ -13,6 +17,8 @@ import {
   SkillPackageFile,
   buildSkillWorkspaceId,
 } from '../skill-runtime/skill-package';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * 执行日志条目
@@ -33,6 +39,7 @@ export interface SkillExecutionResult {
   executionId: number;
   status: string;
   output: string;
+  workspaceId: string;
   artifacts: Array<{ name: string; path: string; type: string; size: number }>;
   totalRounds: number;
   totalDurationMs: number;
@@ -65,6 +72,7 @@ export class SkillExecutorService {
   private readonly model = 'qwen-plus';
   private readonly MAX_ROUNDS = 15;        // 最大工具调用轮数
   private readonly MAX_ARTIFACTS = 20;     // 单次执行最大产物数
+  private readonly ENTRYPOINT_SCRIPT_TIMEOUT_MS = Math.max(Number(process.env.SKILL_ENTRYPOINT_SCRIPT_TIMEOUT_MS || 30000), 5000);
 
   constructor(
     @InjectRepository(Skill)
@@ -172,6 +180,45 @@ export class SkillExecutorService {
       // 3. 注入 Skill 文件到 workspace（前置准备）
       if (pkg.files.length > 0) {
         await this.injectSkillFiles(pkg, actualThreadId, addLog);
+      }
+
+      const entrypointOutput = await this.tryRunEntrypointScript(pkg, actualThreadId, userInput, artifacts, addLog, savedExecution, execId, skillId);
+      if (entrypointOutput) {
+        const entrypointRounds = 1;
+        savedExecution.status = 'completed';
+        savedExecution.output = entrypointOutput;
+        savedExecution.artifacts = JSON.stringify(artifacts);
+        savedExecution.logs = JSON.stringify(logs);
+        savedExecution.totalRounds = entrypointRounds;
+        savedExecution.totalDurationMs = Date.now() - startTime;
+        savedExecution.completedAt = new Date();
+        await this.executionRepository.save(savedExecution);
+        emitRuntimeEvent('skill.completed', {
+          executionId: execId,
+          status: 'completed',
+          totalRounds: entrypointRounds,
+          totalDurationMs: savedExecution.totalDurationMs,
+          artifacts,
+        }, 'success');
+
+        const result: SkillExecutionResult = {
+          executionId: execId,
+          status: 'completed',
+          output: entrypointOutput,
+          workspaceId: actualThreadId,
+          artifacts,
+          totalRounds: entrypointRounds,
+          totalDurationMs: savedExecution.totalDurationMs,
+          logs,
+        };
+        if (onProgress) {
+          onProgress({
+            type: 'done',
+            data: logs[logs.length - 1] || { round: 0, action: 'generate', status: 'success', message: '执行完成' },
+            artifacts: [...artifacts],
+          });
+        }
+        return result;
       }
 
       // 4. 构建系统提示
@@ -368,6 +415,7 @@ export class SkillExecutorService {
         executionId: execId,
         status: 'completed',
         output: finalOutput,
+        workspaceId: actualThreadId,
         artifacts,
         totalRounds: round,
         totalDurationMs: Date.now() - startTime,
@@ -402,6 +450,7 @@ export class SkillExecutorService {
         executionId: execId,
         status: 'failed',
         output: `Skill 执行失败: ${err.message}`,
+        workspaceId: actualThreadId,
         artifacts,
         totalRounds: round,
         totalDurationMs: Date.now() - startTime,
@@ -533,6 +582,168 @@ export class SkillExecutorService {
       }
     } catch {
       this.logger.warn(`SkillPackage #${pkg.id} files 注入失败，跳过文件注入`);
+    }
+  }
+
+  /**
+   * 执行 Skill 包声明的脚本入口。
+   *
+   * 入口脚本适用于“产物型 Skill”：脚本可以调用模型或其他受控逻辑生成文件，
+   * 平台负责记录真实执行耗时和产物，避免聊天层口头伪造结果。
+   */
+  private async tryRunEntrypointScript(
+    pkg: SkillPackage,
+    threadId: string,
+    userInput: string,
+    artifacts: Array<{ name: string; path: string; type: string; size: number }>,
+    addLog: (entry: ExecutionLogEntry) => void,
+    execution: any,
+    execId: number,
+    skillId: number,
+  ): Promise<string | null> {
+    const entrypoint = pkg.entrypointScript?.trim();
+    if (!entrypoint) return null;
+
+    const matchingFiles = pkg.files.filter((candidate) => (
+      candidate.path === entrypoint ||
+      candidate.name === entrypoint ||
+      candidate.path.endsWith(`/${entrypoint}`)
+    ));
+    const file = matchingFiles.find((candidate) => typeof candidate.content === 'string' && candidate.content.trim().length > 0) ?? matchingFiles[0];
+    if (!file) {
+      addLog({
+        round: 0,
+        action: 'tool_result',
+        toolName: 'entrypoint_script',
+        status: 'error',
+        message: `入口脚本不存在: ${entrypoint}`,
+      });
+      return null;
+    }
+
+    const ext = path.extname(file.path).toLowerCase();
+    if (ext !== '.js' && ext !== '.mjs' && ext !== '.cjs') {
+      addLog({
+        round: 0,
+        action: 'tool_result',
+        toolName: 'entrypoint_script',
+        status: 'error',
+        message: `入口脚本格式不支持: ${file.path}`,
+      });
+      return null;
+    }
+
+    const workspaceDir = this.workspaceService.getWorkspaceDir(threadId);
+    const scriptName = `entrypoint_${Date.now()}_${path.basename(file.path).replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const scriptPath = path.join(workspaceDir, scriptName);
+    const scriptContent = this.decodeSkillFile(file);
+    const start = Date.now();
+
+    try {
+      await fs.writeFile(scriptPath, scriptContent);
+      addLog({
+        round: 0,
+        action: 'tool_call',
+        toolName: 'entrypoint_script',
+        status: 'pending',
+        message: `执行入口脚本: ${file.path}`,
+      });
+
+      const { stdout, stderr } = await execFileAsync(
+        process.execPath,
+        [scriptPath, workspaceDir, userInput || ''],
+        {
+          cwd: workspaceDir,
+          timeout: this.ENTRYPOINT_SCRIPT_TIMEOUT_MS,
+          maxBuffer: 1024 * 1024,
+          env: { ...process.env, SKILL_USER_INPUT: userInput || '' },
+        },
+      );
+
+      const duration = Date.now() - start;
+      const outputPath = await this.pickEntrypointOutputPath(workspaceDir, stdout);
+      if (!outputPath) {
+        addLog({
+          round: 0,
+          action: 'tool_result',
+          toolName: 'entrypoint_script',
+          status: 'error',
+          durationMs: duration,
+          message: `入口脚本未返回可登记产物${stderr ? `: ${stderr.slice(0, 500)}` : ''}`,
+        });
+        return null;
+      }
+
+      const stat = await fs.stat(outputPath);
+      const name = path.basename(outputPath);
+      await this.recordArtifact(artifacts, {
+        name,
+        path: name,
+        type: 'file',
+        size: stat.size,
+        mimeType: this.guessMimeType(name),
+      }, execution, execId, skillId);
+
+      addLog({
+        round: 0,
+        action: 'tool_result',
+        toolName: 'entrypoint_script',
+        status: 'success',
+        durationMs: duration,
+        message: `入口脚本执行成功，生成产物: ${name}`,
+      });
+
+      return [
+        `入口脚本执行完成。`,
+        `生成产物: ${name}`,
+        `workspace: ${threadId}`,
+        stderr ? `stderr: ${stderr.slice(0, 1000)}` : '',
+      ].filter(Boolean).join('\n');
+    } catch (err: any) {
+      addLog({
+        round: 0,
+        action: 'tool_result',
+        toolName: 'entrypoint_script',
+        status: 'error',
+        durationMs: Date.now() - start,
+        message: `入口脚本执行失败: ${err?.message || String(err)}`,
+      });
+      return null;
+    } finally {
+      try {
+        await fs.unlink(scriptPath);
+      } catch { /* ignore */ }
+    }
+  }
+
+  private async pickEntrypointOutputPath(workspaceDir: string, stdout: string): Promise<string | null> {
+    const candidates = stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) => path.isAbsolute(line) && line.startsWith(workspaceDir));
+
+    for (let i = candidates.length - 1; i >= 0; i -= 1) {
+      const candidate = candidates[i];
+      if (path.extname(candidate).toLowerCase() === '.html') {
+        return candidate;
+      }
+    }
+
+    try {
+      const entries = await fs.readdir(workspaceDir, { withFileTypes: true });
+      const htmlFiles = await Promise.all(entries
+        .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === '.html')
+        .map(async (entry) => {
+          const filePath = path.join(workspaceDir, entry.name);
+          const stat = await fs.stat(filePath);
+          return { filePath, mtimeMs: stat.mtimeMs };
+        }));
+
+      htmlFiles.sort((a, b) => b.mtimeMs - a.mtimeMs);
+      return htmlFiles[0]?.filePath || null;
+    } catch {
+      return null;
     }
   }
 

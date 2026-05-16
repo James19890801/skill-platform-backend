@@ -347,10 +347,13 @@ export class AiController {
         body.input || '',
         body.threadId,
       );
+      const completed = result.status === 'completed';
       return {
-        success: true,
+        success: completed,
         data: result,
-        message: `Skill 执行完成，共 ${result.totalRounds} 轮，产出 ${result.artifacts.length} 个产物`,
+        message: completed
+          ? `Skill 执行完成，共 ${result.totalRounds} 轮，产出 ${result.artifacts.length} 个产物`
+          : `Skill 执行失败：${result.output || '未知错误'}`,
       };
     } catch (error) {
       if (error instanceof NotFoundException) {

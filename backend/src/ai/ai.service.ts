@@ -451,6 +451,68 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     }
   }
 
+  private isExecuteSkillTool(name?: string): boolean {
+    return name === 'execute_skill';
+  }
+
+  private formatSkillToolSummary(result: any): string {
+    if (!result || result.success === false || result.error) {
+      const reason = result?.error || '未知错误';
+      return `Skill 执行失败，没有生成可用结果。\n原因：${reason}`;
+    }
+
+    const skillName = result.skillName || 'Skill';
+    const durationMs = Number(result.totalDurationMs || 0);
+    const durationText = Number.isFinite(durationMs) ? `${(durationMs / 1000).toFixed(1)} 秒` : '未知';
+    const roundText = typeof result.totalRounds === 'number' ? `${result.totalRounds}` : '未知';
+    const artifactLinks = Array.isArray(result.artifactLinks) ? result.artifactLinks : [];
+    const artifacts = Array.isArray(result.artifacts) ? result.artifacts : [];
+    const links = artifactLinks.length > 0
+      ? artifactLinks
+      : artifacts
+        .filter((artifact: any) => artifact?.downloadUrl)
+        .map((artifact: any) => ({ name: artifact.name || artifact.path || '交付物', url: artifact.downloadUrl }));
+
+    const parts = [
+      `Skill「${skillName}」执行完成。`,
+      result.executionId ? `执行 ID：${result.executionId}` : '',
+      `轮次：${roundText}；耗时：${durationText}。`,
+    ].filter(Boolean);
+
+    if (links.length > 0) {
+      parts.push(
+        '',
+        '交付物：',
+        ...links.map((link: any) => `- [${link.name}](${link.url})`),
+      );
+    }
+
+    return parts.join('\n');
+  }
+
+  private parseExplicitSkillInvocation(message: string): { skillName: string; input: string } | null {
+    const text = (message || '').trim();
+    if (!text) return null;
+
+    const patterns = [
+      /(?:使用|执行|调用)\s*(?:技能|Skill|skill)\s*[「"“]?([^」"”\n:：]+)[」"”]?\s*[:：]?\s*([\s\S]*)/i,
+      /(?:用|跑)\s*[「"“]?([^」"”\n:：]+)[」"”]?\s*(?:技能|Skill|skill)\s*[:：]?\s*([\s\S]*)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      const skillName = match?.[1]?.trim();
+      if (skillName) {
+        return {
+          skillName,
+          input: match?.[2]?.trim() || text,
+        };
+      }
+    }
+
+    return null;
+  }
+
   /**
    * AI 对话流式输出
    * 支持传递 agent 系统提示词和 skills 上下文
@@ -648,6 +710,22 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     const apiBaseUrl = process.env.API_BASE_URL || 'https://skill-platform-backend-production.up.railway.app';
     let fullContent = '';
 
+    const explicitSkillInvocation = this.parseExplicitSkillInvocation(message);
+    if (explicitSkillInvocation) {
+      const result = await this.executeSkillWithProgress(
+        explicitSkillInvocation,
+        threadId,
+        onChunk,
+        apiBaseUrl,
+      );
+      fullContent = this.formatSkillToolSummary(result);
+      if (fullContent.trim()) {
+        history.push({ role: 'assistant', content: fullContent });
+      }
+      this.conversationStore.set(threadKey, history);
+      return fullContent;
+    }
+
     // ★ 上下文溢出预警：估算 token 数，接近窗口上限时主动修剪
     const estimatedTokens = messages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
     const CONTEXT_WARN_TOKENS = 6000;
@@ -682,17 +760,29 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       const msg = completion.choices[0]?.message;
       if (msg?.tool_calls && msg.tool_calls.length > 0) {
         messages.push(msg as any);
+        const skillToolResults: any[] = [];
         for (const tc of msg.tool_calls) {
           try {
             const args = JSON.parse(tc.function.arguments);
             const result = await this.executeToolCall(tc.function.name, args, apiBaseUrl, threadId);
             messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) } as any);
+            if (this.isExecuteSkillTool(tc.function.name)) {
+              skillToolResults.push(result);
+            }
           } catch (err) {
-            messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` }) } as any);
+            const result = { success: false, error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` };
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) } as any);
+            if (this.isExecuteSkillTool(tc.function.name)) {
+              skillToolResults.push(result);
+            }
           }
         }
-        const final = await chatClient.chat.completions.create({ model: modelName, messages, temperature: 0.7, max_tokens: 4096 } as any);
-        fullContent = final.choices[0]?.message?.content || '';
+        if (skillToolResults.length > 0) {
+          fullContent = skillToolResults.map((result) => this.formatSkillToolSummary(result)).join('\n\n');
+        } else {
+          const final = await chatClient.chat.completions.create({ model: modelName, messages, temperature: 0.7, max_tokens: 4096 } as any);
+          fullContent = final.choices[0]?.message?.content || '';
+        }
       } else {
         fullContent = msg?.content || '';
       }
@@ -758,6 +848,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
           messages.push(toolCallMsg);
 
           // 依次执行每个工具，执行前告知用户
+          const skillToolResults: any[] = [];
           for (const tc of pendingToolCalls) {
             this.logger.log(`Executing tool: ${tc.function.name}`);
 
@@ -775,9 +866,17 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
               const args = JSON.parse(tc.function.arguments);
               result = await this.executeToolCall(tc.function.name, args, apiBaseUrl, threadId, onChunk);
             } catch (err) {
-              result = { error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` };
+              result = { success: false, error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` };
             }
             messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) } as any);
+            if (this.isExecuteSkillTool(tc.function.name)) {
+              skillToolResults.push(result);
+            }
+          }
+
+          if (skillToolResults.length > 0) {
+            fullContent = skillToolResults.map((result) => this.formatSkillToolSummary(result)).join('\n\n');
+            break;
           }
 
           // 二次流式：AI 基于工具结果生成最终回复
@@ -893,7 +992,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
   ): Promise<any> {
     // ★ 0. Skill 执行工具 → 路由到 SkillExecutor
     if (name === 'execute_skill') {
-      return await this.executeSkillWithProgress(args, threadId, onChunk);
+      return await this.executeSkillWithProgress(args, threadId, onChunk, apiBaseUrl);
     }
 
     // 1. 本地工具（依赖 NestJS fileStore / reportStore）→ 本地执行
@@ -923,6 +1022,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     args: any,
     threadId?: string,
     onChunk?: ((chunk: string) => void) | null,
+    apiBaseUrl = process.env.API_BASE_URL || 'https://skill-platform-backend-production.up.railway.app',
   ): Promise<any> {
     const skillName = args?.skillName || '';
     const input = args?.input || '';
@@ -965,6 +1065,41 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       }
     });
 
+    const workspaceId = result.workspaceId || actualThreadId;
+    if (result.status !== 'completed') {
+      const errorMessage = result.output || `Skill「${skill.name}」执行失败`;
+      if (onChunk) {
+        onChunk(JSON.stringify({
+          type: 'error',
+          content: errorMessage,
+        }) + '\n');
+      }
+      return {
+        success: false,
+        skillName: skill.name,
+        executionId: result.executionId,
+        totalRounds: result.totalRounds,
+        totalDurationMs: result.totalDurationMs,
+        workspaceId,
+        artifacts: result.artifacts || [],
+        artifactLinks: [],
+        error: errorMessage,
+        output: errorMessage,
+      };
+    }
+
+    const artifactDownloadUrl = (artifact: { name: string; path?: string }) =>
+      `${apiBaseUrl}/api/workspace/${encodeURIComponent(workspaceId)}/files?download=${encodeURIComponent(artifact.path || artifact.name)}`;
+    const enrichedArtifacts = (result.artifacts || []).map((artifact) => ({
+      ...artifact,
+      workspaceId,
+      downloadUrl: artifactDownloadUrl(artifact),
+    }));
+    const artifactLinks = enrichedArtifacts.map((artifact) => ({
+      name: artifact.name,
+      url: artifact.downloadUrl,
+    }));
+
     // 流式推送：执行完成
     if (onChunk) {
       onChunk(JSON.stringify({
@@ -972,7 +1107,8 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
         data: {
           skillName: skill.name,
           output: result.output.slice(0, 2000),
-          artifacts: result.artifacts,
+          artifacts: enrichedArtifacts,
+          artifactLinks,
           totalRounds: result.totalRounds,
           totalDurationMs: result.totalDurationMs,
         },
@@ -985,8 +1121,15 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       executionId: result.executionId,
       totalRounds: result.totalRounds,
       totalDurationMs: result.totalDurationMs,
-      artifacts: result.artifacts,
-      output: `Skill「${skill.name}」执行完成！共 ${result.totalRounds} 轮，耗时 ${(result.totalDurationMs / 1000).toFixed(1)} 秒，产出 ${result.artifacts.length} 个交付物。`,
+      workspaceId,
+      artifacts: enrichedArtifacts,
+      artifactLinks,
+      output: [
+        `Skill「${skill.name}」执行完成！共 ${result.totalRounds} 轮，耗时 ${(result.totalDurationMs / 1000).toFixed(1)} 秒，产出 ${result.artifacts.length} 个交付物。`,
+        enrichedArtifacts.length > 0
+          ? `交付物下载链接：\n${enrichedArtifacts.map((artifact) => `- [${artifact.name}](${artifact.downloadUrl})`).join('\n')}`
+          : '',
+      ].filter(Boolean).join('\n'),
     };
   }
 

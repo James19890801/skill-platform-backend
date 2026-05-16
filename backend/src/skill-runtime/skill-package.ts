@@ -42,6 +42,7 @@ export interface SkillPackage {
   dependencies: string[];
   permissions: SkillRuntimePermissions;
   maxRounds: number;
+  entrypointScript?: string;
   packageHash: string;
 }
 
@@ -120,6 +121,7 @@ export function buildSkillPackage(skill: SkillLike): SkillPackage {
     dependencies: normalizeStringList(manifest.dependencies),
     permissions: normalizePermissions(explicitPermissions),
     maxRounds: normalizePositiveInt(runtime.maxRounds ?? runtimePolicy.maxRounds, DEFAULT_MAX_ROUNDS),
+    entrypointScript: pickString(runtime.entrypointScript, runtimePolicy.entrypointScript),
   };
 
   return {

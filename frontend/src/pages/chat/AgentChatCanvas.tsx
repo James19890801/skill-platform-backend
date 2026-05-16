@@ -117,14 +117,24 @@ interface ExecutionLogEntry {
     durationMs?: number;
     message: string;
   };
-  artifacts?: Array<{ name: string; path: string; type: string; size: number }>;
+  artifacts?: RuntimeArtifact[];
+}
+
+interface RuntimeArtifact {
+  name: string;
+  path: string;
+  type: string;
+  size: number;
+  workspaceId?: string;
+  downloadUrl?: string;
+  mimeType?: string;
 }
 
 interface ExecutionState {
   skillName: string;
   skillId: number;
   logs: ExecutionLogEntry[];
-  artifacts: Array<{ name: string; path: string; type: string; size: number }>;
+  artifacts: RuntimeArtifact[];
   status: 'running' | 'completed' | 'failed';
   startTime: number;
   output?: string;
@@ -364,6 +374,42 @@ const AgentChatCanvas: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const buildWorkspaceDownloadUrl = useCallback((filePath: string, workspaceId?: string) => {
+    const pathValue = (filePath || '').trim().replace(/^\.?\//, '');
+    const thread = workspaceId || currentThreadId;
+    return `${API_BASE}/workspace/${encodeURIComponent(thread)}/files?download=${encodeURIComponent(pathValue)}`;
+  }, [currentThreadId]);
+
+  const getRuntimeArtifactDownloadUrl = useCallback((artifact: RuntimeArtifact) => {
+    if (artifact.downloadUrl) return artifact.downloadUrl;
+    return buildWorkspaceDownloadUrl(artifact.path || artifact.name, artifact.workspaceId);
+  }, [buildWorkspaceDownloadUrl]);
+
+  const normalizeMessageHref = useCallback((href?: string) => {
+    if (!href) return '#';
+    const trimmed = href.trim();
+    if (/^(https?:|mailto:|tel:|data:|blob:)/i.test(trimmed)) return trimmed;
+
+    const filePath = decodeURIComponent(trimmed.split('#')[0].split('?')[0] || '').replace(/^\.?\//, '');
+    if (/\.(docx?|xlsx?|pptx?|pdf|html?|csv|json|md|png|jpe?g|gif|webp)$/i.test(filePath)) {
+      const fileName = filePath.split('/').pop() || filePath;
+      const runtimeArtifact = executionState?.artifacts.find((artifact) => (
+        artifact.name === fileName ||
+        artifact.name === filePath ||
+        artifact.path === filePath ||
+        artifact.path === fileName ||
+        artifact.path.endsWith(`/${filePath}`) ||
+        artifact.path.endsWith(`/${fileName}`)
+      ));
+      if (runtimeArtifact) {
+        return getRuntimeArtifactDownloadUrl(runtimeArtifact);
+      }
+      return buildWorkspaceDownloadUrl(filePath);
+    }
+
+    return trimmed;
+  }, [buildWorkspaceDownloadUrl, executionState?.artifacts, getRuntimeArtifactDownloadUrl]);
+
   // ★ 解析产物：从 AI 内容中提取代码块、表格、文档下载链接、HTML、图片
   const parseArtifacts = useCallback((content: string): Artifact[] => {
     const artifacts: Artifact[] = [];
@@ -371,10 +417,11 @@ const AgentChatCanvas: React.FC = () => {
     let idx = 0;
     let match: RegExpExecArray | null;
 
-    // 匹配文档下载链接: [filename.docx](url/download/token)
-    const docRegex = /\[([^\]]+\.(?:docx|xlsx|html|htm|pdf))\]\(([^)]*(?:download|api\/ai\/download)\/([^/\s)]+))\)/gi;
+    // 匹配文档下载链接：真实 URL 直接使用；相对文件名兜底改成 workspace 下载 URL
+    const docRegex = /\[([^\]]+\.(?:docx?|xlsx?|pptx?|html?|pdf|csv|json))\]\(([^)\s]+)\)/gi;
     while ((match = docRegex.exec(content)) !== null) {
-      const key = `doc-${match[1]}`;
+      const normalizedUrl = normalizeMessageHref(match[2]);
+      const key = `doc-${match[1]}-${normalizedUrl}`;
       if (seen.has(key)) continue;
       seen.add(key);
       artifacts.push({
@@ -382,9 +429,8 @@ const AgentChatCanvas: React.FC = () => {
         type: 'document',
         title: match[1],
         content: '',
-        downloadUrl: match[2],
+        downloadUrl: normalizedUrl,
         filename: match[1],
-        token: match[3],
       });
     }
 
@@ -483,7 +529,7 @@ const AgentChatCanvas: React.FC = () => {
     }
 
     return artifacts;
-  }, []);
+  }, [normalizeMessageHref]);
 
   // ★ 检测 Mermaid 代码块
   const isMermaidCode = (code: string): boolean => {
@@ -822,6 +868,21 @@ const AgentChatCanvas: React.FC = () => {
               {children}
             </li>
           ),
+          a: ({ href, children }) => {
+            const safeHref = normalizeMessageHref(href);
+            return (
+              <a
+                href={safeHref}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => {
+                  if (safeHref === '#') event.preventDefault();
+                }}
+              >
+                {children}
+              </a>
+            );
+          },
         }}
       >
         {preprocessed}
@@ -967,9 +1028,16 @@ const AgentChatCanvas: React.FC = () => {
             </Text>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
               {exec.artifacts.map((a, i) => (
-                <Tag key={i} color="blue" style={{ fontSize: 10, margin: 0 }}>
+                <Button
+                  key={`${a.path || a.name}-${i}`}
+                  size="small"
+                  type="link"
+                  icon={<DownloadOutlined />}
+                  onClick={() => window.open(getRuntimeArtifactDownloadUrl(a), '_blank')}
+                  style={{ height: 22, padding: '0 4px', fontSize: 11 }}
+                >
                   {a.name}
-                </Tag>
+                </Button>
               ))}
             </div>
           </div>
@@ -1250,6 +1318,14 @@ const AgentChatCanvas: React.FC = () => {
 
                 if (data.type === 'execution_done' && data.data) {
                   const doneData = data.data;
+                  const artifactLines = Array.isArray(doneData.artifacts)
+                    ? doneData.artifacts
+                      .map((artifact: RuntimeArtifact) => {
+                        const url = getRuntimeArtifactDownloadUrl(artifact);
+                        return artifact?.name ? `- [${artifact.name}](${url})` : '';
+                      })
+                      .filter(Boolean)
+                    : [];
                   setExecutionState((prev) => {
                     if (!prev) return null;
                     return {
@@ -1262,6 +1338,9 @@ const AgentChatCanvas: React.FC = () => {
                     };
                   });
                   assistantContent += `\n${doneData.skillName} 执行完成。共 ${doneData.totalRounds} 轮，耗时 ${(doneData.totalDurationMs / 1000).toFixed(1)} 秒，产出 ${doneData.artifacts?.length || 0} 个交付物。`;
+                  if (artifactLines.length > 0) {
+                    assistantContent += `\n\n交付物\n${artifactLines.join('\n')}`;
+                  }
                   updateAssistantMessage(assistantContent);
                   continue;
                 }
