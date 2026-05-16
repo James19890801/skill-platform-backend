@@ -56,3 +56,44 @@ test('wechat long-form execution forces HTML generation when the model returns p
   assert.deepEqual(calls, ['force', 'save']);
   assert.equal(artifacts.length, 1);
 });
+
+test('wechat long-form execution prunes failed HTML artifacts after repair succeeds', async () => {
+  const service = makeExecutor() as any;
+  const artifacts = [
+    { name: 'skill_output.html', path: 'skill_output.html', type: 'file', size: 12000 },
+  ];
+  let qualityChecks = 0;
+  let pruned = false;
+
+  service.evaluateHtmlArtifacts = async () => {
+    qualityChecks += 1;
+    return qualityChecks === 1
+      ? { ok: false, reason: 'skill_output.html: 文件过小 12000B < 18000B' }
+      : { ok: true, reason: '通过' };
+  };
+  service.tryRepairLongFormHtml = async () => {
+    artifacts.push({ name: 'skill_output_repaired.html', path: 'skill_output_repaired.html', type: 'file', size: 22000 });
+    return '<!doctype html><html><body>修复后的合格 HTML</body></html>';
+  };
+  service.retainPassingHtmlArtifacts = async (_threadId: string, targetArtifacts: typeof artifacts) => {
+    pruned = true;
+    targetArtifacts.splice(0, targetArtifacts.length, targetArtifacts[1]);
+  };
+
+  const result = await service.ensureLongFormHtmlArtifacts({
+    pkg: { name: '公众号写作', namespace: 'wechat_article_writer' },
+    userInput: '写一篇长公众号',
+    finalOutput: '<!doctype html><html><body>过短 HTML</body></html>',
+    messages: [],
+    threadId: 'thread-wechat-repair',
+    artifacts,
+    addLog: () => undefined,
+    execution: {},
+    execId: 8,
+    skillId: 70,
+  });
+
+  assert.equal(result.quality.ok, true);
+  assert.equal(pruned, true);
+  assert.deepEqual(artifacts.map((artifact) => artifact.name), ['skill_output_repaired.html']);
+});

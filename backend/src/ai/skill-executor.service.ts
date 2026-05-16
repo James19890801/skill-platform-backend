@@ -550,7 +550,36 @@ export class SkillExecutorService {
       }
     }
 
+    if (quality.ok) {
+      await this.retainPassingHtmlArtifacts(input.threadId, input.artifacts);
+    }
+
     return { finalOutput, quality };
+  }
+
+  private async retainPassingHtmlArtifacts(
+    threadId: string,
+    artifacts: Array<{ name: string; path: string; type: string; size: number }>,
+  ): Promise<void> {
+    const isHtmlArtifact = (artifact: { name: string; path: string }) => /\.html?$/i.test(artifact.name || artifact.path);
+    const htmlArtifacts = artifacts.filter(isHtmlArtifact);
+    if (htmlArtifacts.length <= 1) return;
+
+    const passingHtmlArtifacts: typeof artifacts = [];
+    for (const artifact of htmlArtifacts) {
+      try {
+        const filePath = path.join(this.workspaceService.getWorkspaceDir(threadId), artifact.path || artifact.name);
+        const html = await fs.readFile(filePath, 'utf8');
+        const quality = this.evaluateHtmlQuality(html, Buffer.byteLength(html, 'utf8'));
+        if (quality.ok) passingHtmlArtifacts.push(artifact);
+      } catch {
+        // Ignore unreadable artifacts here; evaluateHtmlArtifacts already produced the decisive gate result.
+      }
+    }
+
+    if (passingHtmlArtifacts.length === 0) return;
+    const nonHtmlArtifacts = artifacts.filter((artifact) => !isHtmlArtifact(artifact));
+    artifacts.splice(0, artifacts.length, ...nonHtmlArtifacts, ...passingHtmlArtifacts);
   }
 
   // ============================================
