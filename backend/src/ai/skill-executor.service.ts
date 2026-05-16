@@ -8,7 +8,7 @@ import * as path from 'path';
 import { promisify } from 'util';
 import { Skill } from '../entities/skill.entity';
 import { SkillExecution } from '../entities/skill-execution.entity';
-import { ToolBridgeService } from './tool-bridge.service';
+import { ToolBridgeService, ToolExecuteResult } from './tool-bridge.service';
 import { WorkspaceService } from '../workspace/workspace.service';
 import { SkillLoaderService } from '../skill-runtime/skill-loader.service';
 import { SkillRuntimeTraceService } from '../skill-runtime/skill-runtime-trace.service';
@@ -17,6 +17,7 @@ import {
   SkillPackageFile,
   buildSkillWorkspaceId,
 } from '../skill-runtime/skill-package';
+import { ExecutionService } from './execution.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -69,10 +70,14 @@ export type ProgressCallback = (progress: {
 export class SkillExecutorService {
   private readonly logger = new Logger(SkillExecutorService.name);
   private client: OpenAI;
-  private readonly model = 'qwen-plus';
+  private readonly model = process.env.SKILL_LLM_MODEL || 'qwen-plus';
   private readonly MAX_ROUNDS = 15;        // 最大工具调用轮数
   private readonly MAX_ARTIFACTS = 20;     // 单次执行最大产物数
-  private readonly ENTRYPOINT_SCRIPT_TIMEOUT_MS = Math.max(Number(process.env.SKILL_ENTRYPOINT_SCRIPT_TIMEOUT_MS || 30000), 5000);
+  private readonly ENTRYPOINT_SCRIPT_TIMEOUT_MS = Math.max(Number(process.env.SKILL_ENTRYPOINT_SCRIPT_TIMEOUT_MS || 180000), 5000);
+  private readonly SKILL_LLM_TIMEOUT_MS = Math.max(Number(process.env.SKILL_LLM_TIMEOUT_MS || 180000), 30000);
+  private readonly SKILL_LLM_MAX_TOKENS = Math.max(Number(process.env.SKILL_LLM_MAX_TOKENS || 8192), 2048);
+  private readonly WECHAT_MIN_VISIBLE_CHARS = Math.max(Number(process.env.SKILL_WECHAT_MIN_VISIBLE_CHARS || 1800), 500);
+  private readonly WECHAT_MIN_HTML_BYTES = Math.max(Number(process.env.SKILL_WECHAT_MIN_HTML_BYTES || 18000), 4000);
 
   constructor(
     @InjectRepository(Skill)
@@ -83,11 +88,12 @@ export class SkillExecutorService {
     private workspaceService: WorkspaceService,
     private skillLoader: SkillLoaderService,
     private runtimeTrace: SkillRuntimeTraceService,
+    private executionService: ExecutionService,
   ) {
     this.client = new OpenAI({
       apiKey: process.env.QWEN_API_KEY || '',
       baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      timeout: 30_000,
+      timeout: this.SKILL_LLM_TIMEOUT_MS,
       maxRetries: 1,
     });
   }
@@ -253,7 +259,7 @@ export class SkillExecutorService {
           tools: tools.length > 0 ? tools : undefined,
           tool_choice: tools.length > 0 ? 'auto' : undefined,
           temperature: 0.7,
-          max_tokens: 4096,
+          max_tokens: this.SKILL_LLM_MAX_TOKENS,
         } as any);
 
         const msg = completion.choices[0]?.message;
@@ -289,7 +295,7 @@ export class SkillExecutorService {
               });
               if (onProgress) onProgress({ type: 'tool_call', data: logs[logs.length - 1] });
 
-              const result = await this.toolBridge.executeRemote(tc.function.name, args);
+              const result = await this.executeRuntimeTool(tc.function.name, args, actualThreadId);
 
               if (result.success) {
                 const duration = Date.now() - toolStart;
@@ -392,6 +398,13 @@ export class SkillExecutorService {
       // 8. 保存最终产物到 workspace（如果 AI 回复中有 HTML 等内容）
       if (finalOutput) {
         await this.saveFinalArtifacts(finalOutput, actualThreadId, artifacts, addLog, savedExecution, execId, skillId);
+      }
+
+      if (this.requiresLongFormHtml(pkg)) {
+        const quality = await this.evaluateHtmlArtifacts(actualThreadId, artifacts);
+        if (!quality.ok) {
+          throw new Error(`公众号 HTML 产物质量未达标：${quality.reason}`);
+        }
       }
 
       // 9. 更新执行会话为完成状态
@@ -523,6 +536,15 @@ export class SkillExecutorService {
 4. 所有生成的文件（文档、HTML、代码等）会自动保存到工作区
 5. 完成所有步骤后，给用户一个完整的总结报告
 6. 在总结中包含所有产物的名称和用途`);
+
+    if (this.requiresLongFormHtml(pkg)) {
+      parts.push(`\n## 公众号产物硬性验收
+- 最终必须交付完整 HTML 文件，不能只返回摘要、说明或短文。
+- HTML 可见正文不少于 ${this.WECHAT_MIN_VISIBLE_CHARS} 个中文字符，文件体积不少于 ${Math.round(this.WECHAT_MIN_HTML_BYTES / 1024)}KB。
+- 必须包含作者行“詹老师 · AI产品专家 / 流程管理专家”和联系方式“13136092523”。
+- 必须包含一键复制按钮，以及 Canvas 渲染 PNG 的脚本逻辑。
+- 若进行了搜索核查，搜索最多 2 次；拿到可用信息后立即进入写作与 HTML 生成。`);
+    }
 
     return parts.join('\n\n');
   }
@@ -676,6 +698,22 @@ export class SkillExecutorService {
 
       const stat = await fs.stat(outputPath);
       const name = path.basename(outputPath);
+      if (this.requiresLongFormHtml(pkg) && path.extname(outputPath).toLowerCase() === '.html') {
+        const html = await fs.readFile(outputPath, 'utf8');
+        const quality = this.evaluateHtmlQuality(html, stat.size);
+        if (!quality.ok) {
+          addLog({
+            round: 0,
+            action: 'tool_result',
+            toolName: 'entrypoint_script',
+            status: 'error',
+            durationMs: duration,
+            message: `入口脚本产物未达公众号质量门槛，回退到完整 Skill 执行: ${quality.reason}`,
+          });
+          return null;
+        }
+      }
+
       await this.recordArtifact(artifacts, {
         name,
         path: name,
@@ -762,11 +800,12 @@ export class SkillExecutorService {
     // 如果 AI 的回复中包含大型 Markdown 或 HTML 内容，保存为文档
     if (output.length > 500 && !this.isHtmlInArtifacts(artifacts)) {
       // 检测是否有 HTML
-      const hasHtml = output.includes('<!DOCTYPE html>') || output.includes('<html');
+      const htmlDocument = this.extractHtmlDocument(output);
+      const hasHtml = htmlDocument.length > 0;
       if (hasHtml) {
         const filename = `skill_output_${Date.now()}.html`;
         try {
-          const file = await this.workspaceService.writeFile(threadId, filename, output, 'text/html');
+          const file = await this.workspaceService.writeFile(threadId, filename, htmlDocument, 'text/html');
           await this.recordArtifact(artifacts, file, execution, execId, skillId);
           addLog({
             round: 0,
@@ -798,6 +837,158 @@ export class SkillExecutorService {
         } catch { /* ignore */ }
       }
     }
+  }
+
+  private async executeRuntimeTool(name: string, args: Record<string, any>, threadId: string): Promise<ToolExecuteResult> {
+    if (this.toolBridge.isLocalTool(name)) {
+      const result = await this.executeLocalRuntimeTool(name, args, threadId);
+      return result?.success === false
+        ? { success: false, error: result.error || `${name} 执行失败`, result }
+        : { success: true, result };
+    }
+
+    const remoteResult = await this.toolBridge.executeRemote(name, args);
+    if (remoteResult.success && remoteResult.result?._local) {
+      const result = await this.executeLocalRuntimeTool(name, args, threadId);
+      return result?.success === false
+        ? { success: false, error: result.error || `${name} 执行失败`, result }
+        : { success: true, result };
+    }
+
+    return remoteResult;
+  }
+
+  private async executeLocalRuntimeTool(name: string, args: Record<string, any>, threadId: string): Promise<any> {
+    switch (name) {
+      case 'bing_search':
+      case 'search_web': {
+        const result = await this.executionService.searchWeb(
+          args.query,
+          args.max_results || args.maxResults || 5,
+          name === 'bing_search' ? 'bing' : (args.provider || 'bing'),
+        );
+        if (!result.success) {
+          return { success: false, error: result.error || '搜索失败' };
+        }
+        try {
+          const parsed = JSON.parse(result.output);
+          if (parsed.error) return { success: false, error: parsed.error };
+          return { success: true, provider: name === 'bing_search' ? 'bing' : (args.provider || 'bing'), results: parsed };
+        } catch {
+          return { success: true, output: result.output.slice(0, 3000) };
+        }
+      }
+
+      case 'execute_python':
+      case 'python_repl': {
+        const result = await this.executionService.executePython(String(args.code || ''), args.timeout_ms || 30_000);
+        if (result.success) {
+          return { success: true, output: result.output.slice(0, 8000), duration_ms: result.durationMs };
+        }
+        return { success: false, error: result.error || 'Python 执行失败' };
+      }
+
+      case 'generate_html_report': {
+        const html = String(args.html || '');
+        if (!html.trim()) {
+          return { success: false, error: '缺少 html 内容' };
+        }
+        const safeTitle = this.sanitizeFilename(String(args.filename || args.title || `report_${Date.now()}`));
+        const filename = safeTitle.endsWith('.html') ? safeTitle : `${safeTitle}.html`;
+        const file = await this.workspaceService.writeFile(threadId, filename, html, 'text/html');
+        return {
+          success: true,
+          message: 'HTML 已生成',
+          title: args.title || 'HTML 产物',
+          workspaceFile: { name: file.name, path: file.path, type: file.type, size: file.size },
+        };
+      }
+
+      default:
+        return { success: false, error: `Skill 执行器暂不支持本地工具: ${name}` };
+    }
+  }
+
+  private requiresLongFormHtml(pkg: SkillPackage): boolean {
+    const haystack = `${pkg.name} ${pkg.namespace} ${pkg.abilityName} ${pkg.description}`.toLowerCase();
+    return haystack.includes('公众号') || haystack.includes('wechat') || haystack.includes('article_writer');
+  }
+
+  private extractHtmlDocument(output: string): string {
+    const fenced = output.match(/```(?:html)?\s*([\s\S]*?<html[\s\S]*?<\/html>)\s*```/i);
+    if (fenced?.[1]) return fenced[1].trim();
+
+    const doctypeStart = output.search(/<!doctype\s+html/i);
+    if (doctypeStart >= 0) {
+      const end = output.toLowerCase().lastIndexOf('</html>');
+      return end >= doctypeStart ? output.slice(doctypeStart, end + '</html>'.length).trim() : output.slice(doctypeStart).trim();
+    }
+
+    const htmlStart = output.search(/<html[\s\S]*?>/i);
+    if (htmlStart >= 0) {
+      const end = output.toLowerCase().lastIndexOf('</html>');
+      return end >= htmlStart ? output.slice(htmlStart, end + '</html>'.length).trim() : output.slice(htmlStart).trim();
+    }
+
+    return '';
+  }
+
+  private async evaluateHtmlArtifacts(
+    threadId: string,
+    artifacts: Array<{ name: string; path: string; type: string; size: number }>,
+  ): Promise<{ ok: boolean; reason: string }> {
+    const htmlArtifacts = artifacts.filter((artifact) => /\.html?$/i.test(artifact.name || artifact.path));
+    if (htmlArtifacts.length === 0) {
+      return { ok: false, reason: '没有生成 HTML 文件' };
+    }
+
+    const reasons: string[] = [];
+    for (const artifact of htmlArtifacts) {
+      try {
+        const filePath = path.join(this.workspaceService.getWorkspaceDir(threadId), artifact.path || artifact.name);
+        const html = await fs.readFile(filePath, 'utf8');
+        const quality = this.evaluateHtmlQuality(html, Buffer.byteLength(html, 'utf8'));
+        if (quality.ok) return { ok: true, reason: '通过' };
+        reasons.push(`${artifact.name}: ${quality.reason}`);
+      } catch (err) {
+        reasons.push(`${artifact.name}: 读取失败 ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    return { ok: false, reason: reasons.join('；') || 'HTML 文件不合格' };
+  }
+
+  private evaluateHtmlQuality(html: string, byteLength: number): { ok: boolean; reason: string } {
+    const visibleChars = this.countVisibleTextChars(html);
+    const checks = [
+      { ok: /<!doctype\s+html|<html[\s>]/i.test(html), reason: '不是完整 HTML' },
+      { ok: byteLength >= this.WECHAT_MIN_HTML_BYTES, reason: `文件过小 ${byteLength}B < ${this.WECHAT_MIN_HTML_BYTES}B` },
+      { ok: visibleChars >= this.WECHAT_MIN_VISIBLE_CHARS, reason: `可见正文过短 ${visibleChars}字 < ${this.WECHAT_MIN_VISIBLE_CHARS}字` },
+      { ok: html.includes('詹老师'), reason: '缺少詹老师署名' },
+      { ok: html.includes('13136092523'), reason: '缺少固定联系方式' },
+      { ok: /canvas|getContext\(|toDataURL\(/i.test(html), reason: '缺少 Canvas PNG 渲染逻辑' },
+      { ok: /copyArticle|execCommand\(['"]copy['"]\)|navigator\.clipboard/i.test(html), reason: '缺少一键复制逻辑' },
+    ];
+    const failed = checks.find((check) => !check.ok);
+    return failed ? { ok: false, reason: failed.reason } : { ok: true, reason: '通过' };
+  }
+
+  private countVisibleTextChars(html: string): number {
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&[a-zA-Z0-9#]+;/g, '')
+      .replace(/\s+/g, '')
+      .length;
+  }
+
+  private sanitizeFilename(value: string): string {
+    return value
+      .trim()
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, '_')
+      .slice(0, 80) || `artifact_${Date.now()}`;
   }
 
   /**
