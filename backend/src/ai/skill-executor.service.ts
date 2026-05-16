@@ -411,27 +411,21 @@ export class SkillExecutorService {
       }
 
       if (this.requiresLongFormHtml(pkg)) {
-        let quality = await this.evaluateHtmlArtifacts(actualThreadId, artifacts);
-        if (!quality.ok) {
-          const repairedOutput = await this.tryRepairLongFormHtml(
-            pkg,
-            userInput,
-            finalOutput,
-            quality.reason,
-            actualThreadId,
-            artifacts,
-            addLog,
-            savedExecution,
-            execId,
-            skillId,
-          );
-          if (repairedOutput) {
-            finalOutput = repairedOutput;
-            quality = await this.evaluateHtmlArtifacts(actualThreadId, artifacts);
-          }
-        }
-        if (!quality.ok) {
-          throw new Error(`公众号 HTML 产物质量未达标：${quality.reason}`);
+        const ensured = await this.ensureLongFormHtmlArtifacts({
+          pkg,
+          userInput,
+          finalOutput,
+          messages,
+          threadId: actualThreadId,
+          artifacts,
+          addLog,
+          execution: savedExecution,
+          execId,
+          skillId,
+        });
+        finalOutput = ensured.finalOutput;
+        if (!ensured.quality.ok) {
+          throw new Error(`公众号 HTML 产物质量未达标：${ensured.quality.reason}`);
         }
       }
 
@@ -498,6 +492,65 @@ export class SkillExecutorService {
         logs,
       };
     }
+  }
+
+  private async ensureLongFormHtmlArtifacts(input: {
+    pkg: SkillPackage;
+    userInput: string;
+    finalOutput: string;
+    messages: Array<any>;
+    threadId: string;
+    artifacts: Array<{ name: string; path: string; type: string; size: number }>;
+    addLog: (entry: ExecutionLogEntry) => void;
+    execution: any;
+    execId: number;
+    skillId: number;
+  }): Promise<{ finalOutput: string; quality: { ok: boolean; reason: string } }> {
+    let finalOutput = input.finalOutput;
+    let quality = await this.evaluateHtmlArtifacts(input.threadId, input.artifacts);
+
+    if (!quality.ok && quality.reason.includes('没有生成 HTML 文件')) {
+      const forcedOutput = await this.forceGenerateLongFormHtml(
+        input.pkg,
+        input.userInput,
+        input.messages,
+        input.addLog,
+      );
+      if (forcedOutput) {
+        finalOutput = forcedOutput;
+        await this.saveFinalArtifacts(
+          finalOutput,
+          input.threadId,
+          input.artifacts,
+          input.addLog,
+          input.execution,
+          input.execId,
+          input.skillId,
+        );
+        quality = await this.evaluateHtmlArtifacts(input.threadId, input.artifacts);
+      }
+    }
+
+    if (!quality.ok) {
+      const repairedOutput = await this.tryRepairLongFormHtml(
+        input.pkg,
+        input.userInput,
+        finalOutput,
+        quality.reason,
+        input.threadId,
+        input.artifacts,
+        input.addLog,
+        input.execution,
+        input.execId,
+        input.skillId,
+      );
+      if (repairedOutput) {
+        finalOutput = repairedOutput;
+        quality = await this.evaluateHtmlArtifacts(input.threadId, input.artifacts);
+      }
+    }
+
+    return { finalOutput, quality };
   }
 
   // ============================================
