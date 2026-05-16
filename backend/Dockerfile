@@ -35,6 +35,10 @@ RUN npm install --only=production
 # 从构建阶段复制编译后的文件
 COPY --from=builder /app/dist ./dist
 
+# 产品 Wiki 索引材料：后端单独构建时至少携带后端源码
+COPY --from=builder /app/src ./product-wiki-source/backend/src
+COPY --from=builder /app/package*.json ./product-wiki-source/backend/
+
 # 创建数据目录
 RUN mkdir -p /app/data
 
@@ -46,6 +50,7 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATABASE_PATH=/app/data/database.sqlite
 ENV WORKSPACE_DIR=/app/data/workspaces
+ENV PRODUCT_WIKI_ROOTS=/app/product-wiki-source
 
 # 启动应用
 CMD ["node", "dist/main.js"]

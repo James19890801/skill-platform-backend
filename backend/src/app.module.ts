@@ -26,6 +26,7 @@ import { PersonalContextModule } from './personal-context/personal-context.modul
 import { AutomationsModule } from './automations/automations.module';
 import { CapabilitiesModule } from './capabilities/capabilities.module';
 import { ProcessArchitecturesModule } from './process-architectures/process-architectures.module';
+import { ProductWikiModule } from './product-wiki/product-wiki.module';
 import {
   User,
   Skill,
@@ -191,6 +192,7 @@ function buildTypeOrmOptions(): TypeOrmModuleOptions {
     AutomationsModule,
     CapabilitiesModule,
     ProcessArchitecturesModule,
+    ProductWikiModule,
     ProtocolModule,
     OpenAiCompatibleModule,
   ],

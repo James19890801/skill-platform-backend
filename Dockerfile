@@ -34,6 +34,14 @@ RUN npm install --only=production
 # 从构建阶段复制编译后的文件
 COPY --from=builder /app/dist ./dist
 
+# 产品 Wiki 索引材料：把源码和文档作为只读材料打进运行镜像
+COPY docs ./product-wiki-source/docs
+COPY AGENT.md QUICK_START.md DEPLOYMENT_GUIDE.md TECHNICAL_PLAN.md ./product-wiki-source/
+COPY backend/src ./product-wiki-source/backend/src
+COPY frontend/src ./product-wiki-source/frontend/src
+COPY shared/src ./product-wiki-source/shared/src
+COPY agent-runtime/src ./product-wiki-source/agent-runtime/src
+
 # 创建数据目录
 RUN mkdir -p /app/data
 
@@ -45,6 +53,7 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATABASE_PATH=/app/data/database.sqlite
 ENV WORKSPACE_DIR=/app/data/workspaces
+ENV PRODUCT_WIKI_ROOTS=/app/product-wiki-source
 
 # 启动应用
 CMD ["node", "dist/main.js"]

@@ -12,9 +12,11 @@ import type {
   ISkillRuntimeEvent,
 } from '../types';
 
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api';
+
 // Axios 实例
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'https://skill-platform-backend-production.up.railway.app/api',
+  baseURL: API_BASE_URL,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
@@ -482,6 +484,55 @@ export const knowledgeApi = {
 
   sync: (data: { apiKey: string; kbId: string }): Promise<any> =>
     apiClient.post('/knowledge-bases/sync', data),
+};
+
+// ============================================
+// Product Wiki API
+// ============================================
+export interface ProductWikiSource {
+  id: string;
+  path: string;
+  title: string;
+  kind: string;
+  score: number;
+  sectionTitle?: string;
+  preview: string;
+  content?: string;
+}
+
+export interface ProductWikiIndexInfo {
+  roots: string[];
+  indexedAt: string;
+  documentCount: number;
+  totalBytes: number;
+}
+
+export interface ProductWikiSearchResponse {
+  query: string;
+  context: string;
+  sources: ProductWikiSource[];
+  index: ProductWikiIndexInfo;
+}
+
+export interface ProductWikiAskResponse extends ProductWikiSearchResponse {
+  answer: string;
+  degraded?: boolean;
+}
+
+export const productWikiApi = {
+  overview: (): Promise<ProductWikiIndexInfo & { documents: Array<Pick<ProductWikiSource, 'id' | 'path' | 'title' | 'kind'> & { description?: string; routes?: string[]; symbols?: string[] }> }> =>
+    apiClient.get('/product-wiki'),
+
+  refresh: (): Promise<ProductWikiIndexInfo> =>
+    apiClient.post('/product-wiki/refresh'),
+
+  search: (data: { query: string; topK?: number; maxDocuments?: number }): Promise<ProductWikiSearchResponse> =>
+    apiClient.post('/product-wiki/search', data),
+
+  ask: (data: { question: string; model?: string; topK?: number; maxDocuments?: number }): Promise<ProductWikiAskResponse> =>
+    apiClient.post('/product-wiki/ask', data),
+
+  streamUrl: (): string => `${API_BASE_URL.replace(/\/$/, '')}/product-wiki/ask/stream`,
 };
 
 // ============================================

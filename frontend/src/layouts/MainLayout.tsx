@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/useAuthStore';
+import ProductWikiFloat from '../components/ProductWikiFloat';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -128,6 +129,7 @@ const MainLayout: React.FC = () => {
           <Menu mode="inline" selectedKeys={[getSelectedKey()]} items={buildMenuItems()} onClick={handleMenuClick} style={{ borderRight: 'none', marginTop: 8 }} />
         </Drawer>
         <Content style={{ padding: 12, background: 'var(--bg-main)', minHeight: 'calc(100vh - 56px)' }}><Outlet /></Content>
+        <ProductWikiFloat />
       </Layout>
     );
   }
@@ -163,6 +165,7 @@ const MainLayout: React.FC = () => {
         </Header>
         <Content style={{ margin: 16, padding: 0, background: 'var(--bg-main)', borderRadius: 12, minHeight: 'calc(100vh - 56px - 32px)' }}><Outlet /></Content>
       </Layout>
+      <ProductWikiFloat />
     </Layout>
   );
 };
