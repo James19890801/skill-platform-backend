@@ -18,6 +18,12 @@ export class RunEntity {
   @Column({ nullable: true })
   agentId: number;
 
+  @Column({ nullable: true, select: false })
+  userId: number;
+
+  @Column({ length: 320, nullable: true, select: false })
+  notifyEmail: string;
+
   @Column({ default: 'queued' })
   status: string;
 

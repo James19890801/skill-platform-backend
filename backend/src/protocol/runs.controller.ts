@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Request, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Logger, Param, Post, Request, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { AiService } from '../ai/ai.service';
 import { OptionalAuthGuard } from '../auth/guards/optional-auth.guard';
+import { RunEmailNotificationService } from '../notifications/run-email-notification.service';
 import { ProtocolService } from './protocol.service';
 import { RunConcurrencyLimiter, RunQueueRejectedError, RunSlot } from './run-concurrency-limiter';
 
@@ -16,13 +17,21 @@ interface RunBody {
   attachments?: Array<{ name: string; type: string; dataUrl: string }>;
 }
 
+interface RunUser {
+  id?: number;
+  email?: string | null;
+}
+
 @ApiTags('Agent Protocol / Runs')
 @Controller()
 export class RunsController {
+  private readonly logger = new Logger(RunsController.name);
+
   constructor(
     private readonly protocolService: ProtocolService,
     private readonly aiService: AiService,
     private readonly runLimiter: RunConcurrencyLimiter,
+    private readonly runEmailNotifications: RunEmailNotificationService,
   ) {}
 
   @Post('api/threads/:threadId/runs/stream')
@@ -34,7 +43,7 @@ export class RunsController {
     @Res() res: Response,
     @Request() req: any,
   ) {
-    return this.streamRun(threadId, body, res, req.user?.id);
+    return this.streamRun(threadId, body, res, req.user || null);
   }
 
   @Post('api/runs/stream')
@@ -46,7 +55,7 @@ export class RunsController {
     @Request() req: any,
   ) {
     const threadId = body.thread_id || `thread-${Date.now()}`;
-    return this.streamRun(threadId, body, res, req.user?.id);
+    return this.streamRun(threadId, body, res, req.user || null);
   }
 
   @Post('api/threads/:threadId/runs')
@@ -55,7 +64,14 @@ export class RunsController {
   async createThreadRun(@Param('threadId') threadId: string, @Body() body: RunBody, @Request() req: any) {
     const input = this.getInput(body);
     const agentId = body.agentId ?? body.agent_id;
-    const run = await this.protocolService.createRun({ threadId, agentId, input: body });
+    const user = (req.user || null) as RunUser | null;
+    const run = await this.protocolService.createRun({
+      threadId,
+      agentId,
+      input: body,
+      userId: user?.id,
+      notifyEmail: user?.email || undefined,
+    });
     await this.protocolService.appendMessage({ threadId, role: 'user', content: input });
 
     let slot: RunSlot | null = null;
@@ -74,10 +90,12 @@ export class RunsController {
       );
       await this.protocolService.appendMessage({ threadId, role: 'assistant', content: output });
       await this.protocolService.markRunCompleted(run.id, output, { model: body.model });
+      await this.notifyRunCompleted(threadId, run.id, output);
       return this.protocolService.getRun(threadId, run.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Run 执行失败';
       await this.protocolService.markRunFailed(run.id, message);
+      await this.notifyRunFailed(threadId, run.id, message);
       throw new HttpException(
         { message },
         err instanceof RunQueueRejectedError ? HttpStatus.TOO_MANY_REQUESTS : HttpStatus.INTERNAL_SERVER_ERROR,
@@ -99,9 +117,10 @@ export class RunsController {
     return this.protocolService.cancelRun(threadId, runId);
   }
 
-  private async streamRun(threadId: string, body: RunBody, res: Response, userId?: number) {
+  private async streamRun(threadId: string, body: RunBody, res: Response, user: RunUser | null) {
     const input = this.getInput(body);
     const agentId = body.agentId ?? body.agent_id;
+    const notification = this.runEmailNotifications.getDeliveryHint(user);
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -141,10 +160,16 @@ export class RunsController {
     let run: Awaited<ReturnType<ProtocolService['createRun']>> | null = null;
     let slot: RunSlot | null = null;
     try {
-      run = await this.protocolService.createRun({ threadId, agentId, input: body });
+      run = await this.protocolService.createRun({
+        threadId,
+        agentId,
+        input: body,
+        userId: user?.id,
+        notifyEmail: user?.email || undefined,
+      });
       safeWrite(`data: ${JSON.stringify({
         type: 'run_start',
-        data: { runId: run.id, threadId, status: run.status },
+        data: { runId: run.id, threadId, status: run.status, notification },
       })}\n\n`);
       await this.protocolService.appendMessage({ threadId, role: 'user', content: input });
       slot = await this.runLimiter.acquire((snapshot) => {
@@ -159,7 +184,7 @@ export class RunsController {
       await this.protocolService.markRunRunning(run.id);
       safeWrite(`data: ${JSON.stringify({
         type: 'run_status',
-        data: { runId: run.id, threadId, status: 'running' },
+        data: { runId: run.id, threadId, status: 'running', notification },
       })}\n\n`);
 
       const output = await this.aiService.chatStream(
@@ -185,11 +210,12 @@ export class RunsController {
         body.skills,
         threadId,
         body.attachments,
-        userId,
+        user?.id,
       );
 
       await this.protocolService.appendMessage({ threadId, role: 'assistant', content: output });
       await this.protocolService.markRunCompleted(run.id, output, { model: body.model });
+      await this.notifyRunCompleted(threadId, run.id, output);
       safeWrite(`event: done\ndata: ${JSON.stringify({ status: 'completed', run_id: run.id })}\n\n`);
       safeWrite('data: [DONE]\n\n');
       if (!streamClosed) res.end();
@@ -197,6 +223,7 @@ export class RunsController {
       const message = err instanceof Error ? err.message : 'Run 执行失败';
       if (run) {
         await this.protocolService.markRunFailed(run.id, message);
+        await this.notifyRunFailed(threadId, run.id, message);
       }
       safeWrite(`event: error\ndata: ${JSON.stringify({ type: 'error', content: message, error: message, run_id: run?.id })}\n\n`);
       safeWrite('data: [DONE]\n\n');
@@ -213,5 +240,29 @@ export class RunsController {
       throw new HttpException({ message: 'input 不能为空' }, HttpStatus.BAD_REQUEST);
     }
     return input.trim();
+  }
+
+  private async notifyRunCompleted(threadId: string, runId: string, output: string) {
+    try {
+      const run = await this.protocolService.getRunForNotification(threadId, runId);
+      const result = await this.runEmailNotifications.notifyRunCompleted(run, output);
+      if (result.sent) {
+        this.logger.log(`Run completion email sent for ${runId}`);
+      }
+    } catch (err) {
+      this.logger.warn(`Run 完成邮件通知处理失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async notifyRunFailed(threadId: string, runId: string, error: string) {
+    try {
+      const run = await this.protocolService.getRunForNotification(threadId, runId);
+      const result = await this.runEmailNotifications.notifyRunFailed(run, error);
+      if (result.sent) {
+        this.logger.log(`Run failure email sent for ${runId}`);
+      }
+    } catch (err) {
+      this.logger.warn(`Run 失败邮件通知处理失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }

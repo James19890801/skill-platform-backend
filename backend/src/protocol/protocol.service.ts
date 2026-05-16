@@ -26,6 +26,8 @@ export interface CreateRunInput {
   id?: string;
   threadId?: string;
   agentId?: number;
+  userId?: number;
+  notifyEmail?: string;
   input?: unknown;
 }
 
@@ -61,7 +63,13 @@ export class ProtocolService {
   async ensureThread(input: CreateThreadInput): Promise<ThreadEntity> {
     const id = input.id || `thread-${randomUUID()}`;
     const existing = await this.threadRepository.findOne({ where: { id } });
-    if (existing) return existing;
+    if (existing) {
+      if (input.userId && !existing.userId) {
+        existing.userId = input.userId;
+        await this.threadRepository.save(existing);
+      }
+      return existing;
+    }
 
     return this.threadRepository.save(this.threadRepository.create({
       id,
@@ -117,12 +125,14 @@ export class ProtocolService {
 
   async createRun(input: CreateRunInput): Promise<RunEntity> {
     if (input.threadId) {
-      await this.ensureThread({ id: input.threadId, agentId: input.agentId });
+      await this.ensureThread({ id: input.threadId, agentId: input.agentId, userId: input.userId });
     }
     return this.runRepository.save(this.runRepository.create({
       id: input.id || `run-${randomUUID()}`,
       threadId: input.threadId,
       agentId: input.agentId,
+      userId: input.userId,
+      notifyEmail: input.notifyEmail,
       status: 'queued',
       input: JSON.stringify(input.input || {}),
     }));
@@ -130,6 +140,29 @@ export class ProtocolService {
 
   async getRun(threadId: string, runId: string): Promise<RunEntity> {
     const run = await this.runRepository.findOne({ where: { id: runId, threadId } });
+    if (!run) throw new NotFoundException(`Run ${runId} not found`);
+    return run;
+  }
+
+  async getRunForNotification(threadId: string, runId: string): Promise<RunEntity> {
+    const run = await this.runRepository.findOne({
+      where: { id: runId, threadId },
+      select: {
+        id: true,
+        threadId: true,
+        agentId: true,
+        userId: true,
+        notifyEmail: true,
+        status: true,
+        input: true,
+        output: true,
+        error: true,
+        usage: true,
+        startedAt: true,
+        completedAt: true,
+        createdAt: true,
+      },
+    });
     if (!run) throw new NotFoundException(`Run ${runId} not found`);
     return run;
   }

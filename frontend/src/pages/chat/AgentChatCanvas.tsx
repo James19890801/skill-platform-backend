@@ -131,6 +131,13 @@ interface RuntimeArtifact {
   mimeType?: string;
 }
 
+interface RunNotificationHint {
+  authenticated: boolean;
+  emailConfigured: boolean;
+  recipient?: string;
+  message: string;
+}
+
 interface ExecutionState {
   skillName: string;
   skillId: number;
@@ -144,6 +151,7 @@ interface ExecutionState {
   output?: string;
   totalRounds?: number;
   totalDurationMs?: number;
+  notificationHint?: RunNotificationHint;
 }
 
 interface ConversationSummary {
@@ -166,6 +174,14 @@ const API_BASE = import.meta.env.VITE_API_URL || 'https://skill-platform-backend
 const STREAM_IDLE_TIMEOUT_MS = 45_000;
 const CHAT_REQUEST_TIMEOUT_MS = 10 * 60_000;
 const INITIAL_STREAM_RETRY_LIMIT = 2;
+
+const maskEmailForNotice = (email?: string | null) => {
+  if (!email) return '';
+  const [name, domain] = email.split('@');
+  if (!domain) return email;
+  const head = name.slice(0, Math.min(2, name.length));
+  return `${head}${name.length > 2 ? '***' : '*'}@${domain}`;
+};
 
 const AgentChatCanvas: React.FC = () => {
   const { agentId } = useParams();
@@ -229,6 +245,42 @@ const AgentChatCanvas: React.FC = () => {
   const dragStartX = useRef(0);
   const dragStartLeftWidth = useRef(0);
   const activeRunIdRef = useRef<string | null>(null);
+  const notificationLoginPromptedRef = useRef(false);
+
+  const buildRunNotificationHint = useCallback((hint?: RunNotificationHint): RunNotificationHint => {
+    if (hint?.message) return hint;
+    const recipient = maskEmailForNotice(currentUser?.email);
+    if (authToken && recipient) {
+      return {
+        authenticated: true,
+        emailConfigured: true,
+        recipient,
+        message: `已记录登录邮箱 ${recipient}，你可以离开页面；任务完成或失败后会通过邮件通知你。`,
+      };
+    }
+    return {
+      authenticated: false,
+      emailConfigured: false,
+      message: '未登录时无法邮件通知。登录或注册后，长任务完成或失败会发送到你的邮箱。',
+    };
+  }, [authToken, currentUser?.email]);
+
+  const getRunNotificationNotice = useCallback((hint?: RunNotificationHint) => {
+    return buildRunNotificationHint(hint).message;
+  }, [buildRunNotificationHint]);
+
+  const maybePromptLoginForRunNotifications = useCallback((hint?: RunNotificationHint) => {
+    const effectiveHint = buildRunNotificationHint(hint);
+    if (effectiveHint.authenticated || notificationLoginPromptedRef.current) return;
+    notificationLoginPromptedRef.current = true;
+    Modal.confirm({
+      title: '登录后可接收邮件通知',
+      content: '这类任务会在后台继续运行。当前任务可以继续等待；登录或注册后，后续长任务完成或失败会自动发到你的邮箱。',
+      okText: '去登录 / 注册',
+      cancelText: '继续等待',
+      onOk: () => navigate('/login', { state: { from: `${window.location.pathname}${window.location.search}` } }),
+    });
+  }, [buildRunNotificationHint, navigate]);
 
   const getSkillCommand = useCallback((value: string) => {
     const slashIndex = value.lastIndexOf('/');
@@ -916,6 +968,7 @@ const AgentChatCanvas: React.FC = () => {
     const statusText = isRunning ? '执行中...' : exec.status === 'completed' ? '执行完成' : '执行失败';
     const latestLog = exec.logs[exec.logs.length - 1];
     const liveStatusText = latestLog?.data?.message || (isRunning ? '正在等待后台进度...' : statusText);
+    const notificationText = exec.notificationHint?.message;
 
     // 工具调用统计
     const totalCalls = exec.logs.filter(l => l.type === 'tool_call').length;
@@ -963,6 +1016,15 @@ const AgentChatCanvas: React.FC = () => {
             borderBottom: '1px solid #edf2f7',
           }}>
             <Text type="secondary" style={{ fontSize: 12 }}>{liveStatusText}</Text>
+          </div>
+        )}
+        {isRunning && notificationText && (
+          <div style={{
+            padding: '6px 12px',
+            background: '#fff7ed',
+            borderBottom: '1px solid #fed7aa',
+          }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>{notificationText}</Text>
           </div>
         )}
 
@@ -1152,6 +1214,7 @@ const AgentChatCanvas: React.FC = () => {
     let hasAssistantContent = false;
     let knowledgeSources: KnowledgeSourceReference[] = [];
     let activeRunId = '';
+    let runNotificationHint: RunNotificationHint | undefined;
     activeRunIdRef.current = null;
 
     const updateAssistantMessage = (content: string, patch: Partial<Message> = {}) => {
@@ -1192,7 +1255,8 @@ const AgentChatCanvas: React.FC = () => {
     const pollRunUntilDone = async (runId: string, headers: Record<string, string>) => {
       const startedAt = Date.now();
       let pollCount = 0;
-      updateAssistantMessage(`${assistantContent || '后台任务已开始。'}\n\n连接中断，正在接回当前任务...`, {
+      const notice = getRunNotificationNotice(runNotificationHint);
+      updateAssistantMessage(`${assistantContent || '后台任务已开始。'}\n\n连接中断，正在接回当前任务...\n\n${notice}`, {
         runId,
       });
 
@@ -1233,12 +1297,12 @@ const AgentChatCanvas: React.FC = () => {
         }
 
         const base = assistantContent || '后台任务仍在执行中。';
-        updateAssistantMessage(`${base}\n\n连接已恢复为状态轮询：${status}，已等待 ${Math.round((Date.now() - startedAt) / 1000)} 秒...`, {
+        updateAssistantMessage(`${base}\n\n连接已恢复为状态轮询：${status}，已等待 ${Math.round((Date.now() - startedAt) / 1000)} 秒...\n\n${notice}`, {
           runId,
         });
       }
 
-      throw new Error('后台任务仍未完成，请稍后从历史会话查看结果');
+      throw new Error(`后台任务仍未完成，服务端会继续执行；${notice || '请稍后从历史会话查看结果'}`);
     };
 
     try {
@@ -1362,15 +1426,19 @@ const AgentChatCanvas: React.FC = () => {
                 if (data.type === 'run_start' && data.data?.runId) {
                   activeRunId = data.data.runId;
                   activeRunIdRef.current = activeRunId;
-                  updateAssistantMessage('后台任务已创建，正在进入执行队列...', { runId: activeRunId });
+                  runNotificationHint = data.data.notification || runNotificationHint;
+                  maybePromptLoginForRunNotifications(runNotificationHint);
+                  updateAssistantMessage(`后台任务已创建，正在进入执行队列...\n\n${getRunNotificationNotice(runNotificationHint)}`, { runId: activeRunId });
                   continue;
                 }
 
                 if (data.type === 'run_status' && data.data?.runId) {
                   activeRunId = data.data.runId;
                   activeRunIdRef.current = activeRunId;
+                  runNotificationHint = data.data.notification || runNotificationHint;
                   if (!hasAssistantContent) {
-                    updateAssistantMessage(data.data.status === 'running' ? '后台任务运行中，正在等待执行进度...' : `后台任务状态：${data.data.status}`, {
+                    const statusText = data.data.status === 'running' ? '后台任务运行中，正在等待执行进度...' : `后台任务状态：${data.data.status}`;
+                    updateAssistantMessage(`${statusText}\n\n${getRunNotificationNotice(runNotificationHint)}`, {
                       runId: activeRunId,
                     });
                   }
@@ -1396,8 +1464,9 @@ const AgentChatCanvas: React.FC = () => {
                     status: 'running',
                     startTime: Date.now(),
                     runId: activeRunId || undefined,
+                    notificationHint: buildRunNotificationHint(runNotificationHint),
                   });
-                  assistantContent += `\n\n> **Skill 执行中**: ${data.data.skillName}\n`;
+                  assistantContent += `\n\n> **Skill 执行中**: ${data.data.skillName}\n> ${getRunNotificationNotice(runNotificationHint)}\n`;
                   hasAssistantContent = true;
                   updateAssistantMessage(assistantContent, { runId: activeRunId || undefined });
                   continue;
@@ -1440,6 +1509,7 @@ const AgentChatCanvas: React.FC = () => {
                       totalRounds: doneData.totalRounds,
                       totalDurationMs: doneData.totalDurationMs,
                       output: doneData.output,
+                      notificationHint: buildRunNotificationHint(runNotificationHint),
                     };
                   });
                   assistantContent += `\n${doneData.skillName} 执行完成。共 ${doneData.totalRounds} 轮，耗时 ${(doneData.totalDurationMs / 1000).toFixed(1)} 秒，产出 ${doneData.artifacts?.length || 0} 个交付物。`;
