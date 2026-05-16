@@ -401,7 +401,25 @@ export class SkillExecutorService {
       }
 
       if (this.requiresLongFormHtml(pkg)) {
-        const quality = await this.evaluateHtmlArtifacts(actualThreadId, artifacts);
+        let quality = await this.evaluateHtmlArtifacts(actualThreadId, artifacts);
+        if (!quality.ok) {
+          const repairedOutput = await this.tryRepairLongFormHtml(
+            pkg,
+            userInput,
+            finalOutput,
+            quality.reason,
+            actualThreadId,
+            artifacts,
+            addLog,
+            savedExecution,
+            execId,
+            skillId,
+          );
+          if (repairedOutput) {
+            finalOutput = repairedOutput;
+            quality = await this.evaluateHtmlArtifacts(actualThreadId, artifacts);
+          }
+        }
         if (!quality.ok) {
           throw new Error(`公众号 HTML 产物质量未达标：${quality.reason}`);
         }
@@ -827,6 +845,9 @@ export class SkillExecutorService {
     while ((match = codeBlockRegex.exec(output)) !== null && artifacts.length < this.MAX_ARTIFACTS) {
       const lang = match[1] || 'txt';
       const code = match[2].trim();
+      if (/^html?$/i.test(lang) && this.isHtmlInArtifacts(artifacts) && this.extractHtmlDocument(code)) {
+        continue;
+      }
       if (code.length > 200) {
         const ext = this.langToExt(lang);
         const filename = `code_${codeIdx}.${ext}`;
@@ -836,6 +857,100 @@ export class SkillExecutorService {
           codeIdx++;
         } catch { /* ignore */ }
       }
+    }
+  }
+
+  private async tryRepairLongFormHtml(
+    pkg: SkillPackage,
+    userInput: string,
+    currentOutput: string,
+    reason: string,
+    threadId: string,
+    artifacts: Array<{ name: string; path: string; type: string; size: number }>,
+    addLog: (entry: ExecutionLogEntry) => void,
+    execution: any,
+    execId: number,
+    skillId: number,
+  ): Promise<string | null> {
+    const currentHtml = this.extractHtmlDocument(currentOutput);
+    if (!currentHtml) return null;
+
+    const started = Date.now();
+    addLog({
+      round: 0,
+      action: 'think',
+      toolName: 'html_quality_repair',
+      status: 'pending',
+      message: `公众号 HTML 未达标，开始自动扩写修复: ${reason}`,
+    });
+
+    try {
+      const completion = await this.client.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: [
+              '你是公众号 HTML 产物修复器。',
+              '只输出完整 HTML，不要 Markdown 代码围栏，不要解释。',
+              `可见正文必须不少于 ${this.WECHAT_MIN_VISIBLE_CHARS + 500} 个中文字符，文件体积必须明显超过 ${Math.round(this.WECHAT_MIN_HTML_BYTES / 1024)}KB。`,
+              '必须保留：詹老师署名、13136092523、Canvas/getContext/toDataURL PNG 渲染逻辑、一键复制按钮。',
+              '扩写要增加洞察、案例化场景、方法论步骤和充分结尾，不要堆空话，不要套话开头。',
+            ].join('\n'),
+          },
+          {
+            role: 'user',
+            content: [
+              `原始用户需求：${userInput}`,
+              `失败原因：${reason}`,
+              '请基于下面这份 HTML 扩写修复，输出新的完整 HTML：',
+              currentHtml.slice(0, 24000),
+            ].join('\n\n'),
+          },
+        ],
+        temperature: 0.65,
+        max_tokens: this.SKILL_LLM_MAX_TOKENS,
+      } as any);
+
+      const repaired = this.extractHtmlDocument(completion.choices[0]?.message?.content || '');
+      if (!repaired) {
+        addLog({
+          round: 0,
+          action: 'think',
+          toolName: 'html_quality_repair',
+          status: 'error',
+          durationMs: Date.now() - started,
+          message: '公众号 HTML 自动修复未返回完整 HTML',
+        });
+        return null;
+      }
+
+      const filename = `skill_output_repaired_${Date.now()}.html`;
+      const file = await this.workspaceService.writeFile(threadId, filename, repaired, 'text/html');
+      await this.recordArtifact(artifacts, file, execution, execId, skillId);
+      const quality = this.evaluateHtmlQuality(repaired, Buffer.byteLength(repaired, 'utf8'));
+      addLog({
+        round: 0,
+        action: 'tool_result',
+        toolName: 'html_quality_repair',
+        status: quality.ok ? 'success' : 'error',
+        durationMs: Date.now() - started,
+        message: quality.ok
+          ? `公众号 HTML 自动修复完成，生成产物: ${filename}`
+          : `公众号 HTML 自动修复后仍未达标: ${quality.reason}`,
+      });
+
+      return repaired;
+    } catch (err) {
+      addLog({
+        round: 0,
+        action: 'think',
+        toolName: 'html_quality_repair',
+        status: 'error',
+        durationMs: Date.now() - started,
+        message: `公众号 HTML 自动修复异常: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return null;
     }
   }
 
