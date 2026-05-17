@@ -45,6 +45,12 @@ import {
 
 @Injectable()
 export class ProcessArchitecturesService {
+  private readonly coverageCache = new Map<string, { expiresAt: number; value: any }>();
+  private readonly coverageCacheTtlMs = Math.max(
+    1000,
+    Number(process.env.PROCESS_ARCHITECTURE_COVERAGE_CACHE_MS || 15000),
+  );
+
   constructor(
     @InjectRepository(ProcessArchitectureTree)
     private readonly treeRepository: Repository<ProcessArchitectureTree>,
@@ -95,6 +101,15 @@ export class ProcessArchitecturesService {
   }
 
   async getCoverage(treeId?: number, selectedNodeId?: number | null) {
+    const cacheKey = this.getCoverageCacheKey(treeId, selectedNodeId ?? null);
+    const cached = this.coverageCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+    if (cached) {
+      this.coverageCache.delete(cacheKey);
+    }
+
     const tree = treeId ? await this.findTreeOrThrow(treeId) : await this.getActiveTree();
     const nodes = await this.getNodes(tree.id);
     await this.ensureDefaultAssets(tree, nodes);
@@ -132,7 +147,7 @@ export class ProcessArchitecturesService {
       knowledgeDocuments: knowledgeDocuments as any,
     });
 
-    return {
+    const result = {
       tree,
       nodes,
       snapshot: buildProcessArchitectureSnapshot(nodes),
@@ -141,9 +156,12 @@ export class ProcessArchitecturesService {
       unboundSkillCount: skills.filter((skill) => parseProcessArchitectureBinding(skill.processArchitectureNodeIds).length === 0).length,
       unboundKnowledgeDocumentCount: knowledgeDocuments.filter((document) => parseProcessArchitectureBinding(document.processArchitectureNodeIds).length === 0).length,
     };
+    this.coverageCache.set(cacheKey, { expiresAt: Date.now() + this.coverageCacheTtlMs, value: result });
+    return result;
   }
 
   async create(dto: CreateProcessArchitectureTreeDto, ownerId: number) {
+    this.invalidateCoverageCache();
     const tree = await this.treeRepository.save(this.treeRepository.create({
       name: dto.name,
       description: dto.description || null,
@@ -160,6 +178,7 @@ export class ProcessArchitecturesService {
   }
 
   async update(id: number, dto: UpdateProcessArchitectureTreeDto, userId: number, isAdmin: boolean) {
+    this.invalidateCoverageCache();
     const existing = await this.findTreeOrThrow(id);
     this.assertCanEdit(existing, userId, isAdmin);
 
@@ -180,6 +199,7 @@ export class ProcessArchitecturesService {
   }
 
   async remove(id: number, userId: number, isAdmin: boolean) {
+    this.invalidateCoverageCache();
     const existing = await this.findTreeOrThrow(id);
     this.assertCanEdit(existing, userId, isAdmin);
     await this.treeRepository.delete(id);
@@ -187,6 +207,7 @@ export class ProcessArchitecturesService {
   }
 
   async createNode(treeId: number, dto: CreateProcessArchitectureNodeDto, userId: number, isAdmin: boolean) {
+    this.invalidateCoverageCache();
     const tree = await this.findTreeOrThrow(treeId);
     this.assertCanEdit(tree, userId, isAdmin);
     const node = await this.nodeRepository.save(this.nodeRepository.create({
@@ -208,6 +229,7 @@ export class ProcessArchitecturesService {
     userId: number,
     isAdmin: boolean,
   ) {
+    this.invalidateCoverageCache();
     const tree = await this.findTreeOrThrow(treeId);
     this.assertCanEdit(tree, userId, isAdmin);
     const existing = await this.nodeRepository.findOne({ where: { id: nodeId, treeId } });
@@ -226,6 +248,7 @@ export class ProcessArchitecturesService {
   }
 
   async removeNode(treeId: number, nodeId: number, userId: number, isAdmin: boolean) {
+    this.invalidateCoverageCache();
     const tree = await this.findTreeOrThrow(treeId);
     this.assertCanEdit(tree, userId, isAdmin);
     const nodes = await this.getNodes(treeId);
@@ -253,7 +276,16 @@ export class ProcessArchitecturesService {
     }
   }
 
+  private getCoverageCacheKey(treeId: number | undefined, selectedNodeId: number | null) {
+    return `${treeId ?? 'active'}:${selectedNodeId ?? 'all'}`;
+  }
+
+  private invalidateCoverageCache() {
+    this.coverageCache.clear();
+  }
+
   private async createDefaultArchitecture() {
+    this.invalidateCoverageCache();
     const tree = await this.treeRepository.save(this.treeRepository.create({
       name: defaultProcessArchitectureTree.name,
       description: defaultProcessArchitectureTree.description,

@@ -75,11 +75,21 @@ export function shouldRecordHttpRequest(input: {
   const pathOnly = normalizeRequestPath(input.path);
   const routePath = pathOnly.replace(/^\/api(?=\/)/, '');
   const isMonitoringRead = routePath === '/monitoring/summary' || routePath === '/monitoring/events';
-  const isImportant = input.statusCode >= 400 || input.durationMs >= slowRequestMs;
+  const isFailure = input.statusCode >= 400;
+  const isExpectedLongLivedStream = isSuccessfulLongLivedStream(routePath) && !isFailure;
+  const isImportant = isFailure || (!isExpectedLongLivedStream && input.durationMs >= slowRequestMs);
   if (isImportant) return true;
+  if (isExpectedLongLivedStream) return false;
   if (isMonitoringRead) return false;
   const successSampleRate = getSuccessSampleRate(input.successSampleRate);
   return successSampleRate > 0 && Math.random() < successSampleRate;
+}
+
+function isSuccessfulLongLivedStream(routePath: string) {
+  return routePath === '/ai/chat' ||
+    routePath === '/runs/stream' ||
+    /^\/threads\/[^/]+\/runs\/stream$/.test(routePath) ||
+    /^\/ai\/execute-skill\/execution\/[^/]+\/events\/stream$/.test(routePath);
 }
 
 function getSuccessSampleRate(inputRate?: number) {

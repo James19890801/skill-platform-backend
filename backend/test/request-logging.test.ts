@@ -73,3 +73,39 @@ test('successful non-monitoring requests are sampled instead of always written',
     successSampleRate: 0,
   }), true);
 });
+
+test('successful long-lived streaming requests are not classified as slow noise', () => {
+  assert.equal(shouldRecordHttpRequest({
+    path: '/api/ai/chat',
+    statusCode: 200,
+    durationMs: 18000,
+    slowRequestMs: 8000,
+    successSampleRate: 0,
+  }), false);
+
+  assert.equal(shouldRecordHttpRequest({
+    path: '/api/threads/thread-123/runs/stream',
+    statusCode: 200,
+    durationMs: 18000,
+    slowRequestMs: 8000,
+    successSampleRate: 0,
+  }), false);
+
+  assert.equal(shouldRecordHttpRequest({
+    path: '/api/ai/execute-skill/execution/12/events/stream',
+    statusCode: 200,
+    durationMs: 18000,
+    slowRequestMs: 8000,
+    successSampleRate: 0,
+  }), false);
+});
+
+test('failing long-lived streaming requests are still recorded', () => {
+  assert.equal(shouldRecordHttpRequest({
+    path: '/api/ai/chat',
+    statusCode: 500,
+    durationMs: 18000,
+    slowRequestMs: 8000,
+    successSampleRate: 0,
+  }), true);
+});

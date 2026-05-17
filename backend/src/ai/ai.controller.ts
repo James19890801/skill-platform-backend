@@ -86,6 +86,29 @@ class ExportDto {
   filename?: string;
 }
 
+function parsePositiveIntegerParam(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new HttpException(
+      { success: false, message: `${name} 必须是正整数` },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+  return parsed;
+}
+
+function parseNonNegativeIntegerParam(value: string | undefined, name: string): number {
+  if (value === undefined || value === '') return 0;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new HttpException(
+      { success: false, message: `${name} 必须是非负整数` },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+  return parsed;
+}
+
 @ApiTags('AI')
 @Controller('api/ai')
 export class AiController {
@@ -342,8 +365,9 @@ export class AiController {
     @Body() body: { input: string; threadId?: string },
   ) {
     try {
+      const skillId = parsePositiveIntegerParam(id, 'id');
       const result = await this.skillExecutor.execute(
-        Number(id),
+        skillId,
         body.input || '',
         body.threadId,
       );
@@ -362,6 +386,7 @@ export class AiController {
           HttpStatus.NOT_FOUND,
         );
       }
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         { success: false, message: error instanceof Error ? error.message : 'Skill 执行失败' },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -376,7 +401,8 @@ export class AiController {
     @Body() body: { input: string; threadId?: string },
   ) {
     try {
-      const execution = await this.skillQueue.enqueue(Number(id), body.input || '', body.threadId);
+      const skillId = parsePositiveIntegerParam(id, 'id');
+      const execution = await this.skillQueue.enqueue(skillId, body.input || '', body.threadId);
       return {
         success: true,
         data: {
@@ -388,6 +414,7 @@ export class AiController {
         message: 'Skill 已进入运行队列，可通过事件接口持续查看进度',
       };
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         { success: false, message: error instanceof Error ? error.message : 'Skill 入队失败' },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -405,9 +432,11 @@ export class AiController {
   @Get('execute-skill/:id/history')
   async getExecutionHistory(@Param('id') id: string) {
     try {
-      const history = await this.skillExecutor.getHistory(Number(id));
+      const skillId = parsePositiveIntegerParam(id, 'id');
+      const history = await this.skillExecutor.getHistory(skillId);
       return { success: true, data: history };
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         { success: false, message: error instanceof Error ? error.message : '查询失败' },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -422,9 +451,12 @@ export class AiController {
     @Query('after') after?: string,
   ) {
     try {
-      const events = await this.runtimeTrace.listEvents(Number(executionId), Number(after || 0));
+      const execId = parsePositiveIntegerParam(executionId, 'executionId');
+      const cursor = parseNonNegativeIntegerParam(after, 'after');
+      const events = await this.runtimeTrace.listEvents(execId, cursor);
       return { success: true, data: events };
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         { success: false, message: error instanceof Error ? error.message : '查询事件失败' },
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -439,8 +471,8 @@ export class AiController {
     @Query('after') after: string | undefined,
     @Res() res: Response,
   ) {
-    const execId = Number(executionId);
-    let cursor = Number(after || 0);
+    const execId = parsePositiveIntegerParam(executionId, 'executionId');
+    let cursor = parseNonNegativeIntegerParam(after, 'after');
     let closed = false;
 
     res.writeHead(200, {
@@ -494,7 +526,8 @@ export class AiController {
   @Get('execute-skill/execution/:executionId')
   async getExecutionDetail(@Param('executionId') executionId: string) {
     try {
-      const detail = await this.skillExecutor.getExecution(Number(executionId));
+      const execId = parsePositiveIntegerParam(executionId, 'executionId');
+      const detail = await this.skillExecutor.getExecution(execId);
       if (!detail) {
         throw new HttpException(
           { success: false, message: '执行记录不存在' },
@@ -502,8 +535,8 @@ export class AiController {
         );
       }
       const [events, artifacts] = await Promise.all([
-        this.runtimeTrace.listEvents(Number(executionId), 0),
-        this.runtimeTrace.listArtifacts(Number(executionId)),
+        this.runtimeTrace.listEvents(execId, 0),
+        this.runtimeTrace.listArtifacts(execId),
       ]);
       return { success: true, data: { ...detail, runtimeEvents: events, runtimeArtifacts: artifacts } };
     } catch (error) {
