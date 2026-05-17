@@ -209,6 +209,163 @@ function extractJsonArray(rawContent: string): unknown[] | null {
   }
 }
 
+export type ChatToolRoutingReason =
+  | 'conversation'
+  | 'skill'
+  | 'search'
+  | 'document_generation'
+  | 'code_execution'
+  | 'broad_tool_use';
+
+export interface ChatToolRouting {
+  shouldUseTools: boolean;
+  allowSkillTool: boolean;
+  allowedToolNames: string[];
+  reason: ChatToolRoutingReason;
+}
+
+const SEARCH_TOOL_NAMES = ['search_web', 'bing_search', 'web_search', 'web_scrape', 'wikipedia'];
+const DOCUMENT_TOOL_NAMES = ['generate_document', 'generate_presentation', 'generate_html_report'];
+const EXECUTION_TOOL_NAMES = [
+  'execute_python',
+  'python_repl',
+  'data_analysis',
+  'generate_chart',
+  'query_database',
+  'execute_sql',
+  'run_sql',
+  'postgres_query',
+  'mysql_query',
+  'sqlite_query',
+];
+
+function hasAnyPattern(text: string, patterns: RegExp[]) {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function uniqueToolNames(names: string[]) {
+  return Array.from(new Set(names));
+}
+
+export function buildChatToolRouting(message: string): ChatToolRouting {
+  const text = (message || '').trim();
+  const lower = text.toLowerCase();
+  if (!text) {
+    return { shouldUseTools: false, allowSkillTool: false, allowedToolNames: [], reason: 'conversation' };
+  }
+
+  const explicitSkill = hasAnyPattern(text, [
+    /(?:使用|执行|调用)\s*(?:技能|Skill|skill)\s*[「"“]?[^」"”\n:：]+/i,
+    /(?:用|跑)\s*[「"“]?[^」"”\n:：]+[」"”]?\s*(?:技能|Skill|skill)/i,
+  ]);
+  if (explicitSkill) {
+    return {
+      shouldUseTools: true,
+      allowSkillTool: true,
+      allowedToolNames: ['execute_skill'],
+      reason: 'skill',
+    };
+  }
+
+  const hasSql = hasAnyPattern(lower, [
+    /\bsql\b/i,
+    /数据库|查库|数据表|表结构/i,
+    /\bselect\s+[\s\S]+\s+from\b/i,
+    /\binsert\s+into\b/i,
+    /\bupdate\s+\w+\s+set\b/i,
+    /\bdelete\s+from\b/i,
+  ]);
+  const hasExecutionVerb = hasAnyPattern(lower, [
+    /运行|执行|跑一下|跑这段|执行这段|运行这段|查一下数据库|查询数据库|连接数据库/i,
+    /\b(run|execute)\b/i,
+  ]);
+  const isSqlDraftOnly = hasSql &&
+    hasAnyPattern(text, [/写.*SQL/i, /生成.*SQL/i, /SQL.*怎么写/i, /帮我.*SQL/i]) &&
+    !hasExecutionVerb;
+  if (isSqlDraftOnly) {
+    return { shouldUseTools: false, allowSkillTool: false, allowedToolNames: [], reason: 'conversation' };
+  }
+
+  if (hasSql && hasExecutionVerb) {
+    return {
+      shouldUseTools: true,
+      allowSkillTool: false,
+      allowedToolNames: uniqueToolNames(EXECUTION_TOOL_NAMES),
+      reason: 'code_execution',
+    };
+  }
+
+  const wantsSearch = hasAnyPattern(text, [
+    /最新|今天|现在|近期|今年|昨天|明天|新闻|价格|政策|版本|排名|实时/i,
+    /搜索|联网|查一下|查找|检索|帮我查|网上/i,
+    /\b(latest|current|today|news|price|search)\b/i,
+  ]);
+  if (wantsSearch) {
+    return {
+      shouldUseTools: true,
+      allowSkillTool: false,
+      allowedToolNames: uniqueToolNames(SEARCH_TOOL_NAMES),
+      reason: 'search',
+    };
+  }
+
+  const wantsDocument = hasAnyPattern(text, [
+    /生成.*(?:文档|报告|PPT|演示|Excel|表格|HTML)/i,
+    /(?:制作|创建|导出|下载|转成).*(?:文档|报告|PPT|演示|Excel|表格|HTML|docx|xlsx|pptx)/i,
+    /\b(docx|xlsx|pptx|powerpoint|html report)\b/i,
+  ]);
+  if (wantsDocument) {
+    return {
+      shouldUseTools: true,
+      allowSkillTool: false,
+      allowedToolNames: uniqueToolNames(DOCUMENT_TOOL_NAMES),
+      reason: 'document_generation',
+    };
+  }
+
+  const wantsCodeExecution = hasExecutionVerb && hasAnyPattern(text, [
+    /代码|脚本|Python|计算|图表|CSV|Excel|表格数据|数据分析|画图/i,
+    /\b(code|python|script|calculate|chart|csv|data)\b/i,
+  ]);
+  if (wantsCodeExecution) {
+    return {
+      shouldUseTools: true,
+      allowSkillTool: false,
+      allowedToolNames: uniqueToolNames(EXECUTION_TOOL_NAMES),
+      reason: 'code_execution',
+    };
+  }
+
+  const explicitToolUse = hasAnyPattern(text, [
+    /调用工具|使用工具|执行工具|跑工具/i,
+    /\b(use|call|invoke)\s+(a\s+)?tool\b/i,
+  ]);
+  if (explicitToolUse) {
+    return {
+      shouldUseTools: true,
+      allowSkillTool: true,
+      allowedToolNames: ['*'],
+      reason: 'broad_tool_use',
+    };
+  }
+
+  return { shouldUseTools: false, allowSkillTool: false, allowedToolNames: [], reason: 'conversation' };
+}
+
+export function filterToolsForChatIntent<T extends { function?: { name?: string } }>(
+  tools: T[],
+  routing: ChatToolRouting,
+): T[] {
+  if (!routing.shouldUseTools) return [];
+  if (routing.allowedToolNames.includes('*')) return tools;
+
+  const allowed = new Set(routing.allowedToolNames);
+  return tools.filter((tool) => {
+    const name = tool.function?.name;
+    return Boolean(name && allowed.has(name));
+  });
+}
+
 
 @Injectable()
 export class AiService {
@@ -711,6 +868,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     let fullContent = '';
 
     const explicitSkillInvocation = this.parseExplicitSkillInvocation(message);
+    const toolRouting = buildChatToolRouting(message);
     if (explicitSkillInvocation) {
       const result = await this.executeSkillWithProgress(
         explicitSkillInvocation,
@@ -741,18 +899,24 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       }
     }
 
-    // 先构建 tools 列表（平台工具 + Skill 工具）
-    const platformTools = await this.toolBridge.getTools();
-    const skillTool = await this.getSkillTool();
-    const allTools = skillTool ? [...platformTools, skillTool] : platformTools;
+    // 先判断本轮是否需要工具，再按意图暴露最小工具集合。
+    // 普通对话不传 tools，避免模型把闲聊误判成 Python/SQL/Skill 执行。
+    const platformTools = toolRouting.shouldUseTools ? await this.toolBridge.getTools() : [];
+    const skillTool = toolRouting.allowSkillTool ? await this.getSkillTool() : null;
+    const allTools = filterToolsForChatIntent(
+      skillTool ? [...platformTools, skillTool] : platformTools,
+      toolRouting,
+    );
+    const toolPayload = allTools.length > 0
+      ? { tools: allTools, tool_choice: 'auto' }
+      : {};
     
     if (!onChunk) {
       // 非流式模式：直接一次调用，最快速度
       const completion = await chatClient.chat.completions.create({
         model: modelName,
         messages,
-        tools: allTools,
-        tool_choice: 'auto',
+        ...toolPayload,
         temperature: 0.7,
         max_tokens: 4096,
       } as any);
@@ -791,8 +955,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       const stream = await chatClient.chat.completions.create({
         model: modelName,
         messages,
-        tools: allTools,
-        tool_choice: 'auto',
+        ...toolPayload,
         stream: true,
       } as any);
 

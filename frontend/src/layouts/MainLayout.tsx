@@ -20,6 +20,13 @@ const breadcrumbMap: Record<string, string> = {
   '/process-architecture': '流程架构', '/automations': '自动化', '/integrations': '调用中心', '/evaluations': '评测中心', '/monitoring': '监控看板',
 };
 
+const BrandLockup = ({ compact = false }: { compact?: boolean }) => (
+  <span className={compact ? 'platform-brand-lockup platform-brand-lockup-compact' : 'platform-brand-lockup'}>
+    <span className="platform-brand">E2E AI</span>
+    <span className="platform-beta-badge">BETA</span>
+  </span>
+);
+
 const MainLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -110,7 +117,7 @@ const MainLayout: React.FC = () => {
           <Space>
             <Button type="text" icon={<MenuFoldOutlined />} onClick={() => setMobileNavOpen(true)} style={{ fontSize: 18, color: '#333' }} />
             <span className="platform-brand-mark">AI</span>
-            <span className="platform-brand">E2E AI</span>
+            <BrandLockup compact />
           </Space>
           <Space size={4}>
             {isAuthenticated() ? (
@@ -126,7 +133,7 @@ const MainLayout: React.FC = () => {
             )}
           </Space>
         </Header>
-        <Drawer title={<span style={{ fontWeight: 700, fontSize: 16, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>E2E AI</span>} placement="left" open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} width={280}>
+        <Drawer title={<BrandLockup />} placement="left" open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} width={280}>
           <Menu mode="inline" selectedKeys={[getSelectedKey()]} items={buildMenuItems()} onClick={handleMenuClick} style={{ borderRight: 'none', marginTop: 8 }} />
         </Drawer>
         <Content style={{ padding: 12, background: 'var(--bg-main)', minHeight: 'calc(100vh - 56px)' }}><Outlet /></Content>
@@ -142,7 +149,7 @@ const MainLayout: React.FC = () => {
         style={{ overflow: 'auto', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0, zIndex: 100, background: '#fff' }}>
         <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', borderBottom: '1px solid var(--border-color)', gap: 10, padding: collapsed ? 0 : '0 18px' }}>
           <span className="platform-brand-mark">AI</span>
-          {!collapsed && <span className="platform-brand">E2E AI</span>}
+          {!collapsed && <BrandLockup />}
         </div>
         <Menu theme="light" mode="inline" selectedKeys={[getSelectedKey()]} items={buildMenuItems()} onClick={handleMenuClick} style={{ background: 'transparent', borderRight: 'none', marginTop: 8 }} />
       </Sider>

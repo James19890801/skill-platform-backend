@@ -136,6 +136,33 @@ code { background: #f1f5f9; padding: 2px 8px; border-radius: var(--radius-xs); f
   letter-spacing: 0;
 }
 
+.platform-brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.platform-brand-lockup-compact {
+  gap: 6px;
+}
+
+.platform-beta-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: #111827;
+  color: #fef3c7;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  box-shadow: 0 2px 7px rgba(17, 24, 39, 0.14);
+}
+
 .platform-brand-mark {
   width: 32px;
   height: 32px;
