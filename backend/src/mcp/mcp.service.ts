@@ -1,5 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { McpMarketplaceItem, McpServerConfig, McpTransport } from './mcp.types';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { McpServer } from '../entities';
+import { McpCategory, McpMarketplaceItem, McpServerConfig, McpSource, McpTransport } from './mcp.types';
 
 const MARKETPLACE: McpMarketplaceItem[] = [
   {
@@ -114,11 +117,35 @@ const MARKETPLACE: McpMarketplaceItem[] = [
   },
 ];
 
+const BUILTIN_IDS = new Set(MARKETPLACE.map((item) => item.id).filter(Boolean) as string[]);
+
+const CATEGORY_LABELS: Record<McpCategory, string> = {
+  files: '文件',
+  web: '联网',
+  data: '数据',
+  memory: '记忆',
+  dev: '研发',
+  custom: '自定义',
+};
+
 @Injectable()
 export class McpService {
-  getMarketplace() {
+  constructor(
+    @Optional()
+    @InjectRepository(McpServer)
+    private readonly mcpRepository?: Repository<McpServer>,
+  ) {}
+
+  async getMarketplace() {
+    const registeredItems = await this.listRegisteredItems();
+    const items = [...MARKETPLACE, ...registeredItems];
+
     return {
-      items: MARKETPLACE,
+      items,
+      total: items.length,
+      builtInCount: MARKETPLACE.length,
+      registeredCount: registeredItems.length,
+      categories: this.getCategorySummaries(items),
       transports: ['stdio', 'streamable_http', 'sse'] satisfies McpTransport[],
       jsonExample: {
         mcpServers: {
@@ -133,6 +160,54 @@ export class McpService {
           },
         },
       },
+    };
+  }
+
+  async listRegistered() {
+    const items = await this.listRegisteredItems();
+    return {
+      items,
+      total: items.length,
+    };
+  }
+
+  async register(input: unknown, ownerId?: number | null) {
+    if (!this.mcpRepository) {
+      throw new BadRequestException('MCP 注册表未启用');
+    }
+
+    const servers = this.normalize(input).map((server) => ({
+      ...server,
+      id: this.makeRegistryId(server.id || server.name),
+      category: this.normalizeCategory(server.category),
+      source: 'registered' as McpSource,
+    }));
+    const saved: McpServer[] = [];
+
+    for (const server of servers) {
+      const payload = this.toEntityPayload(server, ownerId ?? null);
+      const existing = await this.mcpRepository.findOne({ where: { registryId: payload.registryId } });
+      const entity = existing
+        ? { ...existing, ...payload }
+        : this.mcpRepository.create(payload);
+      saved.push(await this.mcpRepository.save(entity));
+    }
+
+    return {
+      items: saved.map((entry) => this.fromEntity(entry)),
+      total: saved.length,
+    };
+  }
+
+  async removeRegistered(registryId: string) {
+    if (!this.mcpRepository) {
+      throw new BadRequestException('MCP 注册表未启用');
+    }
+
+    const result = await this.mcpRepository.delete({ registryId });
+    return {
+      deleted: Boolean(result.affected),
+      id: registryId,
     };
   }
 
@@ -232,11 +307,13 @@ export class McpService {
       name: String(raw.name || name).trim(),
       transport,
       description: typeof raw.description === 'string' ? raw.description : undefined,
-      source: (raw.source === 'marketplace' || raw.source === 'manual') ? raw.source : 'json',
+      source: this.normalizeSource(raw.source),
       disabled: raw.disabled === true,
       package: typeof raw.package === 'string' ? raw.package : undefined,
       referenceUrl: typeof raw.referenceUrl === 'string' ? raw.referenceUrl : undefined,
       capabilities: this.asStringArray(raw.capabilities),
+      category: this.normalizeCategory(raw.category),
+      requires: this.asStringArray(raw.requires),
     };
 
     if (!server.name) {
@@ -311,6 +388,95 @@ export class McpService {
   private slugify(value: string): string {
     const slug = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     return slug || 'mcp-server';
+  }
+
+  private normalizeSource(value: unknown): McpSource {
+    if (value === 'marketplace' || value === 'manual' || value === 'registered') return value;
+    return 'json';
+  }
+
+  private normalizeCategory(value: unknown): McpCategory {
+    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (raw === 'files' || raw === 'web' || raw === 'data' || raw === 'memory' || raw === 'dev' || raw === 'custom') {
+      return raw;
+    }
+    return 'custom';
+  }
+
+  private makeRegistryId(value: string): string {
+    const id = this.slugify(value);
+    return BUILTIN_IDS.has(id) ? `custom-${id}` : id;
+  }
+
+  private async listRegisteredItems(): Promise<McpMarketplaceItem[]> {
+    if (!this.mcpRepository) return [];
+
+    const entries = await this.mcpRepository.find({
+      order: { updatedAt: 'DESC' },
+    });
+    return entries
+      .filter((entry) => entry.enabled !== false)
+      .map((entry) => this.fromEntity(entry));
+  }
+
+  private toEntityPayload(server: McpServerConfig, ownerId: number | null): Partial<McpServer> {
+    return {
+      registryId: server.id || this.makeRegistryId(server.name),
+      name: server.name,
+      category: this.normalizeCategory(server.category),
+      source: 'registered',
+      transport: server.transport,
+      description: server.description || null,
+      command: server.command || null,
+      args: server.args || [],
+      env: server.env || null,
+      url: server.url || null,
+      headers: server.headers || null,
+      package: server.package || null,
+      referenceUrl: server.referenceUrl || null,
+      capabilities: server.capabilities || [],
+      requires: server.requires || [],
+      enabled: server.disabled !== true,
+      ownerId,
+    };
+  }
+
+  private fromEntity(entry: McpServer): McpMarketplaceItem {
+    const item: McpMarketplaceItem = {
+      id: entry.registryId,
+      name: entry.name,
+      description: entry.description || undefined,
+      category: this.normalizeCategory(entry.category),
+      transport: entry.transport,
+      command: entry.command || undefined,
+      args: entry.args || [],
+      env: entry.env || undefined,
+      url: entry.url || undefined,
+      headers: entry.headers || undefined,
+      source: 'registered',
+      package: entry.package || undefined,
+      referenceUrl: entry.referenceUrl || undefined,
+      capabilities: entry.capabilities || [],
+      requires: entry.requires || [],
+      disabled: entry.enabled === false,
+      ownerId: entry.ownerId,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+    };
+    return item;
+  }
+
+  private getCategorySummaries(items: McpMarketplaceItem[]) {
+    const counts = new Map<McpCategory, number>();
+    for (const item of items) {
+      const category = this.normalizeCategory(item.category);
+      counts.set(category, (counts.get(category) || 0) + 1);
+    }
+    return Array.from(counts.entries()).map(([value, count]) => ({
+      value,
+      label: CATEGORY_LABELS[value],
+      count,
+    }));
   }
 
   private getWarnings(server: McpServerConfig): string[] {

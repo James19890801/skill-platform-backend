@@ -539,6 +539,8 @@ export const productWikiApi = {
 // Agents API
 // ============================================
 export type McpTransport = 'stdio' | 'streamable_http' | 'sse';
+export type McpSource = 'marketplace' | 'json' | 'manual' | 'registered';
+export type McpCategory = 'files' | 'web' | 'data' | 'memory' | 'dev' | 'custom';
 
 export interface McpServerConfig {
   id?: string;
@@ -550,17 +552,24 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
-  source?: 'marketplace' | 'json' | 'manual';
+  source?: McpSource;
   package?: string;
   referenceUrl?: string;
   capabilities?: string[];
   disabled?: boolean;
-  category?: string;
+  category?: McpCategory;
   requires?: string[];
+  ownerId?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface McpMarketplaceResponse {
   items: McpServerConfig[];
+  total?: number;
+  builtInCount?: number;
+  registeredCount?: number;
+  categories?: Array<{ value: McpCategory; label: string; count: number }>;
   transports: McpTransport[];
   jsonExample: Record<string, unknown>;
 }
@@ -568,6 +577,15 @@ export interface McpMarketplaceResponse {
 export const mcpApi = {
   marketplace: (): Promise<McpMarketplaceResponse> =>
     apiClient.get('/mcp/marketplace'),
+
+  listRegistered: (): Promise<{ items: McpServerConfig[]; total: number }> =>
+    apiClient.get('/mcp/servers'),
+
+  register: (data: { json?: string; config?: unknown }): Promise<{ items: McpServerConfig[]; total: number }> =>
+    apiClient.post('/mcp/servers', data),
+
+  deleteRegistered: (id: string): Promise<{ deleted: boolean; id: string }> =>
+    apiClient.delete(`/mcp/servers/${encodeURIComponent(id)}`),
 
   normalize: (data: { json?: string; config?: unknown }): Promise<{ servers: McpServerConfig[] }> =>
     apiClient.post('/mcp/normalize', data),

@@ -24,3 +24,5 @@ export class NormalizeMcpDto {
 }
 
 export class ProbeMcpDto extends NormalizeMcpDto {}
+
+export class RegisterMcpDto extends NormalizeMcpDto {}

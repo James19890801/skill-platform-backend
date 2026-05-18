@@ -35,17 +35,18 @@ export class PersonalContextService {
   }
 
   async getDashboard(userId: number) {
-    const [context, knowledgeBases, memories] = await Promise.all([
+    const [context, knowledgeBases, memories, mcpMarketplace] = await Promise.all([
       this.getOrCreate(userId),
       this.knowledgeService.findAllByUserId(userId),
       this.memoryService.findPersonal(userId),
+      this.mcpService.getMarketplace(),
     ]);
 
     return {
       ...context,
       knowledgeBases,
       memories,
-      mcpMarketplace: this.mcpService.getMarketplace(),
+      mcpMarketplace,
     };
   }
 

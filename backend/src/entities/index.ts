@@ -16,6 +16,7 @@ export { SkillReview } from './skill-review.entity';
 export { SkillUsageStat } from './skill-usage-stat.entity';
 export { UserSkillClaim } from './user-skill-claim.entity';
 export { Agent } from './agent.entity';
+export { McpServer } from './mcp-server.entity';
 export { LlmProvider } from './llm-provider.entity';
 export { LlmModel } from './llm-model.entity';
 export { KnowledgeBase } from './knowledge-base.entity';

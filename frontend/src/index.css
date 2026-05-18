@@ -1917,6 +1917,14 @@ code { background: #f1f5f9; padding: 2px 8px; border-radius: var(--radius-xs); f
   margin: 6px 0 0;
 }
 
+.mcp-stat-tile {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 14px 16px;
+  min-height: 86px;
+}
+
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 3px; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }

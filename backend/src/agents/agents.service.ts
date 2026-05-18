@@ -65,6 +65,7 @@ export class AgentsService {
         'ownerId',
         'capabilityTreeId',
         'processArchitectureNodeIds',
+        'mcpServers',
         'createdAt',
         'updatedAt',
       ],

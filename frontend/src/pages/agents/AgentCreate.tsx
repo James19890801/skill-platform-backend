@@ -2,7 +2,7 @@
  * AgentCreate - 创建 Agent 页面
  * 配置 Agent 的模型、Skills、知识库、记忆等
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Card,
   Form,
@@ -41,7 +41,7 @@ import {
   ShoppingOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { SkillDomain, DomainLabels } from '../../types';
 import { LlmModel, McpServerConfig, llmApi, knowledgeApi, mcpApi } from '../../services/api';
 import CapabilityTreeBuilder, {
@@ -83,7 +83,10 @@ interface AgentCreateProps {
 
 const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [form] = Form.useForm();
+  const preselectedMcpApplied = useRef(false);
+  const preselectedMcpId = new URLSearchParams(location.search).get('mcp');
   const selectedSkillIds = (Form.useWatch('skills', form) || []) as string[];
   const selectedMcpServers = (Form.useWatch('mcpServers', form) || []) as McpServerConfig[];
   const [currentStep, setCurrentStep] = useState(0);
@@ -146,6 +149,23 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
       .then((data) => setMcpMarketplace(data.items || []))
       .catch(() => setMcpMarketplace([]));
   }, []);
+
+  useEffect(() => {
+    if (editId || !preselectedMcpId || preselectedMcpApplied.current || mcpMarketplace.length === 0) {
+      return;
+    }
+
+    const server = mcpMarketplace.find((item) => (item.id || item.name) === preselectedMcpId);
+    preselectedMcpApplied.current = true;
+    if (!server) return;
+
+    const current = (form.getFieldValue('mcpServers') || []) as McpServerConfig[];
+    const exists = current.some((item) => (item.id || item.name) === (server.id || server.name));
+    if (!exists) {
+      form.setFieldValue('mcpServers', [...current, { ...server, source: server.source || 'marketplace' }]);
+      message.success(`已装配 MCP：${server.name}`);
+    }
+  }, [editId, form, mcpMarketplace, preselectedMcpId]);
 
   // 编辑模式：回填已有数据
   useEffect(() => {
@@ -441,6 +461,9 @@ const AgentCreate: React.FC<AgentCreateProps> = ({ editId, initialData }) => {
                   </div>
                   <Button icon={<CodeOutlined />} onClick={() => setMcpJsonOpen(true)}>
                     粘贴 JSON
+                  </Button>
+                  <Button icon={<ShoppingOutlined />} onClick={() => navigate('/mcp')}>
+                    打开 MCP 广场
                   </Button>
                 </div>
 

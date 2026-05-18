@@ -11,6 +11,7 @@ const SkillHub = lazy(() => import('./pages/skills/SkillHub'));
 const SkillDetail = lazy(() => import('./pages/skills/SkillDetail'));
 const SkillCreate = lazy(() => import('./pages/skills/SkillCreate'));
 const SkillEdit = lazy(() => import('./pages/skills/SkillEdit'));
+const McpPlaza = lazy(() => import('./pages/mcp/McpPlaza'));
 const KnowledgeManager = lazy(() => import('./pages/knowledge/KnowledgeManager'));
 const MemoryManager = lazy(() => import('./pages/memory/MemoryManager'));
 const IntegrationCenter = lazy(() => import('./pages/integration/IntegrationCenter'));
@@ -51,6 +52,7 @@ function App() {
             <Route path="skills/:id" element={<SkillDetail />} />
             <Route path="skills/create" element={<SkillCreate />} />
             <Route path="skills/edit/:id" element={<SkillEdit />} />
+            <Route path="mcp" element={<McpPlaza />} />
             <Route path="knowledge" element={<KnowledgeManager />} />
             <Route path="memory" element={<MemoryManager />} />
             <Route path="automations" element={<AutomationCenter />} />

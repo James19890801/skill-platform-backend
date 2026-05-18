@@ -16,7 +16,7 @@ const { useBreakpoint } = Grid;
 
 const breadcrumbMap: Record<string, string> = {
   '/dashboard': 'Agent 工作台', '/agents/create': '创建 Agent', '/agents/edit': '编辑 Agent',
-  '/chat': '全屏对话', '/skills': 'Skill 市场', '/knowledge': '知识库', '/memory': '记忆管理', '/settings': '设置',
+  '/chat': '全屏对话', '/skills': 'Skill 市场', '/mcp': 'MCP 广场', '/knowledge': '知识库', '/memory': '记忆管理', '/settings': '设置',
   '/process-architecture': '流程架构', '/automations': '自动化', '/integrations': '调用中心', '/evaluations': '评测中心', '/monitoring': '监控看板',
 };
 
@@ -43,7 +43,7 @@ const MainLayout: React.FC = () => {
     const config = [
       { groupTitle: null, items: [{ key: '/dashboard', icon: <DashboardOutlined />, label: 'Agent 工作台' }, { key: '/process-architecture', icon: <ApartmentOutlined />, label: '流程架构' }] },
       { groupTitle: 'Agent 管理', items: [{ key: '/agents/create', icon: <PlusOutlined />, label: '创建 Agent' }, { key: '/chat', icon: <MessageOutlined />, label: '全屏对话' }] },
-      { groupTitle: '资源管理', items: [{ key: '/skills', icon: <ShopOutlined />, label: 'Skill 市场' }, { key: '/knowledge', icon: <DatabaseOutlined />, label: '知识库' }, { key: '/memory', icon: <CloudOutlined />, label: '记忆管理' }] },
+      { groupTitle: '资源管理', items: [{ key: '/skills', icon: <ShopOutlined />, label: 'Skill 市场' }, { key: '/mcp', icon: <ApiOutlined />, label: 'MCP 广场' }, { key: '/knowledge', icon: <DatabaseOutlined />, label: '知识库' }, { key: '/memory', icon: <CloudOutlined />, label: '记忆管理' }] },
       { groupTitle: '开放平台', items: [{ key: '/automations', icon: <NodeIndexOutlined />, label: '自动化' }, { key: '/integrations', icon: <ApiOutlined />, label: '调用中心' }] },
     ];
 
