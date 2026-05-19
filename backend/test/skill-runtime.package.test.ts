@@ -225,6 +225,42 @@ test('buildSkillPackage honors explicit manifest policy and trigger rules', () =
   assert.equal(pkg.triggers.length, 2);
 });
 
+test('buildSkillPackage preserves explicit artifact output contracts', () => {
+  const pkg = buildSkillPackage({
+    ...baseSkill,
+    manifest: JSON.stringify({
+      output: {
+        mode: 'artifact',
+        requiredArtifacts: [
+          { kind: 'html', extension: 'html', mimeType: 'text/html', minBytes: 1200 },
+        ],
+        finalResponse: 'summary',
+      },
+    }),
+  });
+
+  assert.equal(pkg.output.mode, 'artifact');
+  assert.equal(pkg.output.finalResponse, 'summary');
+  assert.deepEqual(pkg.output.requiredArtifacts, [
+    { kind: 'html', extension: 'html', mimeType: 'text/html', minBytes: 1200 },
+  ]);
+});
+
+test('buildSkillPackage infers an HTML artifact contract for public-account writing skills', () => {
+  const pkg = buildSkillPackage({
+    ...baseSkill,
+    namespace: 'content.wechat.article',
+    name: '公众号写作',
+    description: '创作高质量公众号文章并输出可一键复制的 HTML。',
+    content: '# 公众号写作\n\n必须输出完整 HTML，包含一键复制和移动端排版。',
+  });
+
+  assert.equal(pkg.output.mode, 'artifact');
+  assert.equal(pkg.output.requiredArtifacts[0].kind, 'html');
+  assert.equal(pkg.output.requiredArtifacts[0].extension, 'html');
+  assert.equal(pkg.output.requiredArtifacts[0].mimeType, 'text/html');
+});
+
 test('resolveSkillCandidates prefers explicit namespace before fuzzy matches', () => {
   const resolved = resolveSkillCandidates(
     [
@@ -249,6 +285,54 @@ test('resolveSkillCandidates prefers explicit namespace before fuzzy matches', (
 
   assert.equal(resolved[0].id, 'legal.contract.risk-check');
   assert.equal(resolved[0].matchReason, 'explicit');
+});
+
+test('resolveSkillCandidates does not fuzzy match unrelated packages when explicit skills are missing', () => {
+  const resolved = resolveSkillCandidates(
+    [
+      buildSkillPackage({
+        ...baseSkill,
+        id: 13,
+        namespace: 'manufacturing.bom.diagnosis',
+        name: 'BOM创建、变更流程流程诊断',
+        domain: 'process',
+        subDomain: 'manufacturing',
+        abilityName: '流程诊断',
+        description: '识别 BOM 流程断点、返工和等待',
+      }),
+    ],
+    {
+      input: '自动化任务：晨会情报自动化\n必须实际调用并执行这些 Skill：晨会纪要、市场速览、研报摘要。',
+      explicitSkills: ['晨会纪要', '市场速览', '研报摘要'],
+      limit: 3,
+    },
+  );
+
+  assert.equal(resolved.length, 0);
+});
+
+test('resolveSkillCandidates can match Chinese natural language to a writing skill', () => {
+  const resolved = resolveSkillCandidates(
+    [
+      buildSkillPackage({
+        ...baseSkill,
+        id: 14,
+        namespace: 'content.wechat.article',
+        name: '公众号写作',
+        domain: 'content',
+        subDomain: 'wechat',
+        abilityName: '公众号文章生成',
+        description: '根据素材创作公众号长文，并输出可复制 HTML。',
+      }),
+    ],
+    {
+      input: '帮我写一篇公众号文章，主题是 AI 流程管理。',
+      limit: 3,
+    },
+  );
+
+  assert.equal(resolved[0]?.namespace, 'content.wechat.article');
+  assert.ok(resolved[0].score >= 20);
 });
 
 test('buildSkillWorkspaceId is stable and filesystem safe', () => {

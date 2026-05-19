@@ -13,6 +13,7 @@ import { WorkspaceService } from '../workspace/workspace.service';
 import { SkillLoaderService } from '../skill-runtime/skill-loader.service';
 import { SkillRuntimeTraceService } from '../skill-runtime/skill-runtime-trace.service';
 import {
+  SkillOutputArtifactRequirement,
   SkillPackage,
   SkillPackageFile,
   buildSkillWorkspaceId,
@@ -41,10 +42,18 @@ export interface SkillExecutionResult {
   status: string;
   output: string;
   workspaceId: string;
-  artifacts: Array<{ name: string; path: string; type: string; size: number }>;
+  artifacts: RuntimeArtifactRecord[];
   totalRounds: number;
   totalDurationMs: number;
   logs: ExecutionLogEntry[];
+}
+
+export interface RuntimeArtifactRecord {
+  name: string;
+  path: string;
+  type: string;
+  size: number;
+  mimeType?: string;
 }
 
 /**
@@ -54,7 +63,7 @@ export interface SkillExecutionResult {
 export type ProgressCallback = (progress: {
   type: 'round_start' | 'tool_call' | 'tool_result' | 'artifact' | 'round_end' | 'error' | 'done';
   data: ExecutionLogEntry;
-  artifacts?: Array<{ name: string; path: string; type: string; size: number }>;
+  artifacts?: RuntimeArtifactRecord[];
 }) => void;
 
 /**
@@ -150,7 +159,7 @@ export class SkillExecutorService {
     await this.executionRepository.update(execId, { workspaceId: actualThreadId, packageHash: pkg.packageHash });
 
     const logs: ExecutionLogEntry[] = [];
-    const artifacts: Array<{ name: string; path: string; type: string; size: number }> = [];
+    const artifacts: RuntimeArtifactRecord[] = [];
     let eventSequence = await this.runtimeTrace.getLastSequence(execId);
 
     const emitRuntimeEvent = (eventType: string, payload: unknown, status = 'info') => {
@@ -191,6 +200,43 @@ export class SkillExecutorService {
       const entrypointOutput = await this.tryRunEntrypointScript(pkg, actualThreadId, userInput, artifacts, addLog, savedExecution, execId, skillId);
       if (entrypointOutput) {
         const entrypointRounds = 1;
+        const validation = this.validateOutputContract(pkg, artifacts, entrypointOutput);
+        if (!validation.ok) {
+          savedExecution.status = 'failed';
+          savedExecution.output = validation.message;
+          savedExecution.artifacts = JSON.stringify(artifacts);
+          savedExecution.logs = JSON.stringify(logs);
+          savedExecution.totalRounds = entrypointRounds;
+          savedExecution.totalDurationMs = Date.now() - startTime;
+          savedExecution.completedAt = new Date();
+          await this.executionRepository.save(savedExecution);
+          addLog({
+            round: 0,
+            action: 'generate',
+            status: 'error',
+            message: validation.message,
+          });
+          emitRuntimeEvent('skill.failed', {
+            executionId: execId,
+            status: 'failed',
+            error: validation.message,
+            totalRounds: entrypointRounds,
+            artifacts,
+          }, 'error');
+          if (onProgress) onProgress({ type: 'error', data: logs[logs.length - 1], artifacts: [...artifacts] });
+
+          return {
+            executionId: execId,
+            status: 'failed',
+            output: validation.message,
+            workspaceId: actualThreadId,
+            artifacts,
+            totalRounds: entrypointRounds,
+            totalDurationMs: savedExecution.totalDurationMs,
+            logs,
+          };
+        }
+
         savedExecution.status = 'completed';
         savedExecution.output = entrypointOutput;
         savedExecution.artifacts = JSON.stringify(artifacts);
@@ -427,6 +473,43 @@ export class SkillExecutorService {
         if (!ensured.quality.ok) {
           throw new Error(`公众号 HTML 产物质量未达标：${ensured.quality.reason}`);
         }
+      }
+
+      const validation = this.validateOutputContract(pkg, artifacts, finalOutput);
+      if (!validation.ok) {
+        savedExecution.status = 'failed';
+        savedExecution.output = validation.message;
+        savedExecution.artifacts = JSON.stringify(artifacts);
+        savedExecution.logs = JSON.stringify(logs);
+        savedExecution.totalRounds = round;
+        savedExecution.totalDurationMs = Date.now() - startTime;
+        savedExecution.completedAt = new Date();
+        await this.executionRepository.save(savedExecution);
+        addLog({
+          round,
+          action: 'generate',
+          status: 'error',
+          message: validation.message,
+        });
+        emitRuntimeEvent('skill.failed', {
+          executionId: execId,
+          status: 'failed',
+          error: validation.message,
+          totalRounds: round,
+          artifacts,
+        }, 'error');
+        if (onProgress) onProgress({ type: 'error', data: logs[logs.length - 1], artifacts: [...artifacts] });
+
+        return {
+          executionId: execId,
+          status: 'failed',
+          output: validation.message,
+          workspaceId: actualThreadId,
+          artifacts,
+          totalRounds: round,
+          totalDurationMs: savedExecution.totalDurationMs,
+          logs,
+        };
       }
 
       // 9. 更新执行会话为完成状态
@@ -904,6 +987,15 @@ export class SkillExecutorService {
     parts.push(`- 能力名称: ${pkg.abilityName}`);
     if (skill.scope) parts.push(`- 范围: ${skill.scope}`);
 
+    if (pkg.output.requiredArtifacts.length > 0) {
+      const requirements = pkg.output.requiredArtifacts.map((item, index) => {
+        const format = [item.extension ? `.${item.extension}` : '', item.mimeType || ''].filter(Boolean).join(' / ');
+        const minBytes = item.minBytes ? `，文件不少于 ${item.minBytes} bytes` : '';
+        return `${index + 1}. ${item.description || item.kind}${format ? `（${format}）` : ''}${minBytes}`;
+      }).join('\n');
+      parts.push(`\n## 交付物契约\n本 Skill 不是普通聊天回答，必须生成可下载/可预览的交付物。\n${requirements}\n完成前必须确认这些交付物已经生成并登记到 workspace。若需要生成 HTML，优先调用 generate_html_report 工具；如果直接输出 HTML，必须输出完整 <!DOCTYPE html> 文档。`);
+    }
+
     // 执行指引
     parts.push(`\n## 执行原则
 1. 仔细阅读 Skill 定义，理解你的角色和任务
@@ -923,6 +1015,98 @@ export class SkillExecutorService {
     }
 
     return parts.join('\n\n');
+  }
+
+  private async executeSkillTool(name: string, args: Record<string, any>, threadId: string): Promise<any> {
+    const remoteResult = await this.toolBridge.executeRemote(name, args);
+    if (remoteResult.success && remoteResult.result?._local) {
+      return this.executeLocalSkillTool(name, args, threadId);
+    }
+    return remoteResult;
+  }
+
+  private async executeLocalSkillTool(name: string, args: Record<string, any>, threadId: string): Promise<any> {
+    switch (name) {
+      case 'generate_html_report':
+        return this.executeLocalHtmlReport(args, threadId);
+      case 'search_web':
+      case 'bing_search':
+        return this.executeLocalSearch(name, args);
+      case 'execute_python':
+      case 'python_repl':
+        return this.executeLocalPython(args);
+      default:
+        return {
+          success: false,
+          error: `Skill Runtime 暂不支持本地工具 ${name}。请改用 Skill 自带入口脚本或可远程执行的工具。`,
+        };
+    }
+  }
+
+  private async executeLocalHtmlReport(args: Record<string, any>, threadId: string): Promise<any> {
+    const html = typeof args.html === 'string' ? args.html.trim() : '';
+    if (!html) {
+      return { success: false, error: 'generate_html_report 缺少 html 内容' };
+    }
+
+    const baseName = this.sanitizeArtifactBaseName(
+      typeof args.filename === 'string' ? args.filename : typeof args.title === 'string' ? args.title : 'skill_report',
+    );
+    const filename = baseName.toLowerCase().endsWith('.html') ? baseName : `${baseName}.html`;
+    const workspaceFile = await this.workspaceService.writeFile(threadId, filename, html, 'text/html');
+
+    return {
+      success: true,
+      result: {
+        success: true,
+        message: 'HTML 报告已生成',
+        title: args.title || baseName,
+        workspaceFile,
+      },
+    };
+  }
+
+  private async executeLocalSearch(name: string, args: Record<string, any>): Promise<any> {
+    if (!this.executionService) {
+      return { success: false, error: '本地搜索执行器未初始化' };
+    }
+
+    const result = await this.executionService.searchWeb(
+      args.query,
+      args.max_results || args.maxResults || 5,
+      name === 'bing_search' ? 'bing' : (args.provider || 'bing'),
+    );
+    if (!result.success) {
+      return { success: false, error: result.error || '搜索失败' };
+    }
+
+    try {
+      const parsed = JSON.parse(result.output);
+      if (parsed.error) return { success: false, error: parsed.error };
+      return { success: true, result: { success: true, results: parsed } };
+    } catch {
+      return { success: true, result: { success: true, output: result.output.slice(0, 5000) } };
+    }
+  }
+
+  private async executeLocalPython(args: Record<string, any>): Promise<any> {
+    if (!this.executionService) {
+      return { success: false, error: '本地 Python 执行器未初始化' };
+    }
+
+    const result = await this.executionService.executePython(args.code, args.timeout_ms || 30_000);
+    if (!result.success) {
+      return { success: false, error: result.error || 'Python 执行失败' };
+    }
+
+    return {
+      success: true,
+      result: {
+        success: true,
+        output: result.output.slice(0, 8000),
+        duration_ms: result.durationMs,
+      },
+    };
   }
 
   /**
@@ -986,14 +1170,15 @@ export class SkillExecutorService {
   /**
    * 执行 Skill 包声明的脚本入口。
    *
-   * 入口脚本适用于“产物型 Skill”：脚本可以调用模型或其他受控逻辑生成文件，
-   * 平台负责记录真实执行耗时和产物，避免聊天层口头伪造结果。
+   * 这个能力用于“产物型 Skill”：Skill 包中自带 deterministic 生成脚本，
+   * 平台运行器直接在 workspace 内执行脚本并登记产物，避免长 HTML/Office
+   * 交付被 LLM 响应超时卡住。
    */
   private async tryRunEntrypointScript(
     pkg: SkillPackage,
     threadId: string,
     userInput: string,
-    artifacts: Array<{ name: string; path: string; type: string; size: number }>,
+    artifacts: RuntimeArtifactRecord[],
     addLog: (entry: ExecutionLogEntry) => void,
     execution: any,
     execId: number,
@@ -1167,7 +1352,7 @@ export class SkillExecutorService {
   private async saveFinalArtifacts(
     output: string,
     threadId: string,
-    artifacts: Array<{ name: string; path: string; type: string; size: number }>,
+    artifacts: RuntimeArtifactRecord[],
     addLog: (entry: ExecutionLogEntry) => void,
     execution?: any,
     execId?: number,
@@ -1175,10 +1360,8 @@ export class SkillExecutorService {
   ): Promise<void> {
     // 如果 AI 的回复中包含大型 Markdown 或 HTML 内容，保存为文档
     if (output.length > 500 && !this.isHtmlInArtifacts(artifacts)) {
-      // 检测是否有 HTML
-      const htmlDocument = this.extractHtmlDocument(output);
-      const hasHtml = htmlDocument.length > 0;
-      if (hasHtml) {
+      const htmlDocument = this.extractHtmlArtifact(output) || this.extractHtmlDocument(output);
+      if (htmlDocument) {
         const filename = `skill_output_${Date.now()}.html`;
         try {
           const file = await this.workspaceService.writeFile(threadId, filename, htmlDocument, 'text/html');
@@ -1542,7 +1725,7 @@ export class SkillExecutorService {
    * 记录产物到列表
    */
   private async recordArtifact(
-    artifacts: Array<{ name: string; path: string; type: string; size: number }>,
+    artifacts: RuntimeArtifactRecord[],
     file: any,
     execution: any,
     execId?: number,
@@ -1558,6 +1741,7 @@ export class SkillExecutorService {
       path: file.path,
       type: file.type || 'file',
       size: file.size || 0,
+      mimeType: file.mimeType,
     });
 
     // 更新数据库中的 artifacts 字段
@@ -1595,6 +1779,103 @@ export class SkillExecutorService {
    */
   private isHtmlInArtifacts(artifacts: Array<{ name: string; path: string; type: string; size: number }>): boolean {
     return artifacts.some(a => a.name.endsWith('.html') || a.name.endsWith('.htm'));
+  }
+
+  private extractHtmlArtifact(output: string): string | null {
+    if (!output) return null;
+
+    const fencedHtml = output.match(/```(?:html|HTML)\s*\n([\s\S]*?)```/);
+    if (fencedHtml?.[1]) {
+      const html = fencedHtml[1].trim();
+      if (this.looksLikeFullHtml(html)) return html;
+    }
+
+    const start = output.search(/<!DOCTYPE html>|<html[\s>]/i);
+    if (start < 0) return null;
+    const tail = output.slice(start);
+    const endMatch = tail.match(/<\/html>/i);
+    if (!endMatch || typeof endMatch.index !== 'number') {
+      return tail.trim();
+    }
+    return tail.slice(0, endMatch.index + endMatch[0].length).trim();
+  }
+
+  private validateOutputContract(
+    pkg: SkillPackage,
+    artifacts: RuntimeArtifactRecord[],
+    output: string,
+  ): { ok: boolean; message: string } {
+    if (!pkg.output?.requiredArtifacts?.length) {
+      return { ok: true, message: 'ok' };
+    }
+
+    const failures: string[] = [];
+    for (const requirement of pkg.output.requiredArtifacts) {
+      const matched = artifacts.find((artifact) => this.artifactMatchesRequirement(artifact, requirement));
+      if (!matched) {
+        failures.push(this.describeMissingRequirement(requirement));
+        continue;
+      }
+      if (requirement.minBytes && matched.size < requirement.minBytes) {
+        failures.push(`${matched.name} 文件过小（${matched.size} bytes < ${requirement.minBytes} bytes），不像有效交付物`);
+      }
+    }
+
+    if (failures.length === 0) {
+      return { ok: true, message: 'ok' };
+    }
+
+    const hasInlineHtml = Boolean(this.extractHtmlArtifact(output));
+    const hint = hasInlineHtml
+      ? '检测到回复里有 HTML，但没有成功登记为 workspace 交付物。'
+      : '模型回复没有满足 Skill 声明的交付物要求。';
+    return {
+      ok: false,
+      message: `Skill 产物验收失败：${failures.join('；')}。${hint}`,
+    };
+  }
+
+  private artifactMatchesRequirement(
+    artifact: RuntimeArtifactRecord,
+    requirement: SkillOutputArtifactRequirement,
+  ): boolean {
+    const ext = artifact.name.split('.').pop()?.toLowerCase() || '';
+    const mimeType = artifact.mimeType?.toLowerCase() || this.guessMimeType(artifact.name).toLowerCase();
+
+    if (requirement.kind === 'html') {
+      return ext === 'html' || ext === 'htm' || mimeType.includes('html');
+    }
+    if (requirement.extension && requirement.extension !== ext) {
+      return false;
+    }
+    if (requirement.mimeType && !mimeType.includes(requirement.mimeType.toLowerCase())) {
+      return false;
+    }
+    if (requirement.kind === 'image') return mimeType.startsWith('image/');
+    if (requirement.kind === 'document') {
+      return ['docx', 'xlsx', 'pptx', 'pdf', 'md'].includes(ext);
+    }
+    return true;
+  }
+
+  private describeMissingRequirement(requirement: SkillOutputArtifactRequirement): string {
+    if (requirement.kind === 'html') return '缺少 HTML 交付物';
+    if (requirement.extension) return `缺少 .${requirement.extension} 交付物`;
+    return `缺少 ${requirement.kind} 交付物`;
+  }
+
+  private looksLikeFullHtml(value: string): boolean {
+    return /<!DOCTYPE html>|<html[\s>]/i.test(value);
+  }
+
+  private sanitizeArtifactBaseName(value: string): string {
+    const cleaned = value
+      .trim()
+      .replace(/\.[a-z0-9]+$/i, '')
+      .replace(/[^a-zA-Z0-9._\-\u4e00-\u9fa5]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 80);
+    return cleaned || 'skill_report';
   }
 
   /**

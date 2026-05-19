@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import OpenAI from 'openai';
 import { Agent } from '../entities/agent.entity';
 import { Skill } from '../entities/skill.entity';
 import { ExecutionService } from './execution.service';
@@ -39,6 +38,11 @@ export interface PlanSkillsInput {
   nodeDescription?: string;
   processFiles?: (string | ProcessFileInfo)[];
   customPrompt?: string;
+}
+
+export interface ChatStreamOptions {
+  disableExplicitSkillInvocation?: boolean;
+  disableSkillTool?: boolean;
 }
 
 export interface PlannedSkill {
@@ -352,6 +356,28 @@ export function buildChatToolRouting(message: string): ChatToolRouting {
   return { shouldUseTools: false, allowSkillTool: false, allowedToolNames: [], reason: 'conversation' };
 }
 
+export function shouldOfferSkillSuggestion(message: string): boolean {
+  const text = (message || '').trim();
+  if (!text) return false;
+
+  const explicitSkill = hasAnyPattern(text, [
+    /(?:使用|执行|调用|运行)\s*(?:技能|Skill|skill)\s*[「"“]?[^」"”\n:：]+/i,
+    /(?:用|跑)\s*[「"“]?[^」"”\n:：]+[」"”]?\s*(?:技能|Skill|skill)/i,
+  ]);
+  if (explicitSkill) return false;
+
+  const taskLike = hasAnyPattern(text, [
+    /帮我|请你|麻烦|生成|制作|创建|输出|整理|分析|审查|检查|起草|撰写|改写|改成|做(个|一份|一篇)?|写(个|一篇|一份)?/i,
+    /\b(write|draft|create|generate|review|analyze|summarize)\b/i,
+  ]);
+  const skillDomainLike = hasAnyPattern(text, [
+    /公众号|文章|长文|软文|报告|合同|简历|审批|流程|纪要|周报|PPT|Excel|HTML|文案|海报|方案|调研|研报/i,
+    /\b(article|report|contract|resume|workflow|minutes|ppt|excel|html)\b/i,
+  ]);
+
+  return taskLike && skillDomainLike;
+}
+
 export function filterToolsForChatIntent<T extends { function?: { name?: string } }>(
   tools: T[],
   routing: ChatToolRouting,
@@ -370,7 +396,6 @@ export function filterToolsForChatIntent<T extends { function?: { name?: string 
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private client: OpenAI;
   private readonly model = 'qwen-plus';
   private conversationStore: Map<string, Array<{ role: 'system' | 'user' | 'assistant'; content: string }>> = new Map();
   private fileStore = new Map<string, { buffer: Buffer; filename: string; contentType: string }>();
@@ -390,17 +415,9 @@ export class AiService {
     private llmService: LlmService,
     private personalContextService: PersonalContextService,
   ) {
-    const apiKey = process.env.QWEN_API_KEY;
-    if (!apiKey) {
+    if (!process.env.QWEN_API_KEY) {
       this.logger.error('QWEN_API_KEY 环境变量未设置，AI 功能将不可用');
     }
-
-    this.client = new OpenAI({
-      apiKey: apiKey || '',
-      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      timeout: 30_000,
-      maxRetries: 1,
-    });
 
     // 延迟预热 AI 连接，减少用户首次请求延迟
     setTimeout(() => this.warmup(), 2000);
@@ -434,8 +451,9 @@ export class AiService {
    */
   async warmup(): Promise<void> {
     try {
-      await this.client.chat.completions.create({
-        model: 'qwen-turbo',
+      const binding = await this.llmService.getModelClient();
+      await binding.client.chat.completions.create({
+        model: binding.model,
         messages: [{ role: 'user', content: 'Hello' }],
         max_tokens: 1,
       } as any);
@@ -513,8 +531,9 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     messages: Array<{ role: 'system' | 'user'; content: string }>,
   ): Promise<PlannedSkill[] | null> {
     try {
-      const completion = await this.client.chat.completions.create({
-        model: this.model,
+      const binding = await this.llmService.getModelClient();
+      const completion = await binding.client.chat.completions.create({
+        model: binding.model,
         messages,
         temperature: 0.7,
         max_tokens: 4000,
@@ -542,8 +561,9 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
   private async tryLegacyOutput(
     messages: Array<{ role: 'system' | 'user'; content: string }>,
   ): Promise<PlannedSkill[]> {
-    const completion = await this.client.chat.completions.create({
-      model: this.model,
+    const binding = await this.llmService.getModelClient();
+    const completion = await binding.client.chat.completions.create({
+      model: binding.model,
       messages,
       temperature: 0.7,
       max_tokens: 4000,
@@ -686,6 +706,7 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     threadId?: string,
     attachments?: AttachmentInfo[],
     userId?: number,
+    options: ChatStreamOptions = {},
   ): Promise<string> {
     // ===== 0. 处理附件 =====
     let processedMessage = message;
@@ -861,13 +882,12 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
     history.push({ role: 'user', content: message });
 
     // ===== 4. 工具调用循环（流式优先 — 毫秒级响应） =====
-    const modelBinding = await this.llmService.getModelClient(model || this.model);
-    const chatClient = modelBinding.client;
-    const modelName = modelBinding.model;
     const apiBaseUrl = process.env.API_BASE_URL || 'https://skill-platform-backend-production.up.railway.app';
     let fullContent = '';
 
-    const explicitSkillInvocation = this.parseExplicitSkillInvocation(message);
+    const explicitSkillInvocation = options.disableExplicitSkillInvocation
+      ? null
+      : this.parseExplicitSkillInvocation(message);
     const toolRouting = buildChatToolRouting(message);
     if (explicitSkillInvocation) {
       const result = await this.executeSkillWithProgress(
@@ -880,6 +900,15 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       if (fullContent.trim()) {
         history.push({ role: 'assistant', content: fullContent });
       }
+      this.conversationStore.set(threadKey, history);
+      return fullContent;
+    }
+
+    const skillSuggestion = await this.buildSkillSuggestionIfNeeded(message);
+    if (skillSuggestion) {
+      fullContent = skillSuggestion;
+      if (onChunk) onChunk(fullContent);
+      history.push({ role: 'assistant', content: fullContent });
       this.conversationStore.set(threadKey, history);
       return fullContent;
     }
@@ -899,10 +928,14 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
       }
     }
 
+    const modelBinding = await this.llmService.getModelClient(model || this.model);
+    const chatClient = modelBinding.client;
+    const modelName = modelBinding.model;
+
     // 先判断本轮是否需要工具，再按意图暴露最小工具集合。
     // 普通对话不传 tools，避免模型把闲聊误判成 Python/SQL/Skill 执行。
     const platformTools = toolRouting.shouldUseTools ? await this.toolBridge.getTools() : [];
-    const skillTool = toolRouting.allowSkillTool ? await this.getSkillTool() : null;
+    const skillTool = !options.disableSkillTool && toolRouting.allowSkillTool ? await this.getSkillTool() : null;
     const allTools = filterToolsForChatIntent(
       skillTool ? [...platformTools, skillTool] : platformTools,
       toolRouting,
@@ -1294,6 +1327,36 @@ ${documentsSection ? `\n**流程文档内容**:\n${documentsSection}` : ''}
           : '',
       ].filter(Boolean).join('\n'),
     };
+  }
+
+  private async buildSkillSuggestionIfNeeded(message: string): Promise<string | null> {
+    if (!shouldOfferSkillSuggestion(message)) return null;
+
+    let candidates: Awaited<ReturnType<SkillResolverService['resolve']>> = [];
+    try {
+      candidates = await this.skillResolver.resolve(message, [], 3);
+    } catch (err) {
+      this.logger.warn(`Skill 候选识别失败，继续普通对话: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+
+    const strongCandidates = candidates
+      .filter((candidate) => candidate.matchReason === 'trigger' || candidate.score >= 20)
+      .slice(0, 3);
+    if (strongCandidates.length === 0) return null;
+
+    const [top] = strongCandidates;
+    const alternatives = strongCandidates.slice(1)
+      .map((candidate) => `- ${candidate.name}（${candidate.namespace}）`)
+      .join('\n');
+
+    return [
+      `我识别到这更像是一个可运行的 Skill 场景：**${top.name}**。`,
+      '我先不直接执行，避免把普通提问误当成任务运行。',
+      '',
+      `要运行它，请发送：\`使用技能「${top.name}」：${message}\``,
+      alternatives ? `\n其他可能相关的 Skill：\n${alternatives}` : '',
+    ].filter(Boolean).join('\n');
   }
 
   /**

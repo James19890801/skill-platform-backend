@@ -41,6 +41,7 @@ export interface SkillPackage {
   triggers: SkillTriggerRule[];
   dependencies: string[];
   permissions: SkillRuntimePermissions;
+  output: SkillOutputContract;
   maxRounds: number;
   entrypointScript?: string;
   packageHash: string;
@@ -49,6 +50,22 @@ export interface SkillPackage {
 export interface SkillCandidate extends SkillPackage {
   score: number;
   matchReason: 'explicit' | 'trigger' | 'text';
+}
+
+export type SkillOutputMode = 'chat' | 'artifact' | 'hybrid';
+
+export interface SkillOutputArtifactRequirement {
+  kind: 'html' | 'document' | 'image' | 'file';
+  extension?: string;
+  mimeType?: string;
+  minBytes?: number;
+  description?: string;
+}
+
+export interface SkillOutputContract {
+  mode: SkillOutputMode;
+  requiredArtifacts: SkillOutputArtifactRequirement[];
+  finalResponse: 'summary' | 'full_content';
 }
 
 export interface ResolveSkillInput {
@@ -91,6 +108,7 @@ export interface ParsedSkillPackageDraft {
 }
 
 const DEFAULT_MAX_ROUNDS = 15;
+const MIN_TEXT_MATCH_SCORE = 20;
 
 export function buildSkillPackage(skill: SkillLike): SkillPackage {
   const manifest = parseObject(skill.manifest) ?? {};
@@ -98,6 +116,7 @@ export function buildSkillPackage(skill: SkillLike): SkillPackage {
   const runtimePolicy = parseObject(skill.runtimePolicy) ?? {};
   const explicitPermissions = parseObject(runtime.permissions) ?? parseObject(runtimePolicy.permissions);
   const instructions = pickString(manifest.instructions, skill.content, skill.agentPrompt);
+  const output = normalizeOutputContract(manifest.output, skill, instructions);
 
   if (!instructions.trim()) {
     throw new Error(`Skill ${skill.namespace} 缺少可执行说明，请补充 content 或 agentPrompt`);
@@ -120,6 +139,7 @@ export function buildSkillPackage(skill: SkillLike): SkillPackage {
     triggers: normalizeTriggers([...parseArray(manifest.triggers), ...parseArray(skill.triggerRules)]),
     dependencies: normalizeStringList(manifest.dependencies),
     permissions: normalizePermissions(explicitPermissions),
+    output,
     maxRounds: normalizePositiveInt(runtime.maxRounds ?? runtimePolicy.maxRounds, DEFAULT_MAX_ROUNDS),
     entrypointScript: pickString(runtime.entrypointScript, runtimePolicy.entrypointScript),
   };
@@ -135,8 +155,16 @@ export function resolveSkillCandidates(
   input: ResolveSkillInput,
 ): SkillCandidate[] {
   const query = input.input.toLowerCase();
-  const explicit = new Set((input.explicitSkills ?? []).map((value) => value.toLowerCase()));
+  const explicit = new Set((input.explicitSkills ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean));
   const limit = input.limit ?? 5;
+
+  if (explicit.size > 0) {
+    return packages
+      .map((pkg) => scoreExplicitPackage(pkg, explicit))
+      .filter((candidate): candidate is SkillCandidate => candidate !== null)
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+      .slice(0, limit);
+  }
 
   return packages
     .map((pkg) => scorePackage(pkg, query, explicit))
@@ -264,7 +292,20 @@ function scorePackage(
     }
   }
 
-  return score > 0 ? { ...pkg, score, matchReason: 'text' } : null;
+  return score >= MIN_TEXT_MATCH_SCORE ? { ...pkg, score, matchReason: 'text' } : null;
+}
+
+function scoreExplicitPackage(pkg: SkillPackage, explicit: Set<string>): SkillCandidate | null {
+  const ids = [pkg.id, pkg.namespace, pkg.name, pkg.abilityName]
+    .map((value) => value.toLowerCase());
+  const matchedIndex = ids.findIndex((value) => explicit.has(value));
+  if (matchedIndex < 0) return null;
+
+  return {
+    ...pkg,
+    score: 10_000 - matchedIndex,
+    matchReason: 'explicit',
+  };
 }
 
 function normalizeFiles(files: unknown[]): SkillPackageFile[] {
@@ -360,6 +401,115 @@ function normalizePermissions(value: unknown): SkillRuntimePermissions {
   };
 }
 
+function normalizeOutputContract(
+  value: unknown,
+  skill: SkillLike,
+  instructions: string,
+): SkillOutputContract {
+  const raw = isRecord(value) ? value : {};
+  const explicitArtifacts = [
+    ...parseArray(raw.requiredArtifacts),
+    ...parseArray(raw.artifacts),
+    ...parseArray(raw.deliverables),
+  ];
+  const requiredArtifacts = explicitArtifacts
+    .map(normalizeOutputArtifactRequirement)
+    .filter((item): item is SkillOutputArtifactRequirement => item !== null);
+
+  if (requiredArtifacts.length === 0 && looksLikeWechatHtmlSkill(skill, instructions)) {
+    requiredArtifacts.push({
+      kind: 'html',
+      extension: 'html',
+      mimeType: 'text/html',
+      minBytes: 1000,
+      description: '可一键复制并在移动端预览的公众号 HTML',
+    });
+  }
+
+  const mode = normalizeOutputMode(raw.mode, requiredArtifacts.length > 0 ? 'artifact' : 'chat');
+  const finalResponse = pickString(raw.finalResponse, raw.responseMode) === 'full_content'
+    ? 'full_content'
+    : 'summary';
+
+  return { mode, requiredArtifacts, finalResponse };
+}
+
+function normalizeOutputArtifactRequirement(value: unknown): SkillOutputArtifactRequirement | null {
+  if (!isRecord(value)) return null;
+  const rawKind = pickString(value.kind, value.type, value.format).toLowerCase();
+  const extension = normalizeExtension(pickString(value.extension, value.ext, rawKind === 'html' ? 'html' : ''));
+  const mimeType = pickString(value.mimeType, value.mime);
+  const kind = normalizeOutputKind(rawKind, extension, mimeType);
+  if (!kind) return null;
+
+  const requirement: SkillOutputArtifactRequirement = { kind };
+  if (extension) requirement.extension = extension;
+  const normalizedMime = mimeType || defaultMimeTypeForRequirement(kind, extension);
+  if (normalizedMime) requirement.mimeType = normalizedMime;
+  const minBytes = normalizePositiveInt(value.minBytes, 0);
+  if (minBytes > 0) requirement.minBytes = minBytes;
+  const description = pickString(value.description, value.name);
+  if (description) requirement.description = description;
+  return requirement;
+}
+
+function normalizeOutputMode(value: unknown, fallback: SkillOutputMode): SkillOutputMode {
+  const normalized = pickString(value).toLowerCase();
+  if (normalized === 'artifact' || normalized === 'hybrid' || normalized === 'chat') {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeOutputKind(
+  rawKind: string,
+  extension: string,
+  mimeType: string,
+): SkillOutputArtifactRequirement['kind'] | null {
+  if (rawKind === 'html' || extension === 'html' || mimeType.toLowerCase().includes('html')) {
+    return 'html';
+  }
+  if (rawKind === 'document' || ['docx', 'xlsx', 'pptx', 'pdf', 'md'].includes(extension)) {
+    return 'document';
+  }
+  if (rawKind === 'image' || ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(extension)) {
+    return 'image';
+  }
+  if (rawKind === 'file' || extension) {
+    return 'file';
+  }
+  return null;
+}
+
+function normalizeExtension(value: string): string {
+  return value.trim().toLowerCase().replace(/^\./, '');
+}
+
+function defaultMimeTypeForRequirement(kind: SkillOutputArtifactRequirement['kind'], extension?: string): string {
+  if (kind === 'html') return 'text/html';
+  if (kind === 'image' && extension === 'png') return 'image/png';
+  if (kind === 'image' && (extension === 'jpg' || extension === 'jpeg')) return 'image/jpeg';
+  if (kind === 'document' && extension === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (kind === 'document' && extension === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (kind === 'document' && extension === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  return '';
+}
+
+function looksLikeWechatHtmlSkill(skill: SkillLike, instructions: string): boolean {
+  const haystack = [
+    skill.name,
+    skill.namespace,
+    skill.description,
+    skill.abilityName,
+    instructions,
+  ].join('\n').toLowerCase();
+
+  return (
+    (haystack.includes('公众号') || haystack.includes('wechat')) &&
+    (haystack.includes('html') || haystack.includes('一键复制') || haystack.includes('移动端'))
+  );
+}
+
 function normalizeFileType(value: string): SkillPackageFile['type'] {
   const normalized = value.trim().toLowerCase();
   if (normalized === 'script' || normalized === 'scripts') {
@@ -434,10 +584,23 @@ function pickString(...values: unknown[]): string {
 }
 
 function tokenize(value: string): string[] {
-  return value
-    .split(/[^\p{Letter}\p{Number}]+/u)
-    .map((token) => token.trim().toLowerCase())
-    .filter(Boolean);
+  const tokens = new Set<string>();
+  for (const rawToken of value.split(/[^\p{Letter}\p{Number}]+/u)) {
+    const token = rawToken.trim().toLowerCase();
+    if (!token) continue;
+    tokens.add(token);
+
+    for (const hanRun of token.matchAll(/[\p{Script=Han}]{2,}/gu)) {
+      const text = hanRun[0];
+      for (const size of [2, 3, 4]) {
+        if (text.length < size) continue;
+        for (let i = 0; i <= text.length - size; i += 1) {
+          tokens.add(text.slice(i, i + size));
+        }
+      }
+    }
+  }
+  return [...tokens];
 }
 
 function sanitizePath(value: string): string {
@@ -491,7 +654,13 @@ function toPackageManifest(pkg: SkillPackage): Record<string, unknown> {
     triggers: pkg.triggers,
     dependencies: pkg.dependencies,
     permissions: pkg.permissions,
+    output: pkg.output,
     maxRounds: pkg.maxRounds,
+    runtime: {
+      permissions: pkg.permissions,
+      maxRounds: pkg.maxRounds,
+      entrypointScript: pkg.entrypointScript,
+    },
     files: pkg.files.map(toManifestFile),
   };
 }
