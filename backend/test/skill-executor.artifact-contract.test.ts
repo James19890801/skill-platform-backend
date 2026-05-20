@@ -60,6 +60,51 @@ test('artifact contract accepts a sufficiently sized HTML artifact', () => {
   assert.equal(validation.ok, true);
 });
 
+test('artifact contract rejects static entrypoint output when a model call is required', () => {
+  const service = makeService();
+  const pkg = buildSkillPackage({
+    ...baseSkill,
+    manifest: JSON.stringify({
+      output: {
+        mode: 'artifact',
+        requiresModelCall: true,
+        requiredArtifacts: [
+          { kind: 'html', extension: 'html', mimeType: 'text/html', minBytes: 1000 },
+        ],
+      },
+    }),
+  });
+  const html = '<!DOCTYPE html><html><body>' + '内容'.repeat(800) + '</body></html>';
+  const artifact = { name: 'wechat.html', path: 'wechat.html', type: 'file', size: Buffer.byteLength(html), mimeType: 'text/html' };
+
+  const validation = (service as any).validateOutputContract(pkg, [artifact], html, false);
+
+  assert.equal(validation.ok, false);
+  assert.match(validation.message, /缺少真实模型调用凭据/);
+});
+
+test('artifact contract accepts entrypoint output with model-call evidence', () => {
+  const service = makeService();
+  const pkg = buildSkillPackage({
+    ...baseSkill,
+    manifest: JSON.stringify({
+      output: {
+        mode: 'artifact',
+        requiresModelCall: true,
+        requiredArtifacts: [
+          { kind: 'html', extension: 'html', mimeType: 'text/html', minBytes: 1000 },
+        ],
+      },
+    }),
+  });
+  const html = '<!DOCTYPE html><html><body>' + '内容'.repeat(800) + '</body></html>';
+  const artifact = { name: 'wechat.html', path: 'wechat.html', type: 'file', size: Buffer.byteLength(html), mimeType: 'text/html' };
+
+  const validation = (service as any).validateOutputContract(pkg, [artifact], `${html}\nMODEL_CALL_OK qwen-plus`, true);
+
+  assert.equal(validation.ok, true);
+});
+
 test('HTML artifact extraction removes markdown fences before saving', () => {
   const service = makeService();
   const output = [

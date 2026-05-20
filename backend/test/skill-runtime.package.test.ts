@@ -241,9 +241,27 @@ test('buildSkillPackage preserves explicit artifact output contracts', () => {
 
   assert.equal(pkg.output.mode, 'artifact');
   assert.equal(pkg.output.finalResponse, 'summary');
+  assert.equal(pkg.output.requiresModelCall, false);
   assert.deepEqual(pkg.output.requiredArtifacts, [
     { kind: 'html', extension: 'html', mimeType: 'text/html', minBytes: 1200 },
   ]);
+});
+
+test('buildSkillPackage preserves model-call output contracts', () => {
+  const pkg = buildSkillPackage({
+    ...baseSkill,
+    manifest: JSON.stringify({
+      output: {
+        mode: 'artifact',
+        requiresModelCall: true,
+        requiredArtifacts: [
+          { kind: 'html', extension: 'html', mimeType: 'text/html', minBytes: 1200 },
+        ],
+      },
+    }),
+  });
+
+  assert.equal(pkg.output.requiresModelCall, true);
 });
 
 test('buildSkillPackage infers an HTML artifact contract for public-account writing skills', () => {

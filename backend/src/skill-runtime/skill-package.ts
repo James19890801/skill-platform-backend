@@ -66,6 +66,7 @@ export interface SkillOutputContract {
   mode: SkillOutputMode;
   requiredArtifacts: SkillOutputArtifactRequirement[];
   finalResponse: 'summary' | 'full_content';
+  requiresModelCall: boolean;
 }
 
 export interface ResolveSkillInput {
@@ -430,8 +431,21 @@ function normalizeOutputContract(
   const finalResponse = pickString(raw.finalResponse, raw.responseMode) === 'full_content'
     ? 'full_content'
     : 'summary';
+  const requiresModelCall = parseBoolean(raw.requiresModelCall, raw.modelCallRequired, raw.requiresAkCall);
 
-  return { mode, requiredArtifacts, finalResponse };
+  return { mode, requiredArtifacts, finalResponse, requiresModelCall };
+}
+
+function parseBoolean(...values: unknown[]): boolean {
+  for (const value of values) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+    }
+  }
+  return false;
 }
 
 function normalizeOutputArtifactRequirement(value: unknown): SkillOutputArtifactRequirement | null {

@@ -200,7 +200,12 @@ export class SkillExecutorService {
       const entrypointOutput = await this.tryRunEntrypointScript(pkg, actualThreadId, userInput, artifacts, addLog, savedExecution, execId, skillId);
       if (entrypointOutput) {
         const entrypointRounds = 1;
-        const validation = this.validateOutputContract(pkg, artifacts, entrypointOutput);
+        const validation = this.validateOutputContract(
+          pkg,
+          artifacts,
+          entrypointOutput,
+          this.hasModelCallEvidence(entrypointOutput),
+        );
         if (!validation.ok) {
           savedExecution.status = 'failed';
           savedExecution.output = validation.message;
@@ -475,7 +480,7 @@ export class SkillExecutorService {
         }
       }
 
-      const validation = this.validateOutputContract(pkg, artifacts, finalOutput);
+      const validation = this.validateOutputContract(pkg, artifacts, finalOutput, true);
       if (!validation.ok) {
         savedExecution.status = 'failed';
         savedExecution.output = validation.message;
@@ -994,6 +999,9 @@ export class SkillExecutorService {
         return `${index + 1}. ${item.description || item.kind}${format ? `（${format}）` : ''}${minBytes}`;
       }).join('\n');
       parts.push(`\n## 交付物契约\n本 Skill 不是普通聊天回答，必须生成可下载/可预览的交付物。\n${requirements}\n完成前必须确认这些交付物已经生成并登记到 workspace。若需要生成 HTML，优先调用 generate_html_report 工具；如果直接输出 HTML，必须输出完整 <!DOCTYPE html> 文档。`);
+    }
+    if (pkg.output.requiresModelCall) {
+      parts.push('\n## 模型调用契约\n本 Skill 必须经过真实模型生成，不能只返回静态模板或固定样例。');
     }
 
     // 执行指引
@@ -1804,12 +1812,17 @@ export class SkillExecutorService {
     pkg: SkillPackage,
     artifacts: RuntimeArtifactRecord[],
     output: string,
+    modelCallSatisfied = false,
   ): { ok: boolean; message: string } {
-    if (!pkg.output?.requiredArtifacts?.length) {
+    if (!pkg.output?.requiredArtifacts?.length && !pkg.output?.requiresModelCall) {
       return { ok: true, message: 'ok' };
     }
 
     const failures: string[] = [];
+    if (pkg.output?.requiresModelCall && !modelCallSatisfied) {
+      failures.push('缺少真实模型调用凭据（MODEL_CALL_OK），不能把静态脚本产物当成模型生成结果');
+    }
+
     for (const requirement of pkg.output.requiredArtifacts) {
       const matched = artifacts.find((artifact) => this.artifactMatchesRequirement(artifact, requirement));
       if (!matched) {
@@ -1833,6 +1846,10 @@ export class SkillExecutorService {
       ok: false,
       message: `Skill 产物验收失败：${failures.join('；')}。${hint}`,
     };
+  }
+
+  private hasModelCallEvidence(output: string): boolean {
+    return /\bMODEL_CALL_OK\b/.test(output || '');
   }
 
   private artifactMatchesRequirement(
